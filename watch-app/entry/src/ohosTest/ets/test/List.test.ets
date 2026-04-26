@@ -5,6 +5,7 @@ import i18nTest from './I18n.test';
 import alarmStoreTest from './AlarmStore.test';
 import reminderServiceTest from './ReminderService.test';
 import tombstonesTest from './Tombstones.test';
+import lwwResolverTest from './LwwResolver.test';
 
 export default function testsuite(): void {
   scaffoldTest();
@@ -14,4 +15,5 @@ export default function testsuite(): void {
   alarmStoreTest();
   reminderServiceTest();
   tombstonesTest();
+  lwwResolverTest();
 }
