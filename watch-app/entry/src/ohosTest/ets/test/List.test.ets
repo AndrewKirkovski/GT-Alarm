@@ -6,6 +6,7 @@ import alarmStoreTest from './AlarmStore.test';
 import reminderServiceTest from './ReminderService.test';
 import tombstonesTest from './Tombstones.test';
 import lwwResolverTest from './LwwResolver.test';
+import incomingMessageHandlerTest from './IncomingMessageHandler.test';
 
 export default function testsuite(): void {
   scaffoldTest();
@@ -16,4 +17,5 @@ export default function testsuite(): void {
   reminderServiceTest();
   tombstonesTest();
   lwwResolverTest();
+  incomingMessageHandlerTest();
 }

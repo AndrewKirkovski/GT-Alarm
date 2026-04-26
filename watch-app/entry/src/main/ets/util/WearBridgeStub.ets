@@ -25,7 +25,7 @@ import { Logger } from './Logger';
  * arrives.
  */
 
-interface BridgeMessage {
+export interface BridgeMessage {
   type: string;
   alarmId: number;
   updatedAtEpoch: number;
@@ -36,7 +36,35 @@ interface BridgeMessage {
   enabled?: boolean;
 }
 
+// Receive-side seam. The bridge stores `incomingHandler` and invokes it
+// for every peer message it decodes. NoOp today; HuaweiWearBridge will
+// install the real P2pClient onMessage callback that routes here. The
+// type is `(msg: BridgeMessage) => Promise<void>` to match the async
+// shape of the IncomingMessageHandler.
+export type IncomingHandler = (msg: BridgeMessage) => Promise<void>;
+
 class WearBridge {
+  private static incomingHandler: IncomingHandler | null = null;
+
+  static setIncomingHandler(handler: IncomingHandler | null): void {
+    WearBridge.incomingHandler = handler;
+    Logger.i('WearBridge.setIncomingHandler ' + (handler === null ? 'null' : 'set'));
+  }
+
+  /**
+   * Test-only — synthesises a peer message arrival without a real P2P
+   * channel. NoOpWearBridge.test code paths exercise this; production
+   * P2P-client onMessage will call the same path.
+   */
+  static async deliverIncoming(msg: BridgeMessage): Promise<void> {
+    const h = WearBridge.incomingHandler;
+    if (h === null) {
+      Logger.i('deliverIncoming: no handler attached, dropping ' + msg.type);
+      return;
+    }
+    await h(msg);
+  }
+
   private static send(msg: BridgeMessage): void {
     // Real impl will replace the body with:
     //   wearEngine.getP2pClient().send(peerDevice, JSON.stringify(msg));

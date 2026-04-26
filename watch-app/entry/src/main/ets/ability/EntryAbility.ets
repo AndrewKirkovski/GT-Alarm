@@ -15,6 +15,7 @@ import {
   ALARM_SOURCE_REMINDER,
 } from '../service/ReminderService';
 import { Tombstones } from '../service/Tombstones';
+import { IncomingMessageHandler } from '../service/IncomingMessageHandler';
 import { WearBridgeStub } from '../util/WearBridgeStub';
 import { Logger } from '../util/Logger';
 import { initI18nContext } from '../util/I18n';
@@ -48,6 +49,9 @@ export default class EntryAbility extends UIAbility {
     } catch (e) {
       Logger.err('Tombstones init failed', e);
     }
+    // Bind the receive-side handler to the wear bridge. NoOp today; will
+    // route real peer messages once HuaweiWearBridge replaces the stub.
+    WearBridgeStub.setIncomingHandler((msg) => IncomingMessageHandler.handle(msg));
     // Cold-start fire path: handle the want BEFORE asking for permission so
     // the ring page surfaces immediately. If a fire was detected, skip the
     // permission dialog this launch — overlaying it on the ring page is
