@@ -66,6 +66,10 @@ android {
     }
 
     testOptions {
+        // Make android.util.Log calls a no-op in JVM unit tests instead of
+        // throwing "Method d not mocked" — required for any test that
+        // exercises code paths with Log.d/i/w/e (e.g. IncomingMessageHandler).
+        unitTests.isReturnDefaultValues = true
         unitTests.all {
             // Pure-JVM JUnit tests over our domain layer don't need much.
             // Smaller is better when the host is under memory pressure

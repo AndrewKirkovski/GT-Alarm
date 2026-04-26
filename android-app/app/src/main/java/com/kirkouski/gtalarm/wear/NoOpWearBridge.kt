@@ -1,6 +1,7 @@
 package com.kirkouski.gtalarm.wear
 
 import android.util.Log
+import com.kirkouski.gtalarm.data.sync.IncomingMessageHandler
 import com.kirkouski.gtalarm.domain.Alarm
 import org.json.JSONObject
 import javax.inject.Inject
@@ -67,12 +68,12 @@ class NoOpWearBridge @Inject constructor() : WearBridgeService {
         })
     }
 
-    override fun startListening(onDismiss: (Long) -> Unit, onSnooze: (Long) -> Unit) {
-        Log.d(TAG, "startListening() — no watch connected (stub)")
-    }
+    @Volatile
+    private var incomingHandler: IncomingMessageHandler? = null
 
-    override fun stopListening() {
-        Log.d(TAG, "stopListening()")
+    override fun setIncomingHandler(handler: IncomingMessageHandler?) {
+        incomingHandler = handler
+        Log.d(TAG, "setIncomingHandler(${if (handler == null) "null" else "set"}) — no watch connected (stub)")
     }
 
     private fun buildAlarmEnvelope(type: String, alarm: Alarm): JSONObject {

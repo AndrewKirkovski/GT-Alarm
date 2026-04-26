@@ -1,5 +1,6 @@
 package com.kirkouski.gtalarm.wear
 
+import com.kirkouski.gtalarm.data.sync.IncomingMessageHandler
 import com.kirkouski.gtalarm.domain.Alarm
 
 /**
@@ -38,6 +39,12 @@ interface WearBridgeService {
     fun sendAlarmFired(alarmId: Long)
     fun sendAlarmDismissed(alarmId: Long)
     fun sendAlarmSnoozed(alarmId: Long, rescheduleEpoch: Long)
-    fun startListening(onDismiss: (Long) -> Unit, onSnooze: (Long) -> Unit)
-    fun stopListening()
+
+    /**
+     * Receive-side seam. The bridge implementation calls `handler?.handle(msg)`
+     * for every peer message it decodes. `NoOpWearBridge` stores the handler
+     * but never invokes it (no peer); `HuaweiWearBridge` will once Wear-Engine
+     * P2P is wired up. Pass `null` to detach.
+     */
+    fun setIncomingHandler(handler: IncomingMessageHandler?)
 }
