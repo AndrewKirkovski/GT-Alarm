@@ -94,11 +94,37 @@ export class IncomingMessageHandler {
       reminderId: local === undefined ? undefined : local.reminderId,
       updatedAtEpoch: incomingEpoch,
     };
+    // Use add/update based on the snapshot, but fall back if the snapshot
+    // raced with another mutation. AlarmStore.add throws on duplicate id,
+    // AlarmStore.update throws on missing id — we recover both ways so a
+    // burst of peer messages can't deadlock on a transient mismatch.
     if (local === undefined) {
-      await AlarmStore.add(stamped);
+      try {
+        await AlarmStore.add(stamped);
+      } catch (e) {
+        if (IncomingMessageHandler.isMissingOrDuplicate(e)) {
+          await AlarmStore.update(stamped);
+        } else {
+          throw e as Error;
+        }
+      }
     } else {
-      await AlarmStore.update(stamped);
+      try {
+        await AlarmStore.update(stamped);
+      } catch (e) {
+        if (IncomingMessageHandler.isMissingOrDuplicate(e)) {
+          await AlarmStore.add(stamped);
+        } else {
+          throw e as Error;
+        }
+      }
     }
+  }
+
+  private static isMissingOrDuplicate(e: Object): boolean {
+    if (!(e instanceof Error)) return false;
+    const msg = e.message;
+    return msg.indexOf('not found') >= 0 || msg.indexOf('duplicate id') >= 0;
   }
 
   private static async applyToggle(alarmId: number, enabled: boolean, incomingEpoch: number): Promise<void> {

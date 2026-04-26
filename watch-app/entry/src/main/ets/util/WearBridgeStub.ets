@@ -41,6 +41,13 @@ export interface BridgeMessage {
 // install the real P2pClient onMessage callback that routes here. The
 // type is `(msg: BridgeMessage) => Promise<void>` to match the async
 // shape of the IncomingMessageHandler.
+//
+// Threading contract: HarmonyOS ArkTS is single-threaded (event loop),
+// so concurrent invocations cannot run literally in parallel. However,
+// `await` points yield the loop, and AlarmStore mutations are serialised
+// through its own write queue. The handler implementation must tolerate
+// snapshot/write races (see IncomingMessageHandler.applyAddOrUpdate's
+// add/update fallback).
 export type IncomingHandler = (msg: BridgeMessage) => Promise<void>;
 
 class WearBridge {

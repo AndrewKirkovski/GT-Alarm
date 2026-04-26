@@ -45,6 +45,13 @@ interface WearBridgeService {
      * for every peer message it decodes. `NoOpWearBridge` stores the handler
      * but never invokes it (no peer); `HuaweiWearBridge` will once Wear-Engine
      * P2P is wired up. Pass `null` to detach.
+     *
+     * **Threading contract:** `IncomingMessageHandler.handle` is `suspend`. The
+     * bridge implementation is responsible for invoking it on a coroutine
+     * scope it owns (typically `Dispatchers.IO` or a `ServiceCoroutineScope`),
+     * NOT directly from a binder/system callback thread. The interface deliberately
+     * accepts the handler instance rather than a lambda so each implementation
+     * can pick its own dispatching strategy.
      */
     fun setIncomingHandler(handler: IncomingMessageHandler?)
 }

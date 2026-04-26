@@ -75,6 +75,32 @@ class IncomingMessageHandlerTest {
     }
 
     @Test
+    fun `AlarmAdded with epoch equal to tombstone epoch is suppressed (sticky-tombstone tie-break)`() = runTest {
+        // §2 carve-out: tombstone wins on tie. Tombstones.isTombstoned uses >=
+        // so when the test tombstone returns true for the boundary, the handler
+        // must suppress even though the live-row LwwResolver would have applied.
+        every { tombstones.isTombstoned(eq(5L), eq(100L)) } returns true
+        val incoming = makeAlarm(id = 5L, epoch = 100L)
+
+        handler.handle(IncomingMessage.AlarmAdded(5L, 100L, incoming))
+
+        assertNull(dao.getById(5L))
+        verify(exactly = 0) { scheduler.schedule(any()) }
+    }
+
+    @Test
+    fun `handler rejects malformed messages with non-positive updatedAtEpoch`() = runTest {
+        val incoming = makeAlarm(id = 5L, epoch = 100L)
+        handler.handle(IncomingMessage.AlarmAdded(5L, 0L, incoming))
+        handler.handle(IncomingMessage.AlarmAdded(5L, -1L, incoming))
+        handler.handle(IncomingMessage.AlarmDeleted(7L, 0L))
+
+        assertNull(dao.getById(5L))
+        verify(exactly = 0) { tombstones.add(any(), any(), any()) }
+        verify(exactly = 0) { scheduler.schedule(any()) }
+    }
+
+    @Test
     fun `AlarmUpdated with newer stamp overwrites local row`() = runTest {
         dao.upsert(AlarmEntity(id = 7L, label = "old", hour = 6, minute = 0, daysOfWeek = 0,
             enabled = true, audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 50L))

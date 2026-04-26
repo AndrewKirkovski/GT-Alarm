@@ -31,6 +31,13 @@ class IncomingMessageHandler @Inject constructor(
 ) {
 
     suspend fun handle(msg: IncomingMessage) {
+        // Boundary validation. Peer messages are an external API; reject malformed
+        // stamps so they cannot poison the LWW state. Drop, don't throw — a
+        // misbehaving peer should not crash the app. Mirrors the watch handler.
+        if (msg.updatedAtEpoch <= 0L) {
+            Log.w(TAG, "rejecting bad updatedAtEpoch=${msg.updatedAtEpoch} type=${msg::class.simpleName}")
+            return
+        }
         when (msg) {
             is IncomingMessage.AlarmAdded -> applyAddOrUpdate(msg.alarm, msg.updatedAtEpoch)
             is IncomingMessage.AlarmUpdated -> applyAddOrUpdate(msg.alarm, msg.updatedAtEpoch)
