@@ -1,0 +1,7 @@
+{
+  "string": [
+    { "name": "module_test_desc", "value": "GT Alarm test module" },
+    { "name": "TestAbility_desc", "value": "GT Alarm test runner ability" },
+    { "name": "TestAbility_label", "value": "GT Alarm tests" }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "modelVersion": "6.0.1",
+  "name": "gt-alarm-watch",
+  "version": "1.0.0",
+  "description": "GT Alarm — HarmonyOS NEXT watch app",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry"
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "Модуль GT Alarm для часов" },
+    { "name": "entry_desc", "value": "Точка входа GT Alarm" },
+    { "name": "perm_reminder_reason", "value": "Планировать надёжные будильники, переживающие перезагрузку" },
+    { "name": "perm_vibrate_reason", "value": "Вибрация при срабатывании будильника" },
+
+    { "name": "screen_list_title", "value": "Будильники" },
+    { "name": "screen_edit_new", "value": "Новый будильник" },
+    { "name": "screen_edit_edit", "value": "Редактировать будильник" },
+
+    { "name": "action_save", "value": "Сохранить" },
+    { "name": "action_saving", "value": "Сохранение…" },
+    { "name": "action_delete", "value": "Удалить" },
+    { "name": "action_delete_alarm", "value": "Удалить будильник" },
+    { "name": "action_add", "value": "Добавить" },
+    { "name": "action_cancel", "value": "Отмена" },
+
+    { "name": "field_label", "value": "Название" },
+    { "name": "field_repeat", "value": "Повтор" },
+
+    { "name": "no_alarms", "value": "Нет будильников" },
+    { "name": "tap_plus_to_add", "value": "Нажмите +, чтобы добавить" },
+    { "name": "loading", "value": "…" },
+
+    { "name": "notif_disabled_title", "value": "Уведомления отключены" },
+    { "name": "notif_tap_to_grant", "value": "Нажмите, чтобы разрешить" },
+
+    { "name": "reminder_default_title", "value": "Будильник" },
+    { "name": "reminder_action_close", "value": "Отключить" },
+    { "name": "reminder_action_snooze", "value": "Отложить" },
+
+    { "name": "day_mon", "value": "Пн" },
+    { "name": "day_tue", "value": "Вт" },
+    { "name": "day_wed", "value": "Ср" },
+    { "name": "day_thu", "value": "Чт" },
+    { "name": "day_fri", "value": "Пт" },
+    { "name": "day_sat", "value": "Сб" },
+    { "name": "day_sun", "value": "Вс" },
+
+    { "name": "day_full_mon", "value": "Понедельник" },
+    { "name": "day_full_tue", "value": "Вторник" },
+    { "name": "day_full_wed", "value": "Среда" },
+    { "name": "day_full_thu", "value": "Четверг" },
+    { "name": "day_full_fri", "value": "Пятница" },
+    { "name": "day_full_sat", "value": "Суббота" },
+    { "name": "day_full_sun", "value": "Воскресенье" },
+
+    { "name": "repeat_once", "value": "Один раз" },
+    { "name": "repeat_every_day", "value": "Каждый день" },
+    { "name": "repeat_weekdays", "value": "Будни" },
+    { "name": "repeat_weekends", "value": "Выходные" },
+
+    { "name": "state_on", "value": "вкл" },
+    { "name": "state_off", "value": "выкл" },
+
+    { "name": "delete_dialog_title", "value": "Удалить будильник?" },
+    { "name": "delete_dialog_warning", "value": "Это действие нельзя отменить" },
+
+    { "name": "err_save_failed", "value": "Не удалось сохранить будильник" },
+    { "name": "err_cancel_previous", "value": "Не удалось отменить предыдущий будильник — попробуйте ещё раз" },
+    { "name": "err_arm_alarm", "value": "Не удалось включить будильник — проверьте разрешение на уведомления" },
+
+    { "name": "a11y_add_alarm", "value": "Добавить будильник" },
+    { "name": "a11y_alarm_row_no_label", "value": "Будильник в %1$s, %2$s" },
+    { "name": "a11y_alarm_row_with_label", "value": "Будильник в %1$s, %2$s, %3$s" },
+    { "name": "a11y_day_state", "value": "%1$s, %2$s" },
+    { "name": "a11y_snooze_alarm", "value": "Отложить будильник на 10 минут" },
+    { "name": "a11y_cancel_deletion", "value": "Отменить удаление" },
+    { "name": "a11y_confirm_delete", "value": "Подтвердить удаление будильника" },
+
+    { "name": "ampm_am", "value": "AM" },
+    { "name": "ampm_pm", "value": "PM" }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "color": [
+    { "name": "start_window_background", "value": "#000000" },
+    { "name": "accent", "value": "#BBA6FF" },
+    { "name": "surface", "value": "#121212" },
+    { "name": "on_surface", "value": "#FFFFFF" },
+    { "name": "on_surface_muted", "value": "#888888" }
+  ]
+}

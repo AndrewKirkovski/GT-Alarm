@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GT Alarm</string>
+    <string name="widget_label">Следующий будильник</string>
+
+    <string name="notif_channel_alarm_name">Будильник</string>
+    <string name="notif_channel_alarm_desc">Срабатывающие будильники</string>
+
+    <string name="alarm_notification_title">Будильник</string>
+    <string name="action_dismiss">Отключить</string>
+    <string name="action_snooze">Отложить</string>
+
+    <string name="screen_list_title">Будильники</string>
+    <string name="screen_edit_title_new">Новый будильник</string>
+    <string name="screen_edit_title_edit">Редактировать будильник</string>
+    <string name="field_label">Название</string>
+    <string name="field_label_placeholder">Подъём</string>
+    <string name="field_audio">Звук</string>
+    <string name="field_audio_default">Системный по умолчанию</string>
+    <string name="field_audio_pick">Выбрать…</string>
+    <string name="field_vibration_only">Только вибрация</string>
+    <string name="field_repeat">Повтор</string>
+    <string name="save">Сохранить</string>
+    <string name="delete">Удалить</string>
+    <string name="cancel">Отмена</string>
+    <string name="add_alarm">Добавить будильник</string>
+    <string name="no_alarms">Будильников нет — нажмите +, чтобы добавить.</string>
+
+    <string name="day_sun_short">Вс</string>
+    <string name="day_mon_short">Пн</string>
+    <string name="day_tue_short">Вт</string>
+    <string name="day_wed_short">Ср</string>
+    <string name="day_thu_short">Чт</string>
+    <string name="day_fri_short">Пт</string>
+    <string name="day_sat_short">Сб</string>
+
+    <string name="widget_next_alarm_none">Будильники не запланированы</string>
+    <string name="permission_exact_alarm_rationale">Точные будильники отключены. Откройте настройки системы, чтобы разрешить их.</string>
+
+    <string name="repeats_once">Один раз</string>
+    <string name="repeats_every_day">Каждый день</string>
+    <string name="repeats_weekdays">Будни</string>
+    <string name="repeats_weekends">Выходные</string>
+    <string name="delete_alarm">Удалить будильник</string>
+
+    <string name="battery_opt_card_title">Чтобы будильники были надёжными</string>
+    <string name="battery_opt_card_body">Samsung One UI может задерживать будильники, когда приложение в глубоком сне. Разрешите GT Alarm игнорировать оптимизацию батареи, чтобы будильник всегда срабатывал вовремя.</string>
+    <string name="battery_opt_card_action">Открыть настройки</string>
+    <string name="battery_opt_card_dismiss">Не сейчас</string>
+</resources>

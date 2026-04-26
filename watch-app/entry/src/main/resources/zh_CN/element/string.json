@@ -1,0 +1,75 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "GT Alarm 手表模块" },
+    { "name": "entry_desc", "value": "GT Alarm 入口能力" },
+    { "name": "perm_reminder_reason", "value": "安排重启后仍能触发的可靠闹钟" },
+    { "name": "perm_vibrate_reason", "value": "闹钟响起时震动" },
+
+    { "name": "screen_list_title", "value": "闹钟" },
+    { "name": "screen_edit_new", "value": "新建闹钟" },
+    { "name": "screen_edit_edit", "value": "编辑闹钟" },
+
+    { "name": "action_save", "value": "保存" },
+    { "name": "action_saving", "value": "保存中…" },
+    { "name": "action_delete", "value": "删除" },
+    { "name": "action_delete_alarm", "value": "删除闹钟" },
+    { "name": "action_add", "value": "添加" },
+    { "name": "action_cancel", "value": "取消" },
+
+    { "name": "field_label", "value": "标签" },
+    { "name": "field_repeat", "value": "重复" },
+
+    { "name": "no_alarms", "value": "没有闹钟" },
+    { "name": "tap_plus_to_add", "value": "点击 + 添加" },
+    { "name": "loading", "value": "…" },
+
+    { "name": "notif_disabled_title", "value": "通知已禁用" },
+    { "name": "notif_tap_to_grant", "value": "点击授权" },
+
+    { "name": "reminder_default_title", "value": "闹钟" },
+    { "name": "reminder_action_close", "value": "关闭" },
+    { "name": "reminder_action_snooze", "value": "稍后提醒" },
+
+    { "name": "day_mon", "value": "一" },
+    { "name": "day_tue", "value": "二" },
+    { "name": "day_wed", "value": "三" },
+    { "name": "day_thu", "value": "四" },
+    { "name": "day_fri", "value": "五" },
+    { "name": "day_sat", "value": "六" },
+    { "name": "day_sun", "value": "日" },
+
+    { "name": "day_full_mon", "value": "星期一" },
+    { "name": "day_full_tue", "value": "星期二" },
+    { "name": "day_full_wed", "value": "星期三" },
+    { "name": "day_full_thu", "value": "星期四" },
+    { "name": "day_full_fri", "value": "星期五" },
+    { "name": "day_full_sat", "value": "星期六" },
+    { "name": "day_full_sun", "value": "星期日" },
+
+    { "name": "repeat_once", "value": "一次" },
+    { "name": "repeat_every_day", "value": "每天" },
+    { "name": "repeat_weekdays", "value": "工作日" },
+    { "name": "repeat_weekends", "value": "周末" },
+
+    { "name": "state_on", "value": "开" },
+    { "name": "state_off", "value": "关" },
+
+    { "name": "delete_dialog_title", "value": "删除此闹钟?" },
+    { "name": "delete_dialog_warning", "value": "此操作无法撤消" },
+
+    { "name": "err_save_failed", "value": "无法保存闹钟" },
+    { "name": "err_cancel_previous", "value": "无法取消旧闹钟,请重试" },
+    { "name": "err_arm_alarm", "value": "无法启用闹钟,请检查通知权限后重试" },
+
+    { "name": "a11y_add_alarm", "value": "添加闹钟" },
+    { "name": "a11y_alarm_row_no_label", "value": "%1$s 的闹钟, %2$s" },
+    { "name": "a11y_alarm_row_with_label", "value": "%1$s 的闹钟, %2$s, %3$s" },
+    { "name": "a11y_day_state", "value": "%1$s, %2$s" },
+    { "name": "a11y_snooze_alarm", "value": "贪睡 10 分钟" },
+    { "name": "a11y_cancel_deletion", "value": "取消删除" },
+    { "name": "a11y_confirm_delete", "value": "确认删除闹钟" },
+
+    { "name": "ampm_am", "value": "上午" },
+    { "name": "ampm_pm", "value": "下午" }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "Moduł GT Alarm na zegarek" },
+    { "name": "entry_desc", "value": "Punkt wejścia GT Alarm" },
+    { "name": "perm_reminder_reason", "value": "Planuj niezawodne alarmy odporne na restart" },
+    { "name": "perm_vibrate_reason", "value": "Wibracja przy alarmie" },
+
+    { "name": "screen_list_title", "value": "Alarmy" },
+    { "name": "screen_edit_new", "value": "Nowy alarm" },
+    { "name": "screen_edit_edit", "value": "Edytuj alarm" },
+
+    { "name": "action_save", "value": "Zapisz" },
+    { "name": "action_saving", "value": "Zapisywanie…" },
+    { "name": "action_delete", "value": "Usuń" },
+    { "name": "action_delete_alarm", "value": "Usuń alarm" },
+    { "name": "action_add", "value": "Dodaj" },
+    { "name": "action_cancel", "value": "Anuluj" },
+
+    { "name": "field_label", "value": "Etykieta" },
+    { "name": "field_repeat", "value": "Powtarzanie" },
+
+    { "name": "no_alarms", "value": "Brak alarmów" },
+    { "name": "tap_plus_to_add", "value": "Stuknij +, aby dodać" },
+    { "name": "loading", "value": "…" },
+
+    { "name": "notif_disabled_title", "value": "Powiadomienia wyłączone" },
+    { "name": "notif_tap_to_grant", "value": "Stuknij, aby zezwolić" },
+
+    { "name": "reminder_default_title", "value": "Alarm" },
+    { "name": "reminder_action_close", "value": "Odrzuć" },
+    { "name": "reminder_action_snooze", "value": "Drzemka" },
+
+    { "name": "day_mon", "value": "Pn" },
+    { "name": "day_tue", "value": "Wt" },
+    { "name": "day_wed", "value": "Śr" },
+    { "name": "day_thu", "value": "Cz" },
+    { "name": "day_fri", "value": "Pt" },
+    { "name": "day_sat", "value": "So" },
+    { "name": "day_sun", "value": "Nd" },
+
+    { "name": "day_full_mon", "value": "Poniedziałek" },
+    { "name": "day_full_tue", "value": "Wtorek" },
+    { "name": "day_full_wed", "value": "Środa" },
+    { "name": "day_full_thu", "value": "Czwartek" },
+    { "name": "day_full_fri", "value": "Piątek" },
+    { "name": "day_full_sat", "value": "Sobota" },
+    { "name": "day_full_sun", "value": "Niedziela" },
+
+    { "name": "repeat_once", "value": "Raz" },
+    { "name": "repeat_every_day", "value": "Codziennie" },
+    { "name": "repeat_weekdays", "value": "Dni robocze" },
+    { "name": "repeat_weekends", "value": "Weekendy" },
+
+    { "name": "state_on", "value": "wł" },
+    { "name": "state_off", "value": "wył" },
+
+    { "name": "delete_dialog_title", "value": "Usunąć alarm?" },
+    { "name": "delete_dialog_warning", "value": "Tej operacji nie można cofnąć" },
+
+    { "name": "err_save_failed", "value": "Nie udało się zapisać alarmu" },
+    { "name": "err_cancel_previous", "value": "Nie udało się anulować poprzedniego alarmu — spróbuj ponownie" },
+    { "name": "err_arm_alarm", "value": "Nie udało się włączyć alarmu — sprawdź uprawnienia powiadomień" },
+
+    { "name": "a11y_add_alarm", "value": "Dodaj alarm" },
+    { "name": "a11y_alarm_row_no_label", "value": "Alarm o %1$s, %2$s" },
+    { "name": "a11y_alarm_row_with_label", "value": "Alarm o %1$s, %2$s, %3$s" },
+    { "name": "a11y_day_state", "value": "%1$s, %2$s" },
+    { "name": "a11y_snooze_alarm", "value": "Drzemka 10 minut" },
+    { "name": "a11y_cancel_deletion", "value": "Anuluj usuwanie" },
+    { "name": "a11y_confirm_delete", "value": "Potwierdź usunięcie alarmu" },
+
+    { "name": "ampm_am", "value": "AM" },
+    { "name": "ampm_pm", "value": "PM" }
+  ]
+}

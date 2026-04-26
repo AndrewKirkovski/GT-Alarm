@@ -1,0 +1,20 @@
+{
+  "apiType": "stageMode",
+  "buildOption": {},
+  "buildOptionSet": [
+    { "name": "release" }
+  ],
+  "targets": [
+    {
+      "name": "default"
+    },
+    {
+      // ohosTest is the canonical name hvigor's plugin looks for (see
+      // DefaultTargetConst.OHOS_TEST_TARGET) when running the
+      // `onDeviceTest` task. It enables the entry/src/ohosTest source
+      // set and produces a separate `entry_test` HAP that gets installed
+      // alongside the app on the wearable emulator.
+      "name": "ohosTest"
+    }
+  ]
+}

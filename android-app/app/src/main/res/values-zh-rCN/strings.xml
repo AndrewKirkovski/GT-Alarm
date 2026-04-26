@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GT Alarm</string>
+    <string name="widget_label">下一个闹钟</string>
+
+    <string name="notif_channel_alarm_name">闹钟</string>
+    <string name="notif_channel_alarm_desc">正在响的闹钟</string>
+
+    <string name="alarm_notification_title">闹钟</string>
+    <string name="action_dismiss">关闭</string>
+    <string name="action_snooze">稍后提醒</string>
+
+    <string name="screen_list_title">闹钟</string>
+    <string name="screen_edit_title_new">新建闹钟</string>
+    <string name="screen_edit_title_edit">编辑闹钟</string>
+    <string name="field_label">标签</string>
+    <string name="field_label_placeholder">起床</string>
+    <string name="field_audio">声音</string>
+    <string name="field_audio_default">系统默认</string>
+    <string name="field_audio_pick">选择…</string>
+    <string name="field_vibration_only">仅震动</string>
+    <string name="field_repeat">重复</string>
+    <string name="save">保存</string>
+    <string name="delete">删除</string>
+    <string name="cancel">取消</string>
+    <string name="add_alarm">添加闹钟</string>
+    <string name="no_alarms">没有闹钟 — 点击 + 添加</string>
+
+    <string name="day_sun_short">日</string>
+    <string name="day_mon_short">一</string>
+    <string name="day_tue_short">二</string>
+    <string name="day_wed_short">三</string>
+    <string name="day_thu_short">四</string>
+    <string name="day_fri_short">五</string>
+    <string name="day_sat_short">六</string>
+
+    <string name="widget_next_alarm_none">没有闹钟安排</string>
+    <string name="permission_exact_alarm_rationale">精确闹钟已禁用,请在系统设置中允许。</string>
+
+    <string name="repeats_once">一次</string>
+    <string name="repeats_every_day">每天</string>
+    <string name="repeats_weekdays">工作日</string>
+    <string name="repeats_weekends">周末</string>
+    <string name="delete_alarm">删除闹钟</string>
+
+    <string name="battery_opt_card_title">保持闹钟稳定</string>
+    <string name="battery_opt_card_body">三星 One UI 可能在应用进入深度睡眠时延迟闹钟。允许 GT Alarm 忽略电池优化,确保闹钟准时响起。</string>
+    <string name="battery_opt_card_action">打开设置</string>
+    <string name="battery_opt_card_dismiss">暂不</string>
+</resources>

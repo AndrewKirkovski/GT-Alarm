@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!--
+      Lint policy for GT Alarm Android. See `docs/execution-plan.md` for the
+      multi-phase plan and the AC for tracked feature gaps.
+
+      Two layers of severity override:
+        1) `lint.xml` (this file) — permanent severity changes, ALWAYS with
+           a comment explaining why.
+        2) `lint-baseline.xml` (auto-generated, sibling of this file) —
+           transient warnings tied to tracked work in execution-plan.md.
+
+      Rule: NO undocumented suppression. Anything `severity="ignore"` here
+      MUST have an inline comment + a reason. Anything baselined MUST be
+      tracked in the execution plan.
+    -->
+
+    <!-- mipmap-anydpi-v26 is the canonical adaptive-icon folder; lint's
+         "merge into mipmap-anydpi" suggestion breaks AAPT resolution. -->
+    <issue id="ObsoleteSdkInt">
+        <ignore path="src/main/res/mipmap-anydpi-v26" />
+    </issue>
+
+    <!-- MonochromeLauncherIcon: reserved for Phase 3 (UI polish + launcher
+         icon redesign + Material Expressive theme migration). The themed-
+         icon variant requires a redrawn monochrome master we don't have
+         yet. Tracked under execution-plan.md Phase 3 alongside the
+         MaterialExpressiveTheme migration. -->
+    <issue id="MonochromeLauncherIcon" severity="ignore" />
+
+    <!-- Overdraw on widget_preview.xml: this is the App Widget picker
+         preview (rendered once when the user installs the widget). The
+         double-paint cost (theme bg + explicit @color/widget_background)
+         is invisible at the call frequency. Keeping the explicit bg gives
+         a stable preview regardless of host theme. -->
+    <issue id="Overdraw">
+        <ignore path="src/main/res/layout/widget_preview.xml" />
+    </issue>
+
+    <!-- targetSdk 35 is the deliberate AC pin (docs/acceptance-criteria.md:
+         "Required by Play Store from Aug 2025; enableEdgeToEdge() is the
+         standard pattern"). compileSdk is 36 to access predictive-back +
+         Material3 Expressive APIs while keeping the targetSdk surface
+         stable for One UI 7 testing. Bumping targetSdk to 36 is a Phase 3
+         decision, not a Phase 2 cleanup item. -->
+    <issue id="OldTargetApi" severity="ignore" />
+
+    <!-- BatteryLife: Play Store restricts REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+         for most apps, but alarm-clock category apps are explicitly listed as
+         an acceptable use case in the policy:
+           https://support.google.com/googleplay/android-developer/answer/9888379
+         GT Alarm is an alarm-clock app whose entire purpose is to ring on time
+         even when the device is in deep sleep. Samsung One UI ships extra-
+         aggressive battery management on top of stock Doze, so the deep-link
+         to Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is a real UX
+         requirement (see docs/acceptance-criteria.md and
+         memory/phase_3_4_landings.md). The card respects user choice — we
+         only deep-link, never auto-grant. -->
+    <issue id="BatteryLife" severity="ignore" />
+
+    <!-- AndroidGradlePluginVersion / GradleDependency / NewerVersionAvailable:
+         we pin specific stable versions in `gradle/libs.versions.toml` per
+         AC. Lint nags us about every patch release dropped on Maven. We
+         deliberately bump on a deliberate cadence (Phase 2 review every
+         major bump), not opportunistically. The pinning intent is
+         documented in `docs/acceptance-criteria.md`. -->
+    <issue id="AndroidGradlePluginVersion" severity="ignore" />
+    <issue id="GradleDependency" severity="ignore" />
+    <issue id="NewerVersionAvailable" severity="ignore" />
+</lint>

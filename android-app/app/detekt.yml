@@ -1,0 +1,204 @@
+# Detekt config for GT Alarm Android.
+#
+# Built upon the default detekt config (`buildUponDefaultConfig = true` in
+# build.gradle.kts), so this file ONLY contains overrides — anything not
+# listed inherits detekt 2.0.0-alpha.3 defaults.
+#
+# Policy (mirrors the lint.xml policy in this same dir):
+#   - No undocumented suppression. Any rule disabled here MUST carry an
+#     adjacent comment explaining WHY (with a reference to a tracked phase
+#     in docs/execution-plan.md if the disable is meant to be temporary).
+#   - `ignoreFailures = false` in build.gradle.kts so detekt failures break
+#     the build, not just generate a report.
+#   - The baseline file (`detekt-baseline.xml`) is auto-generated on first
+#     run and snapshotted in git so reviewers can see exactly what's deferred.
+#     New smells introduced after baseline = build break, no exceptions.
+
+# Detekt 2.0 removed the top-level `build:` block (issue cap is now expressed
+# elsewhere; we rely on `ignoreFailures = false` in build.gradle.kts to fail
+# the build on ANY new issue, which is the policy intent).
+
+config:
+  validation: true
+  warningsAsErrors: false  # we set ignoreFailures=false in build.gradle.kts instead
+  checkExhaustiveness: false
+
+# Project-wide excludes. KSP/Hilt/Room generators emit Kotlin under
+# `app/build/generated/...` that intentionally violates rules like
+# MaxLineLength and VariableNaming. AGP injects those dirs as Kotlin
+# source on the `detektDebug` task and Detekt 2.0's task-level
+# setSource()/exclude() do not reliably filter them. Excluding here
+# (per-rule via the `excludes:` key) covers the rules that fire on
+# generated code.
+#
+# Note: detekt.yml has no top-level `excludes:` key; excludes are
+# per-rule. The rules below cover everything KSP/Room generators trip.
+
+processors:
+  active: true
+
+complexity:
+  active: true
+  CyclomaticComplexMethod:
+    active: true
+    # Default 15 is too lax for a small app. 10 catches creeping complexity
+    # before it becomes hard to test. Property renamed in Detekt 2.0:
+    # `threshold` → `allowedComplexity` (same semantics).
+    allowedComplexity: 10
+  LongMethod:
+    active: true
+    # Renamed in Detekt 2.0: `threshold` → `allowedLines`.
+    allowedLines: 60
+    # Room's @Query @PreparedStatement getById impl scales with column count.
+    # Adding the LWW updatedAtEpoch column in Phase 4 pushed it past 60 lines
+    # in build/generated/.../AlarmDao_Impl.kt; same exclude pattern as the
+    # other generated-code rules below.
+    excludes: ['**/build/**', '**/generated/**']
+  LongParameterList:
+    active: true
+    # Property names changed in Detekt 2.0: `functionThreshold` →
+    # `allowedFunctionParameters`, `constructorThreshold` →
+    # `allowedConstructorParameters`. Same semantics, just renamed.
+    allowedFunctionParameters: 6
+    allowedConstructorParameters: 7
+    ignoreDefaultParameters: true
+    ignoreDataClasses: true
+    ignoreAnnotatedParameter: ['Composable']  # Compose @Composable signatures are inherently long
+  TooManyFunctions:
+    active: true
+    # Renamed in Detekt 2.0.
+    allowedFunctionsPerClass: 15
+    allowedFunctionsPerObject: 15
+
+coroutines:
+  active: true
+  GlobalCoroutineUsage:
+    # GlobalScope leaks coroutines past component lifetimes. Use viewModelScope,
+    # lifecycleScope, or explicit CoroutineScope tied to a Job.
+    active: true
+  RedundantSuspendModifier:
+    active: true
+  SuspendFunWithFlowReturnType:
+    active: true
+
+empty-blocks:
+  active: true
+  # Room-generated AlarmDatabase_Impl has empty open hooks (createInvalidationTracker,
+  # etc.) — those are legitimate generated code, not smells.
+  EmptyFunctionBlock:
+    active: true
+    excludes: ['**/build/**', '**/generated/**']
+
+potential-bugs:
+  active: true
+  UnsafeCallOnNullableType:
+    # `!!` on a nullable type. We've been bitten by this in alarm-trigger
+    # paths — a null cursor or deserialised value from preferences can
+    # crash the foreground service. Force explicit handling.
+    active: true
+  IgnoredReturnValue:
+    active: true
+  ImplicitDefaultLocale:
+    # We're a multi-locale app (6 locales). Any String.format /
+    # SimpleDateFormat without explicit Locale is a latent i18n bug.
+    active: true
+
+naming:
+  active: true
+  # KSP/Room generators (AlarmDao_Impl, AlarmDatabase_Impl) emit Kotlin
+  # using underscores and snake_case — correct for generated code but
+  # violates these naming rules. Exclude generated dirs from each rule.
+  VariableNaming:
+    active: true
+    excludes: ['**/build/**', '**/generated/**']
+  ConstructorParameterNaming:
+    active: true
+    excludes: ['**/build/**', '**/generated/**']
+  ClassNaming:
+    active: true
+    excludes: ['**/build/**', '**/generated/**']
+  FunctionNaming:
+    active: true
+    # Compose's @Composable functions are PascalCase by convention (Jetpack
+    # Compose function-naming guideline:
+    # https://github.com/androidx/androidx/blob/androidx-main/compose/docs/compose-api-guidelines.md#naming-unit-composable-functions-as-entities).
+    # detekt's bundled naming rule doesn't know this. Telling it to skip
+    # @Composable removes 7 of these false-positives without weakening the
+    # rule for non-UI code.
+    ignoreAnnotated: ['Composable']
+  MatchingDeclarationName:
+    # Currently flags AudioPicker.kt (declares `PickedAudio`) and
+    # GtNavGraph.kt (declares `Routes`). Both files are pre-existing
+    # naming conventions: GtNavGraph is the package-level home for the
+    # nav graph; AudioPicker is the visual picker file (Compose-state
+    # tuple `PickedAudio` is the data carrier inside it).
+    # Tracked under docs/execution-plan.md Phase 2 cleanup — when we
+    # bump and revisit module structure, we'll either rename or split
+    # these. For now: baselined.
+    active: true
+
+style:
+  active: true
+  # Detekt 2.0 split UnnecessaryAbstractClass into two replacements:
+  # AbstractClassCanBeConcreteClass + AbstractClassCanBeInterface. Both
+  # would fire on Hilt @Module abstract classes (which require the
+  # abstract-class shape for @Binds). Disable both with the same reason —
+  # framework constraint, not a code-smell.
+  AbstractClassCanBeConcreteClass:
+    # Hilt requires `@Module abstract class` to host `@Binds` methods —
+    # an interface won't compile because `@Binds` is bound by the
+    # `@InstallIn` component class, and Hilt's processor expects an
+    # abstract class node. AppModule + WearModule both legitimately
+    # need this shape. This is a permanent framework constraint.
+    active: false
+  AbstractClassCanBeInterface:
+    # Same reason as AbstractClassCanBeConcreteClass — Hilt @Module
+    # abstract classes can't legally be turned into interfaces.
+    active: false
+  MagicNumber:
+    # Disabled: too noisy in Compose layouts (dp/sp constants, animation
+    # spec values, percentage offsets). Reason: Compose layout DSL is
+    # inherently expressive in numeric constants; pulling each into a
+    # `private const val` doubles file size with zero readability gain.
+    # Re-evaluate if a non-Compose smell shows up that this would catch.
+    active: false
+  ReturnCount:
+    active: true
+    max: 3  # default 2 is too strict; 3 covers early-return + main + fallback
+  WildcardImport:
+    active: true
+    excludeImports:
+      - 'java.util.*'
+  ForbiddenComment:
+    active: true
+    comments:
+      - reason: 'Forbidden TODO/FIXME — file an issue or remove.'
+        value: 'TODO:'
+      - reason: 'Forbidden TODO/FIXME — file an issue or remove.'
+        value: 'FIXME:'
+  # KSP/Room generated code triggers several style rules legitimately —
+  # exclude generated dirs per-rule.
+  MaxLineLength:
+    active: true
+    excludes: ['**/build/**', '**/generated/**']
+  VarCouldBeVal:
+    active: true
+    excludes: ['**/build/**', '**/generated/**']
+  # Detekt 2.0 split UnusedPrivateMember into UnusedPrivateProperty +
+  # UnusedPrivateFunction. We enable all three of the new fine-grained
+  # rules — same coverage as the legacy single rule.
+  UnusedPrivateProperty:
+    active: true
+  UnusedPrivateFunction:
+    active: true
+  UnusedParameter:
+    active: true
+  UnusedImport:
+    active: true
+
+# Note: the `formatting` ruleset (ktlint wrapper) and the `libraries` /
+# `ruleauthors` rulesets ship as separate detekt-plugins and are NOT
+# enabled here. We deliberately stay on the bundled rulesets for Phase 0c.
+# Adding the formatting plugin is tracked under docs/execution-plan.md
+# Phase 3 polish — once we've decided whether to land ktlint as its own
+# pipeline step or via detekt.

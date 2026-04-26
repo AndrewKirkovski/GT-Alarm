@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GT Alarm</string>
+    <string name="widget_label">Наступны будзільнік</string>
+
+    <string name="notif_channel_alarm_name">Будзільнік</string>
+    <string name="notif_channel_alarm_desc">Будзільнікі, што звоняць</string>
+
+    <string name="alarm_notification_title">Будзільнік</string>
+    <string name="action_dismiss">Адхіліць</string>
+    <string name="action_snooze">Адкласці</string>
+
+    <string name="screen_list_title">Будзільнікі</string>
+    <string name="screen_edit_title_new">Новы будзільнік</string>
+    <string name="screen_edit_title_edit">Рэдагаваць будзільнік</string>
+    <string name="field_label">Назва</string>
+    <string name="field_label_placeholder">Уставанне</string>
+    <string name="field_audio">Гук</string>
+    <string name="field_audio_default">Сістэмны</string>
+    <string name="field_audio_pick">Выбраць…</string>
+    <string name="field_vibration_only">Толькі вібрацыя</string>
+    <string name="field_repeat">Паўтор</string>
+    <string name="save">Захаваць</string>
+    <string name="delete">Выдаліць</string>
+    <string name="cancel">Адмяніць</string>
+    <string name="add_alarm">Дадаць будзільнік</string>
+    <string name="no_alarms">Няма будзільнікаў — націсніце +, каб дадаць.</string>
+
+    <string name="day_sun_short">Нд</string>
+    <string name="day_mon_short">Пн</string>
+    <string name="day_tue_short">Аў</string>
+    <string name="day_wed_short">Ср</string>
+    <string name="day_thu_short">Чц</string>
+    <string name="day_fri_short">Пт</string>
+    <string name="day_sat_short">Сб</string>
+
+    <string name="widget_next_alarm_none">Няма запланаваных будзільнікаў</string>
+    <string name="permission_exact_alarm_rationale">Дакладныя будзільнікі адключаны. Адкрыйце сістэмныя налады, каб дазволіць.</string>
+
+    <string name="repeats_once">Адзін раз</string>
+    <string name="repeats_every_day">Кожны дзень</string>
+    <string name="repeats_weekdays">Будныя дні</string>
+    <string name="repeats_weekends">Выходныя</string>
+    <string name="delete_alarm">Выдаліць будзільнік</string>
+
+    <string name="battery_opt_card_title">Каб будзільнікі былі надзейнымі</string>
+    <string name="battery_opt_card_body">Samsung One UI можа затрымліваць будзільнікі, калі праграма ў глыбокім сне. Дазвольце GT Alarm ігнараваць аптымізацыю батарэі, каб будзільнік заўсёды званіў своечасова.</string>
+    <string name="battery_opt_card_action">Адкрыць налады</string>
+    <string name="battery_opt_card_dismiss">Не зараз</string>
+</resources>

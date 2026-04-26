@@ -1,0 +1,75 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "Модуль GT Alarm для гадзінніка" },
+    { "name": "entry_desc", "value": "Кропка ўваходу GT Alarm" },
+    { "name": "perm_reminder_reason", "value": "Планаваць надзейныя будзільнікі, якія перажываюць перазапуск" },
+    { "name": "perm_vibrate_reason", "value": "Вібрацыя пры будзільніку" },
+
+    { "name": "screen_list_title", "value": "Будзільнікі" },
+    { "name": "screen_edit_new", "value": "Новы будзільнік" },
+    { "name": "screen_edit_edit", "value": "Рэдагаваць будзільнік" },
+
+    { "name": "action_save", "value": "Захаваць" },
+    { "name": "action_saving", "value": "Захаванне…" },
+    { "name": "action_delete", "value": "Выдаліць" },
+    { "name": "action_delete_alarm", "value": "Выдаліць будзільнік" },
+    { "name": "action_add", "value": "Дадаць" },
+    { "name": "action_cancel", "value": "Адмяніць" },
+
+    { "name": "field_label", "value": "Назва" },
+    { "name": "field_repeat", "value": "Паўтор" },
+
+    { "name": "no_alarms", "value": "Няма будзільнікаў" },
+    { "name": "tap_plus_to_add", "value": "Націсніце +, каб дадаць" },
+    { "name": "loading", "value": "…" },
+
+    { "name": "notif_disabled_title", "value": "Апавяшчэнні адключаны" },
+    { "name": "notif_tap_to_grant", "value": "Націсніце, каб даць дазвол" },
+
+    { "name": "reminder_default_title", "value": "Будзільнік" },
+    { "name": "reminder_action_close", "value": "Адхіліць" },
+    { "name": "reminder_action_snooze", "value": "Адкласці" },
+
+    { "name": "day_mon", "value": "Пн" },
+    { "name": "day_tue", "value": "Аў" },
+    { "name": "day_wed", "value": "Ср" },
+    { "name": "day_thu", "value": "Чц" },
+    { "name": "day_fri", "value": "Пт" },
+    { "name": "day_sat", "value": "Сб" },
+    { "name": "day_sun", "value": "Нд" },
+
+    { "name": "day_full_mon", "value": "Панядзелак" },
+    { "name": "day_full_tue", "value": "Аўторак" },
+    { "name": "day_full_wed", "value": "Серада" },
+    { "name": "day_full_thu", "value": "Чацвер" },
+    { "name": "day_full_fri", "value": "Пятніца" },
+    { "name": "day_full_sat", "value": "Субота" },
+    { "name": "day_full_sun", "value": "Нядзеля" },
+
+    { "name": "repeat_once", "value": "Адзін раз" },
+    { "name": "repeat_every_day", "value": "Кожны дзень" },
+    { "name": "repeat_weekdays", "value": "Будныя дні" },
+    { "name": "repeat_weekends", "value": "Выходныя" },
+
+    { "name": "state_on", "value": "укл" },
+    { "name": "state_off", "value": "выкл" },
+
+    { "name": "delete_dialog_title", "value": "Выдаліць будзільнік?" },
+    { "name": "delete_dialog_warning", "value": "Гэту дзеянне нельга адмяніць" },
+
+    { "name": "err_save_failed", "value": "Не атрымалася захаваць будзільнік" },
+    { "name": "err_cancel_previous", "value": "Не атрымалася адмяніць папярэдні будзільнік — паспрабуйце яшчэ раз" },
+    { "name": "err_arm_alarm", "value": "Не атрымалася ўключыць будзільнік — праверце дазвол на апавяшчэнні" },
+
+    { "name": "a11y_add_alarm", "value": "Дадаць будзільнік" },
+    { "name": "a11y_alarm_row_no_label", "value": "Будзільнік у %1$s, %2$s" },
+    { "name": "a11y_alarm_row_with_label", "value": "Будзільнік у %1$s, %2$s, %3$s" },
+    { "name": "a11y_day_state", "value": "%1$s, %2$s" },
+    { "name": "a11y_snooze_alarm", "value": "Адкласці будзільнік на 10 хвілін" },
+    { "name": "a11y_cancel_deletion", "value": "Адмяніць выдаленне" },
+    { "name": "a11y_confirm_delete", "value": "Пацвердзіць выдаленне будзільніка" },
+
+    { "name": "ampm_am", "value": "AM" },
+    { "name": "ampm_pm", "value": "PM" }
+  ]
+}

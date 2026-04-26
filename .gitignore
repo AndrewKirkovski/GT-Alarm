@@ -1,0 +1,75 @@
+# Work docs and temp outputs (global rule — user CLAUDE.md)
+.local/
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# =========================
+# Android (android-app/)
+# =========================
+android-app/.gradle/
+android-app/build/
+android-app/app/build/
+android-app/captures/
+android-app/local.properties
+watch-app/local.properties
+watch-app/**/local.properties
+android-app/.cxx/
+android-app/app/.cxx/
+android-app/app/release/
+android-app/app/debug/
+android-app/**/*.apk
+android-app/**/*.aab
+android-app/**/*.ap_
+android-app/**/*.dex
+android-app/**/*.class
+
+# Keystores (commit signing config via env, not keystores)
+android-app/**/*.jks
+android-app/**/*.keystore
+
+# Gradle wrapper binary is committed; lock file cache is not
+android-app/.gradle/**
+
+# =========================
+# DevEco / HarmonyOS (watch-app/)
+# =========================
+watch-app/build/
+watch-app/**/build/
+watch-app/**/.hvigor/
+watch-app/**/.cxx/
+watch-app/**/.test/
+watch-app/oh_modules/
+watch-app/**/oh_modules/
+watch-app/**/.cache/
+watch-app/**/.preview/
+watch-app/**/*.hap
+watch-app/**/*.app
+watch-app/**/*.hsp
+watch-app/**/*.har
+
+# DevEco signing
+watch-app/**/*.p12
+watch-app/**/*.cer
+watch-app/**/*.csr
+watch-app/**/*.p7b
+
+# Node (DevEco uses node internally)
+node_modules/
+
+# JVM crash dumps from Gradle daemon OOM (CLAUDE.md mitigations)
+android-app/**/hs_err_*.log
+android-app/**/replay_*.log
+
+# Per-machine Claude Code state (settings.local.json, scheduled-tasks lock, etc.)
+.claude/

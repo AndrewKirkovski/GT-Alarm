@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GT Alarm</string>
+    <string name="widget_label">Następny alarm</string>
+
+    <string name="notif_channel_alarm_name">Alarm</string>
+    <string name="notif_channel_alarm_desc">Dzwoniące alarmy</string>
+
+    <string name="alarm_notification_title">Alarm</string>
+    <string name="action_dismiss">Odrzuć</string>
+    <string name="action_snooze">Drzemka</string>
+
+    <string name="screen_list_title">Alarmy</string>
+    <string name="screen_edit_title_new">Nowy alarm</string>
+    <string name="screen_edit_title_edit">Edytuj alarm</string>
+    <string name="field_label">Etykieta</string>
+    <string name="field_label_placeholder">Pobudka</string>
+    <string name="field_audio">Dźwięk</string>
+    <string name="field_audio_default">Systemowy</string>
+    <string name="field_audio_pick">Wybierz…</string>
+    <string name="field_vibration_only">Tylko wibracja</string>
+    <string name="field_repeat">Powtarzanie</string>
+    <string name="save">Zapisz</string>
+    <string name="delete">Usuń</string>
+    <string name="cancel">Anuluj</string>
+    <string name="add_alarm">Dodaj alarm</string>
+    <string name="no_alarms">Brak alarmów — stuknij +, aby dodać.</string>
+
+    <string name="day_sun_short">Nd</string>
+    <string name="day_mon_short">Pn</string>
+    <string name="day_tue_short">Wt</string>
+    <string name="day_wed_short">Śr</string>
+    <string name="day_thu_short">Cz</string>
+    <string name="day_fri_short">Pt</string>
+    <string name="day_sat_short">So</string>
+
+    <string name="widget_next_alarm_none">Brak zaplanowanych alarmów</string>
+    <string name="permission_exact_alarm_rationale">Dokładne alarmy są wyłączone. Otwórz ustawienia systemowe, aby je włączyć.</string>
+
+    <string name="repeats_once">Raz</string>
+    <string name="repeats_every_day">Codziennie</string>
+    <string name="repeats_weekdays">Dni robocze</string>
+    <string name="repeats_weekends">Weekendy</string>
+    <string name="delete_alarm">Usuń alarm</string>
+
+    <string name="battery_opt_card_title">Niech alarmy będą niezawodne</string>
+    <string name="battery_opt_card_body">Samsung One UI może opóźniać alarmy, gdy aplikacja jest w głębokim uśpieniu. Zezwól GT Alarm na ignorowanie optymalizacji baterii, aby alarm zawsze dzwonił o czasie.</string>
+    <string name="battery_opt_card_action">Otwórz ustawienia</string>
+    <string name="battery_opt_card_dismiss">Nie teraz</string>
+</resources>

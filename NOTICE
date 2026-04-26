@@ -1,0 +1,17 @@
+GT Alarm
+========
+
+Required Notice: Copyright (c) 2026 Andrei Kirkouski
+
+This software is distributed under the terms of the PolyForm
+Noncommercial License 1.0.0. See LICENSE for the full text.
+
+Permitted uses include personal, research, educational, and
+noncommercial-organization use as defined by the license.
+
+Commercial use is reserved to the copyright holder. Dual licensing
+for commercial use is available — contact the copyright holder via
+the project repository.
+
+Android package name:  com.kirkouski.gtalarm
+HarmonyOS bundle name: com.kirkouski.gtalarm.watch
