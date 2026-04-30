@@ -1,7 +1,10 @@
 package com.kirkouski.gtalarm.ui.edit
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,9 +16,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -65,6 +72,8 @@ fun AlarmEditScreen(
     LaunchedEffect(alarmId) { vm.load(alarmId) }
     val state by vm.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+
+    BackHandler { onDone() }
 
     val timeState = rememberTimePickerState(
         initialHour = state.hour,
@@ -117,6 +126,7 @@ fun AlarmEditScreen(
         Column(
             modifier = Modifier
                 .padding(padding)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -129,14 +139,23 @@ fun AlarmEditScreen(
                 onValueChange = vm::updateLabel,
                 label = { Text(stringResource(R.string.field_label)) },
                 placeholder = { Text(stringResource(R.string.field_label_placeholder)) },
+                leadingIcon = { Icon(Icons.AutoMirrored.Filled.Label, contentDescription = null) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
 
-            Text(
-                text = stringResource(R.string.field_repeat),
-                style = MaterialTheme.typography.labelLarge,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Repeat,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 8.dp),
+                )
+                Text(
+                    text = stringResource(R.string.field_repeat),
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
             DayRow(
                 mask = state.daysOfWeek,
                 onToggle = vm::toggleDay,
@@ -146,6 +165,12 @@ fun AlarmEditScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Icon(
+                    imageVector = Icons.Default.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 12.dp),
+                )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(stringResource(R.string.field_audio))
                     Text(
@@ -162,6 +187,12 @@ fun AlarmEditScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Icon(
+                    imageVector = Icons.Default.Vibration,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 12.dp),
+                )
                 Text(
                     text = stringResource(R.string.field_vibration_only),
                     modifier = Modifier.weight(1f),

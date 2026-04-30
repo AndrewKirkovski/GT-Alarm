@@ -8,6 +8,8 @@ import com.kirkouski.gtalarm.data.AlarmRepository
 import com.kirkouski.gtalarm.data.OnboardingState
 import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.scheduler.AlarmScheduler
+import com.kirkouski.gtalarm.wear.WatchSyncStatus
+import com.kirkouski.gtalarm.wear.WearBridgeService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,10 +31,19 @@ class AlarmListViewModel @Inject constructor(
     private val repository: AlarmRepository,
     private val scheduler: AlarmScheduler,
     private val onboarding: OnboardingState,
+    wearBridge: WearBridgeService,
 ) : ViewModel() {
 
     val alarms: StateFlow<List<Alarm>> = repository.observeAlarms()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Re-exposes the bridge's connection state to the list screen. Today this
+     * is permanently [WatchSyncStatus.NOT_CONNECTED] (NoOpWearBridge); once
+     * HuaweiWearBridge binds at the same Hilt seam it will start emitting
+     * real CONNECTING/CONNECTED/ERROR transitions and the card auto-updates.
+     */
+    val watchStatus: StateFlow<WatchSyncStatus> = wearBridge.statusFlow
 
     private val _showBatteryOptCard = MutableStateFlow(computeShowBatteryOptCard())
     val showBatteryOptCard: StateFlow<Boolean> = _showBatteryOptCard.asStateFlow()

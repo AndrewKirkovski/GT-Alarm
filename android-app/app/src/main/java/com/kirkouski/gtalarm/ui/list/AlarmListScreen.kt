@@ -6,14 +6,20 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Watch
+import androidx.compose.material.icons.filled.WatchOff
+import androidx.compose.material.icons.outlined.AlarmOff
 import androidx.compose.material3.Card
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -35,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -50,6 +57,7 @@ import com.kirkouski.gtalarm.util.RelativeTime
 import com.kirkouski.gtalarm.util.TimeFormatter
 import com.kirkouski.gtalarm.util.rememberLocaleOrderedDayBits
 import com.kirkouski.gtalarm.util.shortLabelResForDayBit
+import com.kirkouski.gtalarm.wear.WatchSyncStatus
 
 // reason: Compose top-level screen composables are inherently long because
 // they declare a tree of layout, state hoisting, and side-effects in one
@@ -71,6 +79,7 @@ fun AlarmListScreen(
     val alarms by vm.alarms.collectAsStateWithLifecycle()
     val canExact = vm.canScheduleExact()
     val showBatteryOptCard by vm.showBatteryOptCard.collectAsStateWithLifecycle()
+    val watchStatus by vm.watchStatus.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -87,6 +96,11 @@ fun AlarmListScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
+            // Always-on watch sync status card. Today the bound WearBridgeService
+            // is NoOpWearBridge so this is permanently NOT_CONNECTED; once a real
+            // HuaweiWearBridge lands the same card animates through real states
+            // because it reads from the interface, not the impl.
+            WatchSyncCard(status = watchStatus)
             if (showBatteryOptCard) {
                 BatteryOptRationaleCard(
                     onOpenSettings = {
@@ -111,7 +125,16 @@ fun AlarmListScreen(
 
             if (alarms.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(stringResource(R.string.no_alarms))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Outlined.AlarmOff,
+                            contentDescription = null,
+                            modifier = Modifier.size(72.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(stringResource(R.string.no_alarms))
+                    }
                 }
             } else {
                 LazyColumn(
@@ -128,6 +151,48 @@ fun AlarmListScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WatchSyncCard(status: WatchSyncStatus) {
+    val bodyRes = when (status) {
+        WatchSyncStatus.NOT_CONNECTED -> R.string.watch_status_card_not_connected
+        WatchSyncStatus.CONNECTING -> R.string.watch_status_card_connecting
+        WatchSyncStatus.CONNECTED -> R.string.watch_status_card_connected
+        WatchSyncStatus.ERROR -> R.string.watch_status_card_error
+    }
+    val icon = if (status == WatchSyncStatus.CONNECTED) Icons.Default.Watch else Icons.Default.WatchOff
+    ElevatedCard(
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.size(12.dp))
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = stringResource(R.string.watch_status_card_title),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = stringResource(bodyRes),
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
             }
         }
     }
@@ -189,8 +254,14 @@ private fun SwipeToDeleteRow(
             onDelete()
         }
     }
+    // reason: pad the SwipeToDismissBox externally so the errorContainer
+    // backgroundContent paints in the same bounds as the AlarmRow Card. If the
+    // padding lives on the inner Card, the bg leaks 8dp on each side at rest.
     SwipeToDismissBox(
         state = dismissState,
+        modifier = Modifier
+            .padding(horizontal = 8.dp)
+            .clip(MaterialTheme.shapes.medium),
         backgroundContent = {
             Box(
                 modifier = Modifier
@@ -218,9 +289,7 @@ private fun AlarmRow(
     onClick: () -> Unit,
 ) {
     Card(
-        modifier = Modifier
-            .padding(horizontal = 8.dp)
-            .clickable(onClick = onClick),
+        modifier = Modifier.clickable(onClick = onClick),
     ) {
         Row(
             modifier = Modifier

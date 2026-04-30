@@ -47,4 +47,11 @@
     <string name="battery_opt_card_body">三星 One UI 可能在应用进入深度睡眠时延迟闹钟。允许 GT Alarm 忽略电池优化,确保闹钟准时响起。</string>
     <string name="battery_opt_card_action">打开设置</string>
     <string name="battery_opt_card_dismiss">暂不</string>
+
+    <!-- TODO i18n: translate watch sync card strings (English placeholders) -->
+    <string name="watch_status_card_title">Watch sync</string>
+    <string name="watch_status_card_not_connected">Watch: not connected</string>
+    <string name="watch_status_card_connecting">Watch: connecting…</string>
+    <string name="watch_status_card_connected">Watch: connected</string>
+    <string name="watch_status_card_error">Watch: connection error</string>
 </resources>

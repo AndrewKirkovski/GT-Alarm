@@ -37,7 +37,11 @@ class IncomingMessageHandlerTest {
         tombstones = mockk(relaxed = true)
         scheduler = mockk(relaxed = true)
         widgetRefresher = mockk(relaxed = true)
-        every { tombstones.isTombstoned(any(), any()) } returns false
+        // Catchall for the 3-arg signature including the default `now` param.
+        // MockK does NOT auto-fill matchers for params with default values, so
+        // tests overriding this MUST also pass an explicit `any()` for the 3rd
+        // arg (see the sticky-tombstone tie-break test).
+        every { tombstones.isTombstoned(any(), any(), any()) } returns false
         handler = IncomingMessageHandler(dao, tombstones, scheduler, widgetRefresher)
     }
 
@@ -64,7 +68,7 @@ class IncomingMessageHandlerTest {
 
     @Test
     fun `AlarmAdded for tombstoned id is suppressed (no DAO write)`() = runTest {
-        every { tombstones.isTombstoned(eq(5L), any()) } returns true
+        every { tombstones.isTombstoned(eq(5L), any(), any()) } returns true
         val incoming = makeAlarm(id = 5L, epoch = 100L)
 
         handler.handle(IncomingMessage.AlarmAdded(5L, 100L, incoming))
@@ -79,7 +83,11 @@ class IncomingMessageHandlerTest {
         // §2 carve-out: tombstone wins on tie. Tombstones.isTombstoned uses >=
         // so when the test tombstone returns true for the boundary, the handler
         // must suppress even though the live-row LwwResolver would have applied.
-        every { tombstones.isTombstoned(eq(5L), eq(100L)) } returns true
+        // Explicit `any()` for the default `now` param — MockK does NOT auto-fill
+        // matchers for params with default values; without this the stub
+        // narrows to `now == default-evaluated-at-stub-time` which never matches
+        // the call-site `System.currentTimeMillis()`.
+        every { tombstones.isTombstoned(eq(5L), eq(100L), any()) } returns true
         val incoming = makeAlarm(id = 5L, epoch = 100L)
 
         handler.handle(IncomingMessage.AlarmAdded(5L, 100L, incoming))

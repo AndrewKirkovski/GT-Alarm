@@ -47,4 +47,10 @@
     <string name="battery_opt_card_body">Samsung One UI may delay alarms when the app is in deep sleep. Allow GT Alarm to ignore battery optimizations so it always rings on time.</string>
     <string name="battery_opt_card_action">Open settings</string>
     <string name="battery_opt_card_dismiss">Not now</string>
+
+    <string name="watch_status_card_title">Watch sync</string>
+    <string name="watch_status_card_not_connected">Watch: not connected</string>
+    <string name="watch_status_card_connecting">Watch: connecting…</string>
+    <string name="watch_status_card_connected">Watch: connected</string>
+    <string name="watch_status_card_error">Watch: connection error</string>
 </resources>

@@ -47,4 +47,11 @@
     <string name="battery_opt_card_body">Samsung One UI может задерживать будильники, когда приложение в глубоком сне. Разрешите GT Alarm игнорировать оптимизацию батареи, чтобы будильник всегда срабатывал вовремя.</string>
     <string name="battery_opt_card_action">Открыть настройки</string>
     <string name="battery_opt_card_dismiss">Не сейчас</string>
+
+    <!-- TODO i18n: translate watch sync card strings (English placeholders) -->
+    <string name="watch_status_card_title">Watch sync</string>
+    <string name="watch_status_card_not_connected">Watch: not connected</string>
+    <string name="watch_status_card_connecting">Watch: connecting…</string>
+    <string name="watch_status_card_connected">Watch: connected</string>
+    <string name="watch_status_card_error">Watch: connection error</string>
 </resources>

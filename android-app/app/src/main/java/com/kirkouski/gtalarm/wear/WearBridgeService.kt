@@ -2,6 +2,7 @@ package com.kirkouski.gtalarm.wear
 
 import com.kirkouski.gtalarm.data.sync.IncomingMessageHandler
 import com.kirkouski.gtalarm.domain.Alarm
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Contract between the phone app and a paired wearable. Today this is a no-op
@@ -32,6 +33,18 @@ import com.kirkouski.gtalarm.domain.Alarm
  * (`NoOpWearBridge`, future `HuaweiWearBridge`) precondition-check this.
  */
 interface WearBridgeService {
+    /**
+     * Hot connection-state stream observed by the UI (see `AlarmListScreen`'s
+     * watch-sync card). Implementations expose a [StateFlow] so the latest
+     * status is always immediately available to a new collector.
+     *
+     * - [NoOpWearBridge] holds this at [WatchSyncStatus.NOT_CONNECTED] forever.
+     * - A future `HuaweiWearBridge` will drive it from Wear-Engine connection
+     *   callbacks (CONNECTING on attach, CONNECTED on session ready, ERROR on
+     *   transport failure, NOT_CONNECTED on detach).
+     */
+    val statusFlow: StateFlow<WatchSyncStatus>
+
     fun sendAlarmAdded(alarm: Alarm)
     fun sendAlarmUpdated(alarm: Alarm)
     fun sendAlarmToggled(alarm: Alarm)

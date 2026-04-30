@@ -3,6 +3,9 @@ package com.kirkouski.gtalarm.wear
 import android.util.Log
 import com.kirkouski.gtalarm.data.sync.IncomingMessageHandler
 import com.kirkouski.gtalarm.domain.Alarm
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -16,6 +19,12 @@ import javax.inject.Singleton
  */
 @Singleton
 class NoOpWearBridge @Inject constructor() : WearBridgeService {
+
+    // No peer to connect to — pinned at NOT_CONNECTED for the lifetime of the
+    // process. The future HuaweiWearBridge will mutate its own MutableStateFlow
+    // from Wear-Engine connection callbacks.
+    private val _statusFlow = MutableStateFlow(WatchSyncStatus.NOT_CONNECTED)
+    override val statusFlow: StateFlow<WatchSyncStatus> = _statusFlow.asStateFlow()
 
     override fun sendAlarmAdded(alarm: Alarm) {
         require(alarm.updatedAtEpoch > 0L) { "sendAlarmAdded: stamp must be > 0" }

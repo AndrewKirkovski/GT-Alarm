@@ -1,8 +1,10 @@
 # GT Alarm — Acceptance Criteria (canonical)
 
-**Status:** in-progress · **Updated:** 2026-04-26 · **Owner:** Andrei Kirkouski
+**Status:** Phase 0b architecture pivot · **Updated:** 2026-04-27 · **Owner:** Andrei Kirkouski
 
 This is the **authoritative spec** for GT Alarm. Every feature must map to a criterion here. Every tech decision (SDK pin, permission, API choice, library upgrade) must be re-checked against this document **before** code changes land. See `CLAUDE.md` at the repo root for the mandatory pre-decision protocol.
+
+> **2026-04-27 architecture pivot — read first:** Empirical install testing on the GT 6 confirmed the watch runs **HarmonyOS LiteWearable, NOT full HarmonyOS NEXT**. The legacy NEXT-targeted watch app has been moved to `watch-app.old/` and a fresh LiteWearable JS project is being built in `watch-app/` (Phase 0b). All "WATCH APP" criteria below describe the legacy NEXT app and are kept here as historical record + porting reference; new criteria for the LiteWearable rewrite live in [§ WATCH APP — LiteWearable rewrite (Phase 0b)](#watch-app--litewearable-rewrite-phase-0b) below. The phone-side Android app is unaffected by this pivot. The cross-device design has also been revised: the phone is now the sole scheduler — see [`sync-architecture.md`](sync-architecture.md) §3.
 
 ---
 
@@ -53,13 +55,26 @@ Do not implement against memory of how an API used to work. APIs change.
 | Glance | **1.2.0-rc01** | Glance 1.2.0 stable not yet published (only `-alpha01`, `-beta01`, `-rc01` available as of 2026-04). RC1 is API-stable; downgrade to 1.1.1 reverts widget-side improvements. Bump to 1.2.0 stable when Google publishes it. |
 | Detekt | **2.0.0-alpha.3** | Detekt 1.23.x doesn't support Kotlin 2.3. 2.0 is alpha but explicitly built against Kotlin 2.3 / Gradle 9.3 / AGP 9.0. Plugin namespace renamed from `io.gitlab.arturbosch.detekt` to `dev.detekt`. Several rule names renamed (e.g. `UnnecessaryAbstractClass` → `AbstractClassCanBeConcreteClass`/`AbstractClassCanBeInterface`). |
 
-### HarmonyOS NEXT
+### HarmonyOS LiteWearable (current target — Phase 0b)
 | Setting | Value | Rationale |
 |---|---|---|
-| `minAPIVersion` | **18** (HarmonyOS 5.1.0) | All Arc UI components (`ArcList`, `ArcButton`, `ArcSwiper`) are `@since 18`. Bumping higher gains nothing because every API we use is available at 18. GT 6 ships HarmonyOS 6 (API 20) firmware and runs API 18 binaries forward-compatibly. |
-| `targetAPIVersion` | **21** (HarmonyOS 6.0.1) | Highest stable available in current DevEco SDK. Lets us use the most recent reminder/notification slot semantics. |
-| `apiReleaseType` | **`"Release1"`** | The DevEco toolchain currently bundled with this project rejects bare `"Release"` at build time (verified 2026-04-25 — the change crashed `hvigor`). `Release1` is what the local SDK manifest actually accepts. Re-test with each DevEco upgrade; do not flip to `"Release"` without a successful build. |
+| `apiType` | **`"faMode"`** | LiteWearable apps use the FA (Feature Ability) model, not Stage. |
+| `srcLanguage` | **`"js"`** | LiteWearable does not support TypeScript. Pure JS + HML + CSS only. |
+| `deviceTypes` | **`["liteWearable"]`** | Empirically confirmed on GT 6 (full-NEXT `["wearable"]` HAP failed install with "failed to decompress" 2026-04-27). |
+| `minAPIVersion` | **6** (HarmonyOS 2.2.0) | LiteWearable runtime is API 6/7-era. GT 6 supports it forward-compatibly. |
+| `targetAPIVersion` | **7** (HarmonyOS 3.0.0) | Latest LiteWearable-compatible target. Reference: espinr/litewearable + Sabrina Cara Medium walkthrough. |
+| Build tool | DevEco Studio (Hvigor for Lite target) | Same DevEco Studio + Hvigor build wrapper as NEXT, but with LiteWearable project template. |
+| Sources | [espinr/litewearable](https://github.com/espinr/litewearable) (cloned at `.local/reference/litewearable/`); [Sabrina Cara — Lite Wearable integration](https://medium.com/huawei-developers/harmony-os-prepare-your-lite-wearable-project-for-integration-b4daaa9df67e); HMS-Core/Explore-In-HMOS-Wearable Wear Engine demos. |
+
+### HarmonyOS NEXT — LEGACY (now in `watch-app.old/`, kept for porting reference only)
+| Setting | Value | Rationale |
+|---|---|---|
+| `minAPIVersion` | **18** (HarmonyOS 5.1.0) | All Arc UI components (`ArcList`, `ArcButton`, `ArcSwiper`) are `@since 18`. **N/A for current build** — GT 6 doesn't run full NEXT, so these APIs are unreachable on the target hardware. |
+| `targetAPIVersion` | **21** (HarmonyOS 6.0.1) | Was the highest stable in DevEco. **N/A for current build.** |
+| `apiReleaseType` | **`"Release1"`** | DevEco toolchain quirk. **N/A for current build.** |
 | Build tool | DevEco Studio NEXT (5.x bundled in 2026 release train) | |
+
+**Why the legacy section is preserved:** the algorithm-bearing files in `watch-app.old/entry/src/main/ets/service/` (LwwResolver, IncomingMessageHandler, Tombstones, AlarmStore design, BridgeMessage shape) are the porting source for Phase 0b. Don't delete `watch-app.old/` until Phase 0b lands.
 
 **Sources consulted for API pinning:**
 - HarmonyOS local `.d.ts` — `@since` annotations on Arc UI components, `wantAgent.parameters`, `reminderAgentManager.getValidReminders`
@@ -80,7 +95,7 @@ Do not implement against memory of how an API used to work. APIs change.
 - 🟡 One-off alarm flips `enabled = false` after firing — `AlarmRingService.handleDismiss` flips via `repository.setEnabled(id, false)` when `daysOfWeek == 0`. Verified by `AlarmRingServiceTest.shouldAutoDisableOnDismiss` (Phase 3b.1, 2026-04-25).
 
 ### Scheduling
-- 🟡 Fires at exact wall-clock time, ignoring Doze — `AlarmManager.setAlarmClock(AlarmClockInfo, PI)`
+- ✅ Fires at exact wall-clock time, ignoring Doze — `AlarmManager.setAlarmClock(AlarmClockInfo, PI)`. Verified on Pixel 3 API 33 AVD 2026-04-30: `dumpsys alarm` shows the saved alarm registered as `RTC_WAKEUP` with `exactAllowReason=policy_permission` and listed under "Next wake from idle" (Doze whitelist confirmed).
 - 🟡 Recurring auto-reschedules — `AlarmRingService.handleRing` reschedules when `daysOfWeek != 0`
 - 🟡 Survives reboot — `BootReceiver` triggered by **`BOOT_COMPLETED`** + **`LOCKED_BOOT_COMPLETED`** + **`MY_PACKAGE_REPLACED`** + **`TIMEZONE_CHANGED`** + **`TIME_SET`** (5 actions). On `LOCKED_BOOT_COMPLETED` (direct-boot path) we do NOT touch Room — we wake up on the user-unlocked broadcast and reschedule then. (Source: `developer.android.com/training/articles/direct-boot`.)
 - 🟡 Disable cancels exact PendingIntent — `AlarmManager.cancel(PI)` reusing the same `requestCode = alarm.id`
@@ -129,21 +144,21 @@ Do not implement against memory of how an API used to work. APIs change.
 - 🟡 Samsung-specific battery-optimisation rationale — `BatteryOptRationaleCard` in `AlarmListScreen` shows when `PowerManager.isIgnoringBatteryOptimizations(packageName)` is false AND user hasn't dismissed it (`OnboardingState`-backed). Tap opens `Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` directly (falls back to `ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS` list). Manifest declares `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (alarm-clock category exemption). Lint suppression in `lint.xml` documents the policy basis. (Phase 3b.4, 2026-04-26.)
 
 ### Activity / system-bars
-- 🟡 `enableEdgeToEdge()` — called in `MainActivity.onCreate`. (Phase 3a, 2026-04-25.)
+- ✅ `enableEdgeToEdge()` — called in `MainActivity.onCreate`. Verified on AVD 2026-04-30 (status bar drawn through, no decor-fits inset). (Phase 3a, 2026-04-25.)
 - ❌ Material3 Expressive theme — **BLOCKED**: `MaterialExpressiveTheme` and `ExperimentalMaterial3ExpressiveApi` are declared `internal` in `androidx.compose.material3:material3` 1.4.0 (Compose BOM 2026.04.01) AND in 1.5.0-alpha18 (latest published on Google Maven as of 2026-04-26). No `material3-expressive` artifact is published. Re-check on each Compose BOM bump; flip when the symbols go public. Theme stays on `MaterialTheme` with documented comment in `ui/theme/Theme.kt`.
-- 🟠 Predictive back gesture — manifest carries `android:enableOnBackInvokedCallback="true"` (Phase 3a, 2026-04-25). `BackHandler` (Compose) NOT yet wired through `OnBackPressedDispatcher` for screen-specific handling — gap noted, low impact since the only pop sites currently call `navController.popBackStack()` which routes through the system handler.
+- 🟠 Predictive back gesture — manifest carries `android:enableOnBackInvokedCallback="true"` (Phase 3a, 2026-04-25). `BackHandler { onDone() }` wired in `AlarmEditScreen` (2026-04-30). Other screens still rely on `navController.popBackStack()` which routes through the system handler — adequate but not yet fully predictive-back-aware on every surface.
 
 ### Dynamic receivers
 - ❌ Any `Context.registerReceiver` call must pass the explicit `RECEIVER_EXPORTED` or `RECEIVER_NOT_EXPORTED` flag (required since API 34). We do not currently register any dynamic receivers; if we add one for media-button or screen-state, the flag is mandatory.
 
 ### Internationalization (Android)
 - 🟡 All user-facing strings in `res/values/strings.xml` (English baseline). No hardcoded literals in Compose `Text(...)` — audit pass clean as of 2026-04-25 (Phase 3c).
-- 🟡 Locale resource overlays — 6 dirs landed: `values-en-rUS`, `values-zh-rCN`, `values-ru-rRU`, `values-pl-rPL`, `values-uk-rUA`, `values-be-rBY`. Translations cribbed from watch app's HarmonyOS resources. (Phase 3c, 2026-04-25.)
-- 🟡 `LocalConfiguration.current.locales` honored — `NextAlarmGlanceWidget.computeNext` reads `context.resources.configuration.locales[0]`; `TimeFormatter` delegates to `DateFormat` which itself respects the configuration locale. Zero `Locale.getDefault()` / `Locale.US` / `Locale.ENGLISH` / `Locale.ROOT` calls in production code (verified via Grep 2026-04-26). Audit gap: code paths added in future may regress this — consider a custom Detekt rule when patterns stabilise.
-- 🟡 Time format follows system 12h/24h — `util/TimeFormatter.kt` uses `DateFormat.is24HourFormat(context)` + `DateFormat.getTimeFormat(context)`. Used by AlarmListScreen, AlarmActivity, AlarmNotifications, NextAlarmGlanceWidget. (Phase 3c, 2026-04-25.)
+- ✅ Locale resource overlays — 6 dirs landed: `values-en-rUS`, `values-zh-rCN`, `values-ru-rRU`, `values-pl-rPL`, `values-uk-rUA`, `values-be-rBY`. Translations cribbed from watch app's HarmonyOS resources. Verified on AVD 2026-04-30 via `cmd locale set-app-locales com.kirkouski.gtalarm.debug --locales pl-PL`: title "Alarms" → "Alarmy", days "Once" → "Raz", relative time "In 16 hr." → "Za 15 godz." on next launch. (Phase 3c, 2026-04-25.)
+- ✅ `LocalConfiguration.current.locales` honored — `NextAlarmGlanceWidget.computeNext` reads `context.resources.configuration.locales[0]`; `TimeFormatter` delegates to `DateFormat` which itself respects the configuration locale. Zero `Locale.getDefault()` / `Locale.US` / `Locale.ENGLISH` / `Locale.ROOT` calls in production code (verified via Grep 2026-04-26). Verified end-to-end on AVD 2026-04-30 via per-app locale switch — list strings reflow on next process launch. Audit gap: code paths added in future may regress this — consider a custom Detekt rule when patterns stabilise.
+- ✅ Time format follows system 12h/24h — `util/TimeFormatter.kt` uses `DateFormat.is24HourFormat(context)` + `DateFormat.getTimeFormat(context)`. Used by AlarmListScreen, AlarmActivity, AlarmNotifications, NextAlarmGlanceWidget. Verified on AVD 2026-04-30: en-US locale renders "7:00 AM" while pl-PL renders "07:00" — Polish 24h system pref honored after locale switch. (Phase 3c, 2026-04-25.)
 - 🟡 Day-letter labels in chip row pulled from `strings.xml` — `util/DayLabels.kt:shortLabelResForDayBit(bit)` maps each `DaysOfWeek` bit to its `R.string.day_*_short`. 2-letter glyphs (`Mo`/`Tu`/...`Su`) used in base + 6 locale dirs. (Phase 3c, 2026-04-25.)
-- 🟠 `Configuration.uiMode` (light/dark) — `Theme.kt` reads `isSystemInDarkTheme()` and selects `dynamicDarkColorScheme(context)` / `dynamicLightColorScheme(context)` (Material3 dynamic color). Manual fallback colors defined for non-dynamic devices. End-to-end visual verification on AVD pending.
-- 🟡 Per-app language picker support — `res/xml/locales_config.xml` lists all 6 locales; manifest declares `android:localeConfig="@xml/locales_config"`. (Phase 3c, 2026-04-25.)
+- ✅ `Configuration.uiMode` (light/dark) — `Theme.kt` reads `isSystemInDarkTheme()` and selects `dynamicDarkColorScheme(context)` / `dynamicLightColorScheme(context)` (Material3 dynamic color). Manual fallback colors defined for non-dynamic devices. Verified on AVD 2026-04-30 via `cmd uimode night yes/no` — Material You dynamic palette recomposes cleanly between light and dark.
+- ✅ Per-app language picker support — `res/xml/locales_config.xml` lists all 6 locales; manifest declares `android:localeConfig="@xml/locales_config"`. Verified on AVD 2026-04-30 via `cmd locale set-app-locales com.kirkouski.gtalarm.debug --locales pl-PL` (the per-app locale API path) — strings reflow and time format flips on next launch. (Phase 3c, 2026-04-25.)
 - 📋 Plurals via `<plurals>` — UI does NOT yet surface relative time ("in 5 minutes"). When the relative-time list label lands (still ❌ above), wire through `<plurals>`.
 - 🟠 Right-to-left layout mirroring — `android:supportsRtl="true"` is default in our manifest. `paddingStart`/`paddingEnd` audit not done — Compose modifiers like `Modifier.padding(horizontal = Xdp)` are direction-aware; explicit `start`/`end` only needed for asymmetric paddings. None of our locales (en/zh/ru/pl/uk/be) are RTL, so this is forward-compatibility prep.
 - 🟡 Accessibility-localized text — content descriptions resolved via `stringResource(...)` everywhere (verified via Grep `contentDescription = "[A-Z]`).
@@ -157,10 +172,55 @@ Do not implement against memory of how an API used to work. APIs change.
 - 🟡 `AlarmRepository.save/setEnabled/delete/snooze` dispatch through 7-message vocabulary: `sendAlarmAdded`, `sendAlarmUpdated`, `sendAlarmToggled`, `sendAlarmDeleted`, `sendAlarmSnoozed`. New rows emit `_added`; existing rows emit `_updated`; toggles emit `_toggled`. Verified by 9 unit tests in `AlarmRepositoryTest`.
 - 🟡 LWW envelope: every send method `require(updatedAtEpoch > 0)` to prevent unstamped data leaking to peer; `NoOpWearBridge` serialises full `Alarm` JSON envelope for dev verification.
 - 🟡 No-Op never crashes when offline — only ever calls `Log.d`
+- 🟡 Watch sync status card on alarm list — `WatchSyncCard` in `AlarmListScreen` reads `watchStatus: StateFlow<WatchSyncStatus>` exposed via `AlarmListViewModel` from `WearBridgeService.statusFlow`. `NoOpWearBridge` pins `NOT_CONNECTED` for the lifetime of the process; `HuaweiWearBridge` post-approval will mutate its own `MutableStateFlow` from Wear-Engine connection callbacks (no UI churn). Card shows "Watch sync — Watch: not connected" today; renders above the existing battery-opt rationale card. Strings under `watch_status_card_*` (5 keys × 7 locales; 5 non-English locales carry English placeholders + `<!-- TODO i18n -->` per repo translation policy). Pinned `NOT_CONNECTED` invariant covered by `NoOpWearBridgeTest`. Verified rendering on AVD 2026-04-30. (2026-04-30.)
 
 ---
 
-## WATCH APP — `com.kirkouski.gtalarm.watch` (HarmonyOS NEXT, GT 6)
+## WATCH APP — LiteWearable rewrite (Phase 0b)
+
+**Status as of 2026-04-27:** scoping complete, code rewrite in flight in `watch-app/`. The legacy NEXT-targeted app at `watch-app.old/` does not install on GT 6 (empirically confirmed via "failed to decompress" install error). All criteria below are ❌ until the rewrite lands; they will flip to 🟡 / ✅ as features are ported.
+
+### Project skeleton
+- ❌ DevEco LiteWearable project template at `watch-app/` — `apiType: "faMode"`, `srcLanguage: "js"`, `deviceTypes: ["liteWearable"]`, FA model `app.js` + page-per-feature directory layout
+- ❌ Signing config wired (debug profile already exists at `watch-app/GT Debug ProfileDebug.p7b`, watch UDID registered in profile, root CA at `watch-app/Debug GT6.cer`)
+- ❌ Build green (`./hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon`)
+- ❌ Install green on GT 6 (the "step 0" empirical verification — install a stub Lite HAP through 应用调测助手 and confirm it launches)
+
+### Algorithm port (from `watch-app.old/entry/src/main/ets/service/`)
+- ❌ `js/default/services/lwwResolver.js` — port of `LwwResolver.kt`/`.ets`. Pure helper, JS rewrite. ~10 lines.
+- ❌ `js/default/services/tombstones.js` — port of `Tombstones.kt`/`.ets`. 256-entry ring buffer, 7-day prune, sticky tie-break. Backing store: `@system.storage`.
+- ❌ `js/default/services/incomingMessageHandler.js` — port of receive-side LWW dispatch. Routes 7 wire types to AlarmStore + ring page + ack-back-to-phone.
+- ❌ `js/default/services/alarmStore.js` — display cache (mirrors phone's Room state). Backed by `@system.storage` for KV + `@system.file` for the JSON blob if needed. **Does not** schedule anything — phone is sole scheduler per `sync-architecture.md` §3.
+- ❌ `js/default/services/wearBridge.js` — Wear Engine seam. No-op send/onMessage today; post-AGConnect-approval calls `wearengine.getP2pClient().send(...)` + registers `onMessage` callback that routes to `incomingMessageHandler.handle`.
+
+### UI rewrite (HML/CSS/JS)
+- ❌ `js/default/pages/index/index.{hml,css,js}` — alarm list. Renders `AlarmStore.getAll()`, allows toggle (sends `alarm_toggled` to phone) and long-press delete (sends `alarm_deleted`). No "add" or "edit" — those flow from the phone.
+- ❌ `js/default/pages/ring/ring.{hml,css,js}` — fullscreen ring page. Mounted from `incomingMessageHandler` on `alarm_fired`. Vibrate via `vibrator.vibrate({pattern})`. Dismiss/Snooze taps send acks to phone, then `router.back()`.
+- ❌ Round-display safe areas — Lite has different conventions than NEXT's `ArcList`; verify against espinr/litewearable patterns.
+- ❌ Touch targets: 36×36 visual / 44×44 hit (Wear OS small-screen 40dp floor)
+
+### Internationalization
+- ❌ `js/default/i18n/{en-US,zh-CN,ru-RU,pl-PL,uk-UA,be-BY}.json` — same 6 locales as Android side. LiteWearable i18n is key/value JSON, not the resource-overlay scheme of NEXT.
+- ❌ `formatTime` honors `i18n.is24HourClock()` (LiteWearable equivalent — verify exact API name during port)
+- ❌ Locale-aware first day of week
+- ❌ Day-letter chip labels from i18n
+
+### Wear Engine integration
+- ❌ `import wearengine from "@system.wearengine"` works on Lite (architecturally confirmed via Chinese-language research; empirically unverified until AGConnect approval lands)
+- ❌ Pairing metadata in `config.json`: `metaData.customizeData.supportLists = "<phone-pkg>:<sha256-no-colons>"` — required for Wear Engine on Lite to accept the phone-side counterpart
+- ❌ End-to-end smoke test: phone sends `alarm_fired`, watch ring page renders within 500 ms
+
+### Known scope deltas vs the legacy NEXT app
+- **Watch no longer schedules.** No `reminderAgentManager` (doesn't exist on Lite). Phone is sole scheduler. Watch reacts to `alarm_fired` pings.
+- **No on-device unit tests.** Hypium is NEXT-only. Pure-logic modules (LwwResolver, Tombstones, IncomingMessageHandler) get extracted as plain JS and tested in Node/jest under `.local/jest-lite/`. UI / page lifecycle is manual-only.
+- **No TypeScript.** All `.ts` becomes `.js`, types stripped.
+- **Reboot survival is asymmetric.** Phone is fully self-recovering; watch has nothing to recover for scheduling. AlarmStore (display cache) restores from `@system.storage` on cold start.
+
+---
+
+## WATCH APP — LEGACY (now in `watch-app.old/`, HarmonyOS NEXT, will not install on GT 6)
+
+**Kept here as historical record + porting reference for Phase 0b.** The criteria below describe `watch-app.old/`. Do not implement any new criteria here — new work happens against the LiteWearable section above.
 
 ### Alarm management
 - 🟡 Create alarm with `TextPicker` hour/minute + 7 day chips + `TextInput` label — `EditPage`. `TextInput.maxLength(80)`, width `'80%'`, placeholder color WCAG-AA compliant.
@@ -239,9 +299,11 @@ Do not implement against memory of how an API used to work. APIs change.
 
 ---
 
-## CROSS-DEVICE (post Wear-Engine approval, ~2 weeks out)
+## CROSS-DEVICE (post AGConnect Wear Engine approval, ~2 weeks out)
 
-📋 All flow items N/A for current build. Stubs in place: `WearBridgeService` (Android Hilt-bound) + `WearBridgeStub` (watch). See [`sync-architecture.md`](sync-architecture.md) for the design-of-record (component layers, sequence diagrams §4.1–4.4, customization findings §6, local-testing strategy §8, three-phase rollout plan).
+📋 All flow items N/A for current build. Stubs in place on Android: `WearBridgeService` Hilt-bound to `NoOpWearBridge`, `IncomingMessageHandler` + `LwwResolver` + `Tombstones` (Phase 5a). Watch-side seams in flight under Phase 0b. See [`sync-architecture.md`](sync-architecture.md) for the design-of-record (component layers, sequence diagrams §4.1–4.4, customization findings §6, local-testing strategy §8, three-phase rollout plan).
+
+**Design pivot 2026-04-27 — phone is sole scheduler.** LiteWearable on GT 6 has no scheduling primitive that survives device sleep, so all scheduling moves to the phone. Watch is online-armed thin client: receives `alarm_fired` pings, renders the ring page, sends back dismiss/snooze acks. See `sync-architecture.md` §3 and §5.3.
 
 Wire format both sides agree on (locked 2026-04-25):
 ```json
@@ -300,14 +362,22 @@ i18n is not "wrap a few strings"; it's an end-to-end contract. Both apps must en
 - [ ] Force fire without waiting: `adb shell am start-foreground-service -a com.kirkouski.gtalarm.ACTION_RING --el alarm_id 1 -n com.kirkouski.gtalarm/.ring.AlarmRingService`
 - [ ] Locale switch: change device language in Settings → app strings reflow without restart
 
-### Watch (manual on GT 6 over `hdc`)
-- [ ] Pair: dev-mode on, `hdc tconn <ip>:5555`, `hdc list targets` shows watch
-- [ ] Install: DevEco Run → watch target (or `hdc install entry-default-signed.hap`)
-- [ ] Fire test: alarm +1 min, lock watch, wait → reminder UI fires + ring + label visible
-- [ ] HiLog: `hdc hilog | grep GTAlarm` shows `ALARM FIRED id=<n>` line on tap
-- [ ] Persistence: add alarm, force-stop app, relaunch — list rehydrates
-- [ ] Reboot: reboot watch, confirm pending reminder still fires (this is the whole point of reminderAgent vs background timers)
-- [ ] Locale switch: change watch language → action button labels and chip labels reflow
+### Watch (manual on GT 6 via 应用调测助手 / App Debug Assistant — Phase 0b LiteWearable target)
+
+**Note:** GT 6 has no WLAN, no USB. `hdc tconn` and `hdc install` paths from the legacy NEXT plan are not viable. Install path is: PC build → copy HAP to phone `/sdcard/haps/` → App Debug Assistant pushes to watch via Bluetooth bridge through Huawei Health.
+
+- [ ] Pair: confirm Huawei Health pairing on Samsung phone shows GT 6 connected (already verified 2026-04-27)
+- [ ] Install: build LiteWearable HAP via Hvigor → copy to phone → App Debug Assistant push → confirm install green
+- [ ] Pure-logic tests in Node/jest: `.local/jest-lite/` covers LwwResolver, Tombstones, IncomingMessageHandler core
+- [ ] Manual UI: launch app on watch, scroll alarm list, toggle a row, long-press delete confirmation, all surfaces render
+- [ ] Manual ring: simulate `alarm_fired` (post-Wear-Engine approval) → ring page mounts within 500 ms, vibration starts, Dismiss/Snooze taps work
+- [ ] Persistence: add alarm via phone, observe sync to watch list; reboot watch; confirm `AlarmStore` restored from `@system.storage`
+- [ ] Locale switch: change watch language → list time format and day labels reflow
+
+### Watch — LEGACY NEXT (now in `watch-app.old/`, will not install on GT 6 — kept for historical reference)
+- [ ] Pair: dev-mode on, `hdc tconn <ip>:5555`, `hdc list targets` shows watch — N/A on GT 6 (no WLAN)
+- [ ] Install: DevEco Run → watch target (or `hdc install entry-default-signed.hap`) — N/A
+- [ ] Fire test, HiLog, persistence, reboot — N/A on Lite
 
 ---
 
@@ -319,11 +389,11 @@ i18n is not "wrap a few strings"; it's an end-to-end contract. Both apps must en
 3. 🟡 Widget `update(ctx, glanceId)` from each `AlarmRepository` mutation — via `WidgetRefresher` interface (Phase 3b.2, 2026-04-25)
 4. 🟡 "Next firing time" relative hint in list row — `subtitleLine` (Phase 3 #4, 2026-04-26)
 5. 🟡 Samsung One UI battery-optimisation rationale card — `BatteryOptRationaleCard` deep-links to `Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (Phase 3b.4, 2026-04-26)
-6. 🟡 `enableEdgeToEdge()` migration — done (Phase 3a, 2026-04-25)
+6. ✅ `enableEdgeToEdge()` migration — done; AVD-verified 2026-04-30 (Phase 3a, 2026-04-25)
 7. ❌ Material3 Expressive theme migration — **BLOCKED**: `MaterialExpressiveTheme` is still `internal` in compose-material3 1.5.0-alpha18 (latest as of 2026-04-26); no `material3-expressive` artifact published. Re-check on each Compose BOM bump.
-8. 🟠 Predictive back gesture — manifest flag `enableOnBackInvokedCallback="true"` set (Phase 3a). Compose `BackHandler` per-screen wiring still pending; low impact since `popBackStack()` routes through the system handler.
-9. 🟡 Locale resource overlays + `LocalesConfig` XML — 6 locales (en-rUS, zh-rCN, ru-rRU, pl-rPL, uk-rUA, be-rBY) + `locales_config.xml` manifest declaration (Phase 3c, 2026-04-25)
-10. 🟡 `DateFormat.is24HourFormat(context)` everywhere — `util/TimeFormatter.kt` is the single time-formatting authority (Phase 3c, 2026-04-25)
+8. 🟠 Predictive back gesture — manifest flag `enableOnBackInvokedCallback="true"` set (Phase 3a). `BackHandler { onDone() }` wired in `AlarmEditScreen` (2026-04-30); other screens still rely on `popBackStack()` through the system handler — adequate but not yet fully predictive on every surface.
+9. ✅ Locale resource overlays + `LocalesConfig` XML — 6 locales (en-rUS, zh-rCN, ru-rRU, pl-rPL, uk-rUA, be-rBY) + `locales_config.xml` manifest declaration. AVD-verified 2026-04-30 via `cmd locale set-app-locales`. (Phase 3c, 2026-04-25)
+10. ✅ `DateFormat.is24HourFormat(context)` everywhere — `util/TimeFormatter.kt` is the single time-formatting authority. AVD-verified 2026-04-30: en-US "7:00 AM" vs pl-PL "07:00". (Phase 3c, 2026-04-25)
 
 ### Watch
 11. 🟡 Verify cold-start fire on real GT 6 hardware (currently only emulator-confirmed)
