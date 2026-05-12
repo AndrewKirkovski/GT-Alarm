@@ -432,26 +432,36 @@ private fun openDefaultAppsSettings(context: Context) {
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
     runCatching { context.startActivity(intent) }
-        .onFailure {
+        .onFailure { primary ->
+            android.util.Log.w(TAG, "MANAGE_DEFAULT_APPS_SETTINGS unavailable: ${primary.message}")
             val fallback = Intent(Settings.ACTION_SETTINGS).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             runCatching { context.startActivity(fallback) }
+                .onFailure { secondary ->
+                    android.util.Log.w(TAG, "ACTION_SETTINGS fallback also failed: ${secondary.message}")
+                }
         }
 }
 
 private fun startActivitySafely(context: Context, intent: Intent) {
     runCatching { context.startActivity(intent) }
-        .onFailure {
+        .onFailure { primary ->
             // OEM customization sometimes removes specific Settings actions.
             // Fall back to the per-app details page, which always exists.
+            android.util.Log.w(TAG, "Settings deep-link ${intent.action} unavailable: ${primary.message}")
             val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                 data = "package:${context.packageName}".toUri()
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             runCatching { context.startActivity(fallback) }
+                .onFailure { secondary ->
+                    android.util.Log.w(TAG, "APPLICATION_DETAILS_SETTINGS fallback also failed: ${secondary.message}")
+                }
         }
 }
+
+private const val TAG = "HelpScreen"
 
 // ---- Brand <-> resource lookup helpers ----
 

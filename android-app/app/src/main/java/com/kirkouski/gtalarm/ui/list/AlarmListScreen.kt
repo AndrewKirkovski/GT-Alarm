@@ -134,10 +134,9 @@ fun AlarmListScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            // Always-on watch sync status card. Today the bound WearBridgeService
-            // is NoOpWearBridge so this is permanently NOT_CONNECTED; once a real
-            // HuaweiWearBridge lands the same card animates through real states
-            // because it reads from the interface, not the impl.
+            // Always-on watch sync status card. Reads via the WearBridgeService
+            // interface so it animates through real states as HuaweiWearBridge
+            // emits status updates (CONNECTING → CONNECTED → ERROR, etc.).
             WatchSyncCard(
                 status = watchStatus,
                 pairedDevice = pairedDevice,

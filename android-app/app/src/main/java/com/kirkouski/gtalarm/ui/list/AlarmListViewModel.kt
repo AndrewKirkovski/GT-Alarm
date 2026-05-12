@@ -43,10 +43,9 @@ class AlarmListViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
-     * Re-exposes the bridge's connection state to the list screen. Today this
-     * is permanently [WatchSyncStatus.NOT_CONNECTED] (NoOpWearBridge); once
-     * HuaweiWearBridge binds at the same Hilt seam it will start emitting
-     * real CONNECTING/CONNECTED/ERROR transitions and the card auto-updates.
+     * Re-exposes the bridge's connection state to the list screen. The Hilt-
+     * bound [HuaweiWearBridge] drives this — the card auto-updates as the
+     * Wear Engine peer transitions through CONNECTING / CONNECTED / ERROR.
      */
     val watchStatus: StateFlow<WatchSyncStatus> = wearBridge.statusFlow
 
