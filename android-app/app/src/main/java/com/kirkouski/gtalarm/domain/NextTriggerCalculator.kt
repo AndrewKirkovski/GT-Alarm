@@ -4,16 +4,31 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 
 object NextTriggerCalculator {
-    // reason: 4 early returns are intentional and each handles a distinct
-    // alarm class (relative, one-shot absolute, recurring loop hit, recurring
-    // loop fallback). A single-return refactor with a nullable accumulator
-    // would obscure the branches and require an `error()` for the unreachable
-    // fallback. The branches are explicit by design.
-    @Suppress("ReturnCount")
+    // reason: 5 early returns are intentional and each handles a distinct
+    // alarm class (snoozed, relative, one-shot absolute, recurring loop hit,
+    // recurring loop fallback). A single-return refactor with a nullable
+    // accumulator would obscure the branches and require an `error()` for
+    // the unreachable fallback. The branches are explicit by design.
+    //
+    // CyclomaticComplexMethod=12: snooze + relative + one-shot + 4 recurring
+    // guards. Each guard line maps to a wire-spec invariant; collapsing
+    // would obscure intent.
+    @Suppress("ReturnCount", "CyclomaticComplexMethod")
     fun nextTriggerEpochMillis(
         alarm: Alarm,
         now: ZonedDateTime = ZonedDateTime.now(ZoneId.systemDefault()),
     ): Long {
+        // Snooze override: while an alarm is snoozed, its next ring is the
+        // snooze trigger, NOT the next recurrence of its clock time. This
+        // is what AlarmManager.setAlarmClock was actually scheduled for in
+        // AlarmRepository.snooze / snoozeAt — without this branch the list
+        // would display "in 23h" (tomorrow's slot) while the alarm fires
+        // in 1 min. Cleared on fire / edit / disable so we never return a
+        // stale value past it.
+        val snoozeUntil = alarm.snoozedUntilEpoch
+        if (snoozeUntil != null && snoozeUntil > now.toInstant().toEpochMilli()) {
+            return snoozeUntil
+        }
         // Relative ("in N min") alarms: fire time is fixed at the moment of
         // activation. Toggle-off-then-on bumps `updatedAtEpoch` so the timer
         // slides forward — the calculator doesn't need any reset logic. Cold

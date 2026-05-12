@@ -7,102 +7,106 @@
             <text class="btn-ping-text">PING PHONE</text>
         </div>
 
-        <!-- Flat alarm list. Two <list-item> templates: enabled (green
-             dot, white text, indigo day-dots) and disabled (grey ring,
-             dim text, muted day-dots). Lite Wearable HML doesn't allow
-             class= data binding (verified 2026-05-12) — per-row
-             variants are achieved by switching templates rather than
-             switching classes.
+        <!-- Flat alarm list. SINGLE <list-item for=> template (Lite
+             Wearable does NOT support multiple list-item templates in
+             one <list> — the previous two-template variant rendered
+             nothing, verified 2026-05-12 on GT 6). Per-row enabled/
+             disabled visual variant achieved with two conditional
+             wrapper <div>s inside the list-item, each carrying its
+             own static class. Class= data binding is also
+             unsupported (see memory:litewearable_rendering_gotchas
+             #10f) so a class swap is impossible — the conditional-
+             render pattern is the canonical workaround.
 
              Each day cell is letter-on-top + dot-below; letters from
-             self.dL0..dL6 (single-char of localized day labels). -->
+             $item.dL0..dL6 (single-char of localized day labels). -->
         <list class="alarm-list" if="{{alarms.length > 0}}">
-            <list-item class="alarm-row" for="{{enabledAlarms}}" tid="id"
+            <list-item for="{{alarms}}" tid="id"
                        onclick="onRowTap({{$item.id}})">
-                <div class="status-dot"></div>
-                <text class="alarm-time">{{$item.time}}</text>
-                <div class="alarm-days-grid" if="{{$item.isRecurring}}">
-                    <div class="day-cell">
-                        <text class="day-cell-letter">{{$item.dL0}}</text>
-                        <div class="day-dot-on" if="{{$item.d0On}}"></div>
-                        <div class="day-dot" if="{{$item.d0Off}}"></div>
+                <div class="alarm-row" if="{{$item.enabled}}">
+                    <div class="status-dot"></div>
+                    <text class="alarm-time">{{$item.time}}</text>
+                    <div class="alarm-days-grid" if="{{$item.isRecurring}}">
+                        <div class="day-cell">
+                            <text class="day-cell-letter">{{$item.dL0}}</text>
+                            <div class="day-dot-on" if="{{$item.d0On}}"></div>
+                            <div class="day-dot" if="{{$item.d0Off}}"></div>
+                        </div>
+                        <div class="day-cell">
+                            <text class="day-cell-letter">{{$item.dL1}}</text>
+                            <div class="day-dot-on" if="{{$item.d1On}}"></div>
+                            <div class="day-dot" if="{{$item.d1Off}}"></div>
+                        </div>
+                        <div class="day-cell">
+                            <text class="day-cell-letter">{{$item.dL2}}</text>
+                            <div class="day-dot-on" if="{{$item.d2On}}"></div>
+                            <div class="day-dot" if="{{$item.d2Off}}"></div>
+                        </div>
+                        <div class="day-cell">
+                            <text class="day-cell-letter">{{$item.dL3}}</text>
+                            <div class="day-dot-on" if="{{$item.d3On}}"></div>
+                            <div class="day-dot" if="{{$item.d3Off}}"></div>
+                        </div>
+                        <div class="day-cell">
+                            <text class="day-cell-letter">{{$item.dL4}}</text>
+                            <div class="day-dot-on" if="{{$item.d4On}}"></div>
+                            <div class="day-dot" if="{{$item.d4Off}}"></div>
+                        </div>
+                        <div class="day-cell">
+                            <text class="day-cell-letter">{{$item.dL5}}</text>
+                            <div class="day-dot-on" if="{{$item.d5On}}"></div>
+                            <div class="day-dot" if="{{$item.d5Off}}"></div>
+                        </div>
+                        <div class="day-cell">
+                            <text class="day-cell-letter">{{$item.dL6}}</text>
+                            <div class="day-dot-on" if="{{$item.d6On}}"></div>
+                            <div class="day-dot" if="{{$item.d6Off}}"></div>
+                        </div>
                     </div>
-                    <div class="day-cell">
-                        <text class="day-cell-letter">{{$item.dL1}}</text>
-                        <div class="day-dot-on" if="{{$item.d1On}}"></div>
-                        <div class="day-dot" if="{{$item.d1Off}}"></div>
-                    </div>
-                    <div class="day-cell">
-                        <text class="day-cell-letter">{{$item.dL2}}</text>
-                        <div class="day-dot-on" if="{{$item.d2On}}"></div>
-                        <div class="day-dot" if="{{$item.d2Off}}"></div>
-                    </div>
-                    <div class="day-cell">
-                        <text class="day-cell-letter">{{$item.dL3}}</text>
-                        <div class="day-dot-on" if="{{$item.d3On}}"></div>
-                        <div class="day-dot" if="{{$item.d3Off}}"></div>
-                    </div>
-                    <div class="day-cell">
-                        <text class="day-cell-letter">{{$item.dL4}}</text>
-                        <div class="day-dot-on" if="{{$item.d4On}}"></div>
-                        <div class="day-dot" if="{{$item.d4Off}}"></div>
-                    </div>
-                    <div class="day-cell">
-                        <text class="day-cell-letter">{{$item.dL5}}</text>
-                        <div class="day-dot-on" if="{{$item.d5On}}"></div>
-                        <div class="day-dot" if="{{$item.d5Off}}"></div>
-                    </div>
-                    <div class="day-cell">
-                        <text class="day-cell-letter">{{$item.dL6}}</text>
-                        <div class="day-dot-on" if="{{$item.d6On}}"></div>
-                        <div class="day-dot" if="{{$item.d6Off}}"></div>
-                    </div>
+                    <text class="alarm-days-text" if="{{$item.isNotRecurring}}">{{$item.daysText}}</text>
                 </div>
-                <text class="alarm-days-text" if="{{$item.isNotRecurring}}">{{$item.daysText}}</text>
-            </list-item>
-
-            <list-item class="alarm-row-dim" for="{{disabledAlarms}}" tid="id"
-                       onclick="onRowTap({{$item.id}})">
-                <div class="status-dot-off"></div>
-                <text class="alarm-time-dim">{{$item.time}}</text>
-                <div class="alarm-days-grid" if="{{$item.isRecurring}}">
-                    <div class="day-cell">
-                        <text class="day-cell-letter-dim">{{$item.dL0}}</text>
-                        <div class="day-dot-on-dim" if="{{$item.d0On}}"></div>
-                        <div class="day-dot" if="{{$item.d0Off}}"></div>
+                <div class="alarm-row-dim" if="{{$item.notEnabled}}">
+                    <div class="status-dot-off"></div>
+                    <text class="alarm-time-dim">{{$item.time}}</text>
+                    <div class="alarm-days-grid" if="{{$item.isRecurring}}">
+                        <div class="day-cell">
+                            <text class="day-cell-letter-dim">{{$item.dL0}}</text>
+                            <div class="day-dot-on-dim" if="{{$item.d0On}}"></div>
+                            <div class="day-dot" if="{{$item.d0Off}}"></div>
+                        </div>
+                        <div class="day-cell">
+                            <text class="day-cell-letter-dim">{{$item.dL1}}</text>
+                            <div class="day-dot-on-dim" if="{{$item.d1On}}"></div>
+                            <div class="day-dot" if="{{$item.d1Off}}"></div>
+                        </div>
+                        <div class="day-cell">
+                            <text class="day-cell-letter-dim">{{$item.dL2}}</text>
+                            <div class="day-dot-on-dim" if="{{$item.d2On}}"></div>
+                            <div class="day-dot" if="{{$item.d2Off}}"></div>
+                        </div>
+                        <div class="day-cell">
+                            <text class="day-cell-letter-dim">{{$item.dL3}}</text>
+                            <div class="day-dot-on-dim" if="{{$item.d3On}}"></div>
+                            <div class="day-dot" if="{{$item.d3Off}}"></div>
+                        </div>
+                        <div class="day-cell">
+                            <text class="day-cell-letter-dim">{{$item.dL4}}</text>
+                            <div class="day-dot-on-dim" if="{{$item.d4On}}"></div>
+                            <div class="day-dot" if="{{$item.d4Off}}"></div>
+                        </div>
+                        <div class="day-cell">
+                            <text class="day-cell-letter-dim">{{$item.dL5}}</text>
+                            <div class="day-dot-on-dim" if="{{$item.d5On}}"></div>
+                            <div class="day-dot" if="{{$item.d5Off}}"></div>
+                        </div>
+                        <div class="day-cell">
+                            <text class="day-cell-letter-dim">{{$item.dL6}}</text>
+                            <div class="day-dot-on-dim" if="{{$item.d6On}}"></div>
+                            <div class="day-dot" if="{{$item.d6Off}}"></div>
+                        </div>
                     </div>
-                    <div class="day-cell">
-                        <text class="day-cell-letter-dim">{{$item.dL1}}</text>
-                        <div class="day-dot-on-dim" if="{{$item.d1On}}"></div>
-                        <div class="day-dot" if="{{$item.d1Off}}"></div>
-                    </div>
-                    <div class="day-cell">
-                        <text class="day-cell-letter-dim">{{$item.dL2}}</text>
-                        <div class="day-dot-on-dim" if="{{$item.d2On}}"></div>
-                        <div class="day-dot" if="{{$item.d2Off}}"></div>
-                    </div>
-                    <div class="day-cell">
-                        <text class="day-cell-letter-dim">{{$item.dL3}}</text>
-                        <div class="day-dot-on-dim" if="{{$item.d3On}}"></div>
-                        <div class="day-dot" if="{{$item.d3Off}}"></div>
-                    </div>
-                    <div class="day-cell">
-                        <text class="day-cell-letter-dim">{{$item.dL4}}</text>
-                        <div class="day-dot-on-dim" if="{{$item.d4On}}"></div>
-                        <div class="day-dot" if="{{$item.d4Off}}"></div>
-                    </div>
-                    <div class="day-cell">
-                        <text class="day-cell-letter-dim">{{$item.dL5}}</text>
-                        <div class="day-dot-on-dim" if="{{$item.d5On}}"></div>
-                        <div class="day-dot" if="{{$item.d5Off}}"></div>
-                    </div>
-                    <div class="day-cell">
-                        <text class="day-cell-letter-dim">{{$item.dL6}}</text>
-                        <div class="day-dot-on-dim" if="{{$item.d6On}}"></div>
-                        <div class="day-dot" if="{{$item.d6Off}}"></div>
-                    </div>
+                    <text class="alarm-days-text-dim" if="{{$item.isNotRecurring}}">{{$item.daysText}}</text>
                 </div>
-                <text class="alarm-days-text-dim" if="{{$item.isNotRecurring}}">{{$item.daysText}}</text>
             </list-item>
         </list>
 

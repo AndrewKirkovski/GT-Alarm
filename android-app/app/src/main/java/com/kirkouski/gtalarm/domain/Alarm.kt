@@ -25,6 +25,14 @@ data class Alarm(
     // relative; OFF for recurring. Illegal combination: `selfDestruct == true`
     // with `daysOfWeek != 0` (enforced below + by the edit screen UI).
     val selfDestruct: Boolean = false,
+    // Snoozed-until timestamp. When non-null and in the future, the alarm
+    // is currently snoozed and `nextTriggerEpochMillis()` returns this
+    // directly instead of computing from hour/minute/daysOfWeek. Cleared
+    // when the alarm fires (snooze consumed), the user disables/edits the
+    // alarm, or the trigger is in the past. NOT serialized over the wire
+    // — local-only UI state, watch reads its own AlarmManager-equivalent
+    // for its display. Not included in the LWW hash either.
+    val snoozedUntilEpoch: Long? = null,
 ) {
     init {
         if (relativeMinutes != null) {

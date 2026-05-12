@@ -31,4 +31,7 @@ interface AlarmDao {
 
     @Query("UPDATE alarms SET enabled = :enabled, updatedAtEpoch = :stamp WHERE id = :id")
     suspend fun setEnabledStamped(id: Long, enabled: Boolean, stamp: Long)
+
+    @Query("UPDATE alarms SET snoozedUntilEpoch = :until WHERE id = :id")
+    suspend fun setSnoozedUntil(id: Long, until: Long?)
 }

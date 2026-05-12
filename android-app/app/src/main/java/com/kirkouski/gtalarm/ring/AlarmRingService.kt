@@ -86,6 +86,14 @@ class AlarmRingService : Service() {
                 stopForegroundAndSelf()
                 return@launch
             }
+            // Snooze consumed: the trigger that just fired was either the
+            // alarm's normal clock-time or its snooze-deferred trigger. Either
+            // way the snoozedUntilEpoch override no longer reflects reality —
+            // the alarm is RINGING right now, not deferred. Clear it before
+            // the UI re-renders so the list shows correct state.
+            if (alarm.snoozedUntilEpoch != null) {
+                repository.clearSnoozedUntil(alarmId)
+            }
             // Upgrade the placeholder to the real ringing notification now
             // that we have the alarm details. If anything in the upgrade or
             // ring-audio path throws, we MUST tear down the service — the
@@ -334,12 +342,16 @@ class AlarmRingService : Service() {
         // before starting phone audio. Trades up to PREARM_TIMEOUT_MS of
         // silence for both devices ringing in sync.
         //
-        // 3 s = generous for the observed cold-launch (~1 s) + JS receiver
-        // bind (~1 s) + BT round-trip (a few hundred ms), with margin.
-        // Stayed under the previous 4.5 s setting so the worst-case path
-        // (placeholder FG → upgrade → preArm → audio) finishes inside ~4 s
-        // total, far under the 10 s ANR budget for service startup.
-        private const val PREARM_TIMEOUT_MS = 3_000L
+        // 10 s — user-reported 2026-05-12: the watch occasionally takes 5–8 s
+        // to cold-launch (JS engine restart + page mount) when the app was
+        // killed several minutes ago. The 3 s budget caused the phone to ring
+        // alone in those cases. The placeholder FG was already up when the
+        // service started so the 10 s service-start ANR budget doesn't apply
+        // to this wait (it's inside `serviceScope.launch`).
+        //
+        // Pre-arm returns EARLY as soon as the watch's `alarm_ringing` reply
+        // arrives, so this is a worst-case cap, not a fixed delay.
+        private const val PREARM_TIMEOUT_MS = 10_000L
 
         // Max time to await the watch acknowledging a user-driven dismiss
         // or snooze broadcast before tearing down the service. If we don't

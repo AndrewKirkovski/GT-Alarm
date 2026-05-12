@@ -38,3 +38,16 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         db.execSQL("ALTER TABLE alarms ADD COLUMN selfDestruct INTEGER NOT NULL DEFAULT 0")
     }
 }
+
+// Adds snoozedUntilEpoch: tracks the actual next-fire moment when an alarm
+// is currently snoozed. The UI list reads this in preference to recomputing
+// from hour/minute so a snoozed one-shot doesn't display "in 23h" (the
+// next absolute occurrence of its original ring time). Cleared on fire,
+// edit, and disable. NULL means "not snoozed" — the normal case. Existing
+// rows default to NULL — pre-upgrade snoozes are lost, which is acceptable
+// since no production deploy has happened and snoozes are transient anyway.
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE alarms ADD COLUMN snoozedUntilEpoch INTEGER DEFAULT NULL")
+    }
+}

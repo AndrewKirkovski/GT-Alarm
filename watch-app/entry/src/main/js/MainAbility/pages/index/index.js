@@ -60,6 +60,10 @@ function formatRow(self, alarm) {
         id: alarm.id,
         time: pad2(alarm.hour) + ':' + pad2(alarm.minute),
         enabled: enabled,
+        // Lite Wearable if= directive does NOT coerce truthy values
+        // (gotcha #8 in memory). Expose the negation pre-computed so
+        // the disabled-row template can use `if="{{$item.notEnabled}}"`.
+        notEnabled: !enabled,
         isRecurring: isRecurring,
         // Lite Wearable's HML `if=` may not handle `!` expressions
         // reliably — expose the negation pre-computed so the template
@@ -125,21 +129,18 @@ export default {
     data: {
         title: '',
         // Single flat list — sort by enabled-first, then hour:minute.
-        // The earlier two-section split (Upcoming/Others) is replaced
-        // by per-row visual cues: green dot vs hollow grey ring for
+        // Per-row visual cues: green dot vs hollow grey ring for
         // status, dim text + dim day-dots for disabled rows. ACE Lite
         // reactivity needs full array reassignment to fire the dirty-
         // check observer; see memory:litewearable_rendering_gotchas.md.
         //
-        // `alarms` is the combined array, retained for the `if=
-        // "{{alarms.length > 0}}"` empty-check. The HML renders two
-        // separate <list-item for=> templates because Lite Wearable
-        // HML rejects class data binding (verified 2026-05-12) — so we
-        // split rows into enabledAlarms/disabledAlarms here and bind
-        // each to its own fixed-class template.
+        // HML uses ONE <list-item for=> over `alarms` and switches
+        // between an enabled wrapper and a disabled wrapper via inner
+        // if= directives (`$item.enabled` / `$item.notEnabled`). The
+        // earlier attempt to use two <list-item for=> templates inside
+        // one <list> rendered NOTHING on real GT 6 hardware — Lite
+        // Wearable apparently only honors a single per-list template.
         alarms: [],
-        enabledAlarms: [],
-        disabledAlarms: [],
         emptyText: '',
         emptyHint: '',
         lastSyncText: '',
@@ -399,8 +400,6 @@ export default {
         // in refresh() guarantees the observer sees a new identity and
         // re-evaluates the <list-item for=> binding.
         self.alarms = [];
-        self.enabledAlarms = [];
-        self.disabledAlarms = [];
         AlarmStore.setOnChange(function () {
             self.refresh();
             self.refreshInboundDiag();
@@ -448,18 +447,12 @@ export default {
             var sorted = items.slice();
             sorted.sort(compareAlarms);
             var rows = [];
-            var enabledRows = [];
-            var disabledRows = [];
+            var enabledCount = 0;
             for (var i = 0; i < sorted.length; i++) {
-                var row = formatRow(self, sorted[i]);
-                rows.push(row);
-                if (row.enabled) enabledRows.push(row);
-                else disabledRows.push(row);
+                if (sorted[i].enabled) enabledCount++;
+                rows.push(formatRow(self, sorted[i]));
             }
             self.alarms = rows;
-            self.enabledAlarms = enabledRows;
-            self.disabledAlarms = disabledRows;
-            var enabledCount = enabledRows.length;
             self.storeStatusText = 'st:' + items.length +
                 ' on:' + enabledCount + ' off:' + (items.length - enabledCount);
             Logger.i('index.refresh n=' + items.length + ' on=' + enabledCount);

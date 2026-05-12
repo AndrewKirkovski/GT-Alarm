@@ -117,6 +117,42 @@ class NextTriggerCalculatorTest {
     }
 
     @Test
+    fun `snoozedUntilEpoch overrides hour-minute when in future`() {
+        // Instant test alarm at 14:30 (today is in the past at 16:00) +
+        // snoozedUntilEpoch=now+1min. Calculator must return the snooze
+        // trigger, NOT tomorrow's 14:30 — that's the fix for the
+        // user-reported "in 23h" list display bug.
+        val now = at(2026, 4, 24, 16, 0)
+        val snoozeUntil = at(2026, 4, 24, 16, 1).toInstant().toEpochMilli()
+        val alarm = Alarm(
+            hour = 14,
+            minute = 30,
+            daysOfWeek = DaysOfWeek.NONE,
+            snoozedUntilEpoch = snoozeUntil,
+        )
+        val trigger = NextTriggerCalculator.nextTriggerEpochMillis(alarm, now)
+        assertEquals(snoozeUntil, trigger)
+    }
+
+    @Test
+    fun `snoozedUntilEpoch in past falls through to normal calculation`() {
+        // Stale snooze (alarm should have fired but didn't clear). Don't
+        // return the past snooze — fall back to the normal one-shot
+        // tomorrow path. AlarmRingService also clears the field on fire,
+        // so this guards against a missed clear.
+        val now = at(2026, 4, 24, 16, 0)
+        val stalePastSnooze = at(2026, 4, 24, 15, 0).toInstant().toEpochMilli()
+        val alarm = Alarm(
+            hour = 14,
+            minute = 30,
+            daysOfWeek = DaysOfWeek.NONE,
+            snoozedUntilEpoch = stalePastSnooze,
+        )
+        val trigger = NextTriggerCalculator.nextTriggerEpochMillis(alarm, now)
+        assertEquals(at(2026, 4, 25, 14, 30).toInstant().toEpochMilli(), trigger)
+    }
+
+    @Test
     fun `DST fall-back at 02 00 in Europe Berlin`() {
         // CEST→CET: 2026-10-25 03:00 → 02:00 (fall back). 02:30 occurs
         // twice. Either occurrence is acceptable, but the trigger must

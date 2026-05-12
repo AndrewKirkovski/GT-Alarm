@@ -902,10 +902,14 @@ class HuaweiWearBridge @Inject constructor(
         // - Once the receiver is bound, the next ping returns 202 and
         //   subsequent sends return 207 reliably.
         //
-        // 5 s timeout = 5× the observed launch time, generous for jitter
-        // (BT contention, watch CPU pressure). 400 ms poll delay catches
-        // the 201→202 transition within ~one extra poll.
-        const val PING_WAKE_TIMEOUT_MS = 5_000L
+        // 10 s timeout = 10× the observed cold-launch (~1 s) — generous
+        // headroom for BT contention, watch CPU pressure, and the
+        // occasional GT 6 Pro launch that takes 5–8 s when the app was
+        // killed minutes ago and the JS engine has to fully restart.
+        // User-reported 2026-05-12: 5 s sometimes wasn't enough.
+        // 400 ms poll delay catches the 201→202 transition within ~one
+        // extra poll.
+        const val PING_WAKE_TIMEOUT_MS = 10_000L
         const val PING_WAKE_POLL_DELAY_MS = 400L
 
         // Cache "peer is 202 RUNNING" for this long so a burst of sends
@@ -924,7 +928,13 @@ class HuaweiWearBridge @Inject constructor(
         // service-start callers (AlarmRingService pre-arm).
         const val RETRY_BACKOFF_MS = 1_000L
         const val RETRY_MAX_ATTEMPTS = 2
-        const val RETRY_TOTAL_DEADLINE_MS = 6_000L
+        // Total budget for the retry path. Two attempts × up to 10 s wake
+        // each + 1 s backoff = 21 s worst case, but most operations resolve
+        // in well under 5 s. 12 s = one full PING_WAKE attempt + a 1 s
+        // backoff + most of a second. AlarmRingService callers run inside
+        // serviceScope and don't hit the ANR window; bridge callers from
+        // BroadcastReceivers should use shorter explicit timeouts.
+        const val RETRY_TOTAL_DEADLINE_MS = 12_000L
 
         // Hash-precheck budget for forceSync. The watch responds with a
         // sync_hash envelope after computing the canonical hash of its

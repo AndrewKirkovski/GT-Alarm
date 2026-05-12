@@ -27,4 +27,7 @@ data class AlarmEntity(
     // daysOfWeek == 0; selfDestruct == true illegal with daysOfWeek != 0.
     val relativeMinutes: Int? = null,
     val selfDestruct: Boolean = false,
+    // Schema v5: snoozed-until epoch. Non-null while snoozed; cleared on
+    // fire/edit/disable so the list always reflects the actual next ring.
+    val snoozedUntilEpoch: Long? = null,
 )

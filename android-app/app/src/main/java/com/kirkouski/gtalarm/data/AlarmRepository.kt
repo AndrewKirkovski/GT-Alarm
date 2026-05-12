@@ -58,7 +58,9 @@ class AlarmRepository @Inject constructor(
     suspend fun save(alarm: Alarm): Long {
         val now = System.currentTimeMillis()
         val isNew = alarm.id == 0L
-        val stamped = alarm.copy(updatedAtEpoch = now)
+        // An edit invalidates any active snooze — the user is reconfiguring,
+        // so the previously-deferred fire time no longer makes sense.
+        val stamped = alarm.copy(updatedAtEpoch = now, snoozedUntilEpoch = null)
         val newId = dao.upsert(stamped.toEntity())
         val saved = stamped.copy(id = if (isNew) newId else stamped.id)
         if (saved.enabled) {
@@ -89,7 +91,8 @@ class AlarmRepository @Inject constructor(
     suspend fun saveLocalOnly(alarm: Alarm): Long {
         val now = System.currentTimeMillis()
         val isNew = alarm.id == 0L
-        val stamped = alarm.copy(updatedAtEpoch = now)
+        // Snooze invalidated on edit — see save() for rationale.
+        val stamped = alarm.copy(updatedAtEpoch = now, snoozedUntilEpoch = null)
         val newId = dao.upsert(stamped.toEntity())
         val saved = stamped.copy(id = if (isNew) newId else stamped.id)
         if (saved.enabled) {
@@ -141,6 +144,10 @@ class AlarmRepository @Inject constructor(
     suspend fun setEnabled(id: Long, enabled: Boolean) {
         val now = System.currentTimeMillis()
         dao.setEnabledStamped(id, enabled, now)
+        // Disabling clears any active snooze — the alarm is off, the
+        // deferred fire shouldn't display. Re-enabling later re-computes
+        // next-trigger from hour/minute, which is what the user expects.
+        if (!enabled) dao.setSnoozedUntil(id, null)
         val alarm = dao.getById(id)?.toDomain() ?: return
         if (enabled) scheduler.schedule(alarm) else scheduler.cancel(id)
         wearBridge.sendAlarmToggled(alarm)
@@ -151,6 +158,7 @@ class AlarmRepository @Inject constructor(
     suspend fun setEnabledLocalOnly(id: Long, enabled: Boolean) {
         val now = System.currentTimeMillis()
         dao.setEnabledStamped(id, enabled, now)
+        if (!enabled) dao.setSnoozedUntil(id, null)
         val alarm = dao.getById(id)?.toDomain() ?: return
         if (enabled) scheduler.schedule(alarm) else scheduler.cancel(id)
         refreshWidgets()
@@ -175,6 +183,10 @@ class AlarmRepository @Inject constructor(
         val minutes = minutesOverride ?: alarm.snoozeMinutes
         val trigger = System.currentTimeMillis() + minutes * 60_000L
         scheduler.scheduleAt(alarm, trigger)
+        // Persist the snooze trigger so the list UI shows the actual next-
+        // fire time. Cleared by AlarmRingService when the alarm fires, or
+        // by save/setEnabled(false) if the user reconfigures the alarm.
+        dao.setSnoozedUntil(id, trigger)
         wearBridge.sendAlarmSnoozed(id, trigger)
         refreshWidgets()
         Log.i(TAG, "snooze id=$id +${minutes}min trigger=$trigger")
@@ -184,9 +196,20 @@ class AlarmRepository @Inject constructor(
     suspend fun snoozeAt(id: Long, triggerEpoch: Long): Long? {
         val alarm = dao.getById(id)?.toDomain() ?: return null
         scheduler.scheduleAt(alarm, triggerEpoch)
+        dao.setSnoozedUntil(id, triggerEpoch)
         refreshWidgets()
         Log.i(TAG, "snoozeAt id=$id trigger=$triggerEpoch (from-peer)")
         return triggerEpoch
+    }
+
+    /**
+     * Clear an alarm's snooze override. Called by AlarmRingService when the
+     * alarm fires (the snooze trigger has been consumed) so the list UI
+     * goes back to displaying the next recurrence of its clock time.
+     */
+    suspend fun clearSnoozedUntil(id: Long) {
+        dao.setSnoozedUntil(id, null)
+        refreshWidgets()
     }
 
     suspend fun rescheduleAll() {
