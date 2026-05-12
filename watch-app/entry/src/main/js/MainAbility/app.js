@@ -52,8 +52,19 @@ export default {
         // showing, this closes it.
         IncomingHandler.setOnPeerEndedRing(function (alarmId) {
             Logger.i('app.peer-ended routing to index for alarmId=' + alarmId);
+            // Belt-and-suspenders: hit the vibrator with a no-arg call OR
+            // a tiny pulse to flush the current buzz. The ring page's
+            // setInterval lives on `this._vibrateTimer` and clears on
+            // onHide — but if onHide fires after the next buzz tick, the
+            // user sees one extra pulse. There's no documented
+            // vibrator.stop() on Lite Wearable; the safest signal we can
+            // send is to NOT call vibrate again (the page's clearInterval
+            // handles that). This block is currently a placeholder so a
+            // future @system.vibrator API addition has an obvious home.
+            // For now we rely on the page lifecycle.
             try {
                 router.replace({ uri: 'pages/index/index' });
+                Logger.i('app.peer-ended router.replace returned');
             } catch (e) {
                 Logger.err('app.peer-ended router.replace', e);
             }

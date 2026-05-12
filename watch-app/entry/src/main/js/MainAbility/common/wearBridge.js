@@ -312,6 +312,19 @@ export default {
         });
     },
 
+    // Confirms to the phone that the watch's ring page is up and
+    // vibrating. Phone awaits this before starting its own audio so the
+    // two devices ring in lock-step instead of phone-first / watch-late.
+    // Use retry path because losing this means the phone has to time out
+    // (3 s) before falling back to ringing alone.
+    sendRinging: function (alarmId) {
+        sendJsonWithRetry({
+            type: 'alarm_ringing',
+            alarmId: alarmId,
+            updatedAtEpoch: Date.now(),
+        }, 3, 1);
+    },
+
     // Dev-only: relay a watch-side log line to the phone so it surfaces in
     // adb logcat (Lite Wearable HiLog is hard to read from DevEco on Windows).
     // No fingerprint validation, no LWW — just envelope + send. NOT called

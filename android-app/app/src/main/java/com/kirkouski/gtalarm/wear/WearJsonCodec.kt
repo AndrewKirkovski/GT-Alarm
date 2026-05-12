@@ -31,6 +31,7 @@ internal object WearJsonCodec {
         "alarm_fired" to { id, ts, _ -> IncomingMessage.AlarmFired(id, ts) },
         "alarm_dismissed" to { id, ts, _ -> IncomingMessage.AlarmDismissed(id, ts) },
         "alarm_snoozed" to { id, ts, _ -> IncomingMessage.AlarmSnoozed(id, ts) },
+        "alarm_ringing" to { id, ts, _ -> IncomingMessage.AlarmRinging(id, ts) },
     )
 
     // reason: ReturnCount=5 covers: missing type / watch_log envelope /

@@ -169,6 +169,13 @@ class AlarmEditViewModel @Inject constructor(
     /**
      * Apply a state mutation, persist to DB, and mark the row for watch
      * flush on exit. Common path for every field-edit handler.
+     *
+     * **Note:** does NOT flip `isExistingAlarm` to true after the first
+     * edit on a new draft. The flag tracks "was this opened as an edit?"
+     * (used to gate the mode toggle and Revert vs Discard semantics) —
+     * NOT "does the row exist in the DB?" (which is determined by `id != 0`).
+     * Earlier versions conflated the two, which broke the new-draft Revert
+     * flow because openSnapshot was null but isExistingAlarm was true.
      */
     private fun applyLocal(transform: (AlarmEditUiState) -> AlarmEditUiState) {
         _state.update { transform(it).copy(dirty = true) }
@@ -179,7 +186,7 @@ class AlarmEditViewModel @Inject constructor(
                 // First mutation on a new draft assigned a row id — keep it
                 // so subsequent mutations upsert in place instead of
                 // creating duplicate rows.
-                _state.update { it.copy(id = savedId, isExistingAlarm = true) }
+                _state.update { it.copy(id = savedId) }
             }
             pendingWatchPushIds.add(savedId)
         }

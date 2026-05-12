@@ -215,7 +215,6 @@ class AlarmRingService : Service() {
 
     private fun handleDismiss(alarmId: Long, fromPeer: Boolean) {
         Log.d(TAG, "dismiss id=$alarmId fromPeer=$fromPeer")
-        if (!fromPeer) wearBridge.sendAlarmDismissed(alarmId)
         if (alarmId < 0) {
             stopForegroundAndSelf()
             return
@@ -224,9 +223,18 @@ class AlarmRingService : Service() {
         // stopForegroundAndSelf() fired in parallel with the launch,
         // so a DELETE (self-destruct) coroutine could be cancelled
         // mid-execution if the OS reaped the service — leaving a stale
-        // DB row + missing tombstone. Mirror handleSnooze's pattern:
-        // do the work first, then stop.
+        // DB row + missing tombstone.
+        //
+        // Also AWAIT the watch broadcast on user-driven dismiss. Previous
+        // fire-and-forget sendAlarmDismissed lost the message if the
+        // process got killed shortly after stopForegroundAndSelf, leaving
+        // the watch ringing. Bounded by BROADCAST_AWAIT_MS so a dead
+        // watch link doesn't hang the service.
         serviceScope.launch {
+            if (!fromPeer) {
+                val acked = wearBridge.sendAlarmDismissedAwaiting(alarmId, BROADCAST_AWAIT_MS)
+                Log.i(TAG, "dismiss broadcast id=$alarmId acked=$acked")
+            }
             val alarm = repository.getById(alarmId)
             when (dismissAction(alarm)) {
                 DismissAction.KEEP -> Unit
@@ -258,9 +266,24 @@ class AlarmRingService : Service() {
                     repository.snoozeAt(alarmId, rescheduleEpochFromPeer)
                 }
             } else {
-                // Each alarm carries its own snooze duration (see Alarm.snoozeMinutes).
-                // repository.snooze reads it when minutes is null.
-                repository.snooze(alarmId)
+                // Each alarm carries its own snooze duration. Compute the
+                // trigger ourselves so we can broadcast to the watch BEFORE
+                // tearing down the service (repository.snooze would also
+                // broadcast but as fire-and-forget — at risk of being
+                // killed mid-flight if the OS reaps the process).
+                val alarm = repository.getById(alarmId)
+                if (alarm != null) {
+                    val trigger = System.currentTimeMillis() + alarm.snoozeMinutes * 60_000L
+                    val acked = wearBridge.sendAlarmSnoozedAwaiting(
+                        alarmId,
+                        trigger,
+                        BROADCAST_AWAIT_MS,
+                    )
+                    Log.i(TAG, "snooze broadcast id=$alarmId acked=$acked trigger=$trigger")
+                    repository.snoozeAt(alarmId, trigger)
+                } else {
+                    Log.w(TAG, "snooze id=$alarmId — row missing, skipping")
+                }
             }
             stopForegroundAndSelf()
         }
@@ -271,6 +294,12 @@ class AlarmRingService : Service() {
         autoStopRunnable = null
         player?.stop()
         player = null
+        // Signal the AlarmActivity to finish itself. Critical for the
+        // peer-driven path (watch dismiss/snooze): without this, the
+        // service stops but the full-screen Activity stays on the phone
+        // until the user manually dismisses it. Emit BEFORE stopForeground
+        // so the Activity has the signal in flight as it tears down.
+        RingEndedSignal.emitRingEnded()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -300,6 +329,15 @@ class AlarmRingService : Service() {
         // (placeholder FG → upgrade → preArm → audio) finishes inside ~4 s
         // total, far under the 10 s ANR budget for service startup.
         private const val PREARM_TIMEOUT_MS = 3_000L
+
+        // Max time to await the watch acknowledging a user-driven dismiss
+        // or snooze broadcast before tearing down the service. If we don't
+        // wait, the process may be reaped before the bridge's fire-and-
+        // forget send actually delivers, leaving the watch ringing.
+        // 2 s = one BT round-trip + buffer; far under the 10 s ANR budget
+        // and short enough that the user doesn't perceive lag tapping
+        // Dismiss / Snooze.
+        private const val BROADCAST_AWAIT_MS = 2_000L
         private const val TAG = "AlarmRing"
 
         // Pure helper extracted for unit testing. Returns true iff the

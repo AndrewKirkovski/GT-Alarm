@@ -99,6 +99,41 @@ class HuaweiWearBridge @Inject constructor(
         java.util.concurrent.atomic.AtomicReference<CompletableDeferred<String>?>(null)
     private val pendingHashMutex = Mutex()
 
+    // Pending alarm_fired → alarm_ringing round-trip. AlarmRingService
+    // calls sendAlarmFiredAwaiting BEFORE starting phone audio; the watch
+    // ring page's onShow sends `alarm_ringing` back. Phone awaits that
+    // reply so phone + watch ring within ~one frame instead of phone
+    // beating watch by 500-1000ms on a cold-launch.
+    private data class PendingRing(
+        val alarmId: Long,
+        val deferred: CompletableDeferred<Unit>,
+    )
+
+    private val pendingAlarmRinging =
+        java.util.concurrent.atomic.AtomicReference<PendingRing?>(null)
+    private val pendingAlarmRingingMutex = Mutex()
+
+    /**
+     * Receiver path for `alarm_ringing`. Extracted into its own method to
+     * keep the receiver lambda's complexity in check (ComplexCondition
+     * threshold). Matches by alarmId so a stale reply from a previous
+     * fire can't satisfy a fresh pre-arm wait; compareAndSet guards
+     * against the rare race with requestPreArm's finally-clear.
+     */
+    private fun handleAlarmRinging(msg: IncomingMessage.AlarmRinging) {
+        val pending = pendingAlarmRinging.get() ?: run {
+            Log.d(TAG, "alarm_ringing id=${msg.alarmId} but no pending request — dropping")
+            return
+        }
+        val matches = pending.alarmId == msg.alarmId && !pending.deferred.isCompleted
+        if (matches && pendingAlarmRinging.compareAndSet(pending, null)) {
+            pending.deferred.complete(Unit)
+            Log.i(TAG, "alarm_ringing received id=${msg.alarmId} — watch ring confirmed")
+            return
+        }
+        Log.d(TAG, "alarm_ringing id=${msg.alarmId} mismatched pending (got ${pending.alarmId}) — dropping")
+    }
+
     private val receiver: Receiver = Receiver { message ->
         val bytes = message.data ?: return@Receiver
         val parent = attachJob ?: return@Receiver
@@ -123,6 +158,15 @@ class HuaweiWearBridge @Inject constructor(
                     Log.d(TAG, "sync-check response received hash=${parsed.hash}")
                     return@launch
                 }
+            }
+            // AlarmRinging: watch confirms its ring UI is on. Match
+            // alarmId before claiming the deferred so a stale reply from a
+            // prior fire can't accidentally satisfy a fresh pre-arm wait.
+            // compareAndSet ensures we don't clobber a concurrent timeout-
+            // finally's clear.
+            if (parsed is IncomingMessage.AlarmRinging) {
+                handleAlarmRinging(parsed)
+                return@launch
             }
             incomingHandler?.handle(parsed)
         }
@@ -167,9 +211,18 @@ class HuaweiWearBridge @Inject constructor(
         })
     }
 
-    // Pre-arm path: bounded-wait variant of sendAlarmFired. AlarmRingService
-    // calls this BEFORE starting audio so phone+watch ring together; if the
-    // watch isn't reachable within timeoutMs we ring on phone alone.
+    // Pre-arm path: send alarm_fired then AWAIT the watch's `alarm_ringing`
+    // reply. Returns true iff the watch's ring page has actually rendered
+    // (its onShow handler is what sends alarm_ringing). The phone uses
+    // this to start its own audio in lock-step with the watch instead of
+    // beating the watch by ~500-1000ms on cold-launches (the gap was
+    // ping-wake + JS engine startup + page mount, all opaque to the phone
+    // before this reply existed).
+    //
+    // Falls back to false on timeout — caller (AlarmRingService) rings
+    // on phone alone, the watch ring will catch up when its app does
+    // launch and re-emit `alarm_ringing` (we drop that late reply via
+    // the receiver's "no pending match" path).
     override suspend fun sendAlarmFiredAwaiting(alarmId: Long, timeoutMs: Long): Boolean {
         val now = System.currentTimeMillis()
         if (!validateStamp("sendAlarmFiredAwaiting", now)) return false
@@ -178,11 +231,37 @@ class HuaweiWearBridge @Inject constructor(
             put("alarmId", alarmId)
             put("updatedAtEpoch", now)
         }
-        return kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
-            performSend(envelope, retryOnError = true)
-        } ?: run {
-            Log.w(TAG, "sendAlarmFiredAwaiting timed out after ${timeoutMs}ms id=$alarmId")
-            false
+        return pendingAlarmRingingMutex.withLock {
+            val deferred = CompletableDeferred<Unit>()
+            pendingAlarmRinging.set(PendingRing(alarmId, deferred))
+            try {
+                val outcome = withTimeoutOrNull(timeoutMs) {
+                    val sent = performSend(envelope, retryOnError = true)
+                    if (!sent) {
+                        Log.w(TAG, "sendAlarmFiredAwaiting: alarm_fired send failed id=$alarmId")
+                        return@withTimeoutOrNull false
+                    }
+                    deferred.await()
+                    true
+                }
+                if (outcome == null) {
+                    Log.w(
+                        TAG,
+                        "sendAlarmFiredAwaiting timed out after ${timeoutMs}ms id=$alarmId — " +
+                            "ringing phone alone",
+                    )
+                    false
+                } else {
+                    outcome
+                }
+            } finally {
+                // Only clear if this is still our pending entry. A concurrent
+                // race (multiple fires?) shouldn't happen given the mutex,
+                // but defense in depth.
+                pendingAlarmRinging.updateAndGet { current ->
+                    if (current?.deferred === deferred) null else current
+                }
+            }
         }
     }
 
@@ -197,6 +276,28 @@ class HuaweiWearBridge @Inject constructor(
         sendJson(envelope, retryOnError = true)
     }
 
+    // Suspending dismiss: wait up to timeoutMs for the watch to ACK the
+    // P2P send (onSendResult=207). Used by AlarmRingService.handleDismiss
+    // to make sure the watch heard us BEFORE the service tears down —
+    // earlier the service stopped, the process could be killed by the
+    // OS within seconds, and any in-flight broadcast got dropped (leaving
+    // the watch still ringing).
+    override suspend fun sendAlarmDismissedAwaiting(alarmId: Long, timeoutMs: Long): Boolean {
+        val now = System.currentTimeMillis()
+        if (!validateStamp("sendAlarmDismissedAwaiting", now)) return false
+        val envelope = JSONObject().apply {
+            put("type", "alarm_dismissed")
+            put("alarmId", alarmId)
+            put("updatedAtEpoch", now)
+        }
+        return withTimeoutOrNull(timeoutMs) {
+            performSend(envelope, retryOnError = true)
+        } ?: run {
+            Log.w(TAG, "sendAlarmDismissedAwaiting timed out id=$alarmId after ${timeoutMs}ms")
+            false
+        }
+    }
+
     override fun sendAlarmSnoozed(alarmId: Long, rescheduleEpoch: Long) {
         val now = System.currentTimeMillis()
         if (!validateStamp("sendAlarmSnoozed", now)) return
@@ -207,6 +308,30 @@ class HuaweiWearBridge @Inject constructor(
             put("rescheduleEpoch", rescheduleEpoch)
         }
         sendJson(envelope, retryOnError = true)
+    }
+
+    // Suspending snooze: same rationale as sendAlarmDismissedAwaiting —
+    // the watch's ring page must hear about the snooze before the phone
+    // service shuts down, or the watch keeps ringing.
+    override suspend fun sendAlarmSnoozedAwaiting(
+        alarmId: Long,
+        rescheduleEpoch: Long,
+        timeoutMs: Long,
+    ): Boolean {
+        val now = System.currentTimeMillis()
+        if (!validateStamp("sendAlarmSnoozedAwaiting", now)) return false
+        val envelope = JSONObject().apply {
+            put("type", "alarm_snoozed")
+            put("alarmId", alarmId)
+            put("updatedAtEpoch", now)
+            put("rescheduleEpoch", rescheduleEpoch)
+        }
+        return withTimeoutOrNull(timeoutMs) {
+            performSend(envelope, retryOnError = true)
+        } ?: run {
+            Log.w(TAG, "sendAlarmSnoozedAwaiting timed out id=$alarmId after ${timeoutMs}ms")
+            false
+        }
     }
 
     override fun setIncomingHandler(handler: IncomingMessageHandler?) {

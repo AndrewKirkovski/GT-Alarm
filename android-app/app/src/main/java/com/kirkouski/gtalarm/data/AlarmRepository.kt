@@ -291,6 +291,13 @@ class AlarmRepository @Inject constructor(
             daysOfWeek = 0,
             enabled = true,
             updatedAtEpoch = now,
+            // Match the 1-minute fire cadence so test snooze loops at the
+            // same fast tempo. Default 10-min snooze makes the dev loop
+            // unusable — user would tap snooze and wait 10 min to verify.
+            snoozeMinutes = Alarm.MIN_SNOOZE_MINUTES,
+            // Self-destruct so the row vanishes after dismiss instead of
+            // accumulating disabled "Debug 1-min fire" rows in the list.
+            selfDestruct = true,
         )
         val newId = dao.upsert(draft.toEntity())
         val saved = draft.copy(id = newId)

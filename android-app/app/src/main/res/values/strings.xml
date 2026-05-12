@@ -68,6 +68,7 @@
     <!-- reason: reverse-save edit model strings (Revert + discard + delete
          confirm). Translations land in a follow-up; tools:ignore silences
          the lint until then. -->
+    <string name="action_save" tools:ignore="MissingTranslation">Save</string>
     <string name="action_revert" tools:ignore="MissingTranslation">Revert</string>
     <string name="delete_alarm_confirm_body" tools:ignore="MissingTranslation">Delete this alarm? This can\'t be undone.</string>
     <string name="discard_draft_title" tools:ignore="MissingTranslation">Discard new alarm?</string>

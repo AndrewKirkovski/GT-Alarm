@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
@@ -171,28 +172,44 @@ fun AlarmEditScreen(
                     }
                 },
                 actions = {
-                    // Revert: only meaningful for existing alarms that have
-                    // been mutated. Hidden otherwise to keep the top bar tidy.
-                    if (state.isExistingAlarm && state.dirty) {
-                        IconButton(onClick = { vm.revert() }) {
+                    // Revert button: shown when there are unsaved changes
+                    // since the screen opened. Semantics depend on source:
+                    //   existing dirty → restore openSnapshot, stay on screen
+                    //   new draft dirty → confirm discard, delete row + exit
+                    // Both flows are non-destructive of explicitly-final
+                    // state: existing edits can be redone; the new draft's
+                    // only consumer is the user who's about to throw it away.
+                    if (state.dirty) {
+                        IconButton(onClick = {
+                            if (isNewDraft) showDiscardConfirm = true else vm.revert()
+                        }) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.Undo,
                                 contentDescription = stringResource(R.string.action_revert),
                             )
                         }
                     }
-                    // Destructive: confirm on existing alarms (real delete),
-                    // confirm on new drafts (discard the in-progress row).
-                    // Same dialog pattern, different copy.
-                    if (state.id != 0L) {
-                        IconButton(onClick = {
-                            if (isNewDraft) showDiscardConfirm = true else showDeleteConfirm = true
-                        }) {
+                    // Delete (existing alarms only): confirms then deletes
+                    // the row + writes a tombstone. New drafts use Revert
+                    // (above) for the same outcome — no second destructive
+                    // affordance needed.
+                    if (state.isExistingAlarm) {
+                        IconButton(onClick = { showDeleteConfirm = true }) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = stringResource(R.string.delete),
                             )
                         }
+                    }
+                    // Save: visually reassuring "commit" affordance. Does
+                    // exactly the same as the X button or system back — the
+                    // reverse-save model has already persisted every edit;
+                    // this just flushes the pending watch push and exits.
+                    IconButton(onClick = exit) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = stringResource(R.string.action_save),
+                        )
                     }
                 },
             )

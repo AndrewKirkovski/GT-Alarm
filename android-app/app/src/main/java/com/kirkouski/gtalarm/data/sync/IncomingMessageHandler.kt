@@ -40,7 +40,9 @@ class IncomingMessageHandler @Inject constructor(
     // Each branch maps to a distinct wire-format type that has to be
     // dispatched; splitting into helpers per-type adds files without
     // changing logic.
-    @Suppress("CyclomaticComplexMethod")
+    // ReturnCount=4: WatchLog / SyncHash / AlarmRinging / bad-epoch — each
+    // is a structurally distinct early-out with its own diagnostic log.
+    @Suppress("CyclomaticComplexMethod", "ReturnCount")
     suspend fun handle(msg: IncomingMessage) {
         // WatchLog is the dev-only log relay — surface to logcat under its
         // own tag and exit. It legitimately carries `updatedAtEpoch` = ts
@@ -59,6 +61,14 @@ class IncomingMessageHandler @Inject constructor(
         // letting it fail the updatedAtEpoch=0 validation below.
         if (msg is IncomingMessage.SyncHash) {
             Log.d(TAG, "received SyncHash after timeout (hash=${msg.hash}) — dropping")
+            return
+        }
+        // AlarmRinging is intercepted by HuaweiWearBridge to satisfy the
+        // pre-arm wait. If it reaches the handler the pre-arm had already
+        // timed out (or there was no pending pre-arm — e.g. the watch is
+        // self-firing and notifying us as a courtesy). Log + drop.
+        if (msg is IncomingMessage.AlarmRinging) {
+            Log.d(TAG, "received AlarmRinging id=${msg.alarmId} after pre-arm window — dropping")
             return
         }
         if (msg.updatedAtEpoch <= 0L) {

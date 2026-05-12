@@ -89,6 +89,18 @@ export default {
 
     onShow: function () {
         Logger.i('ring.onShow alarmId=' + this.alarmId);
+        // Tell the phone our ring UI is up. Phone awaits this reply
+        // before starting its own audio so the two devices ring in
+        // sync. Fire-and-retry — phone falls back to ringing alone if
+        // we don't reach it within its 3 s window.
+        var idNum = Number(this.alarmId);
+        if (isFinite(idNum) && idNum > 0) {
+            try {
+                WearBridge.sendRinging(idNum);
+            } catch (e) {
+                Logger.err('ring.sendRinging', e);
+            }
+        }
         function buzz() {
             try {
                 if (vibrator && typeof vibrator.vibrate === 'function') {

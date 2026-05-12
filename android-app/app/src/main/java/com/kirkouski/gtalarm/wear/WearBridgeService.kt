@@ -13,6 +13,12 @@ import kotlinx.coroutines.flow.StateFlow
  * the send when the stamp is below an NTP-sane threshold rather than crash
  * the caller.
  */
+// reason: function count grew past 11 with the suspending pre-arm /
+// dismiss / snooze variants (each needed separately so AlarmRingService
+// can await delivery before tearing down). Splitting into a base
+// interface + a "synchronized" addendum would smear the same fan-out
+// across more types without changing logic.
+@Suppress("TooManyFunctions")
 interface WearBridgeService {
     /** UI-observable connection-state stream. */
     val statusFlow: StateFlow<WatchSyncStatus>
@@ -34,13 +40,32 @@ interface WearBridgeService {
     fun sendAlarmSnoozed(alarmId: Long, rescheduleEpoch: Long)
 
     /**
-     * Suspend variant of [sendAlarmFired] that awaits delivery up to
-     * [timeoutMs]. Returns true iff a 207 (COMM_SUCCESS) result came back
-     * within the budget. Used by AlarmRingService to pre-arm the watch
-     * BEFORE the phone starts audio — keeps the two devices ringing
-     * in sync instead of phone-first, watch-late.
+     * Pre-arm: send `alarm_fired` then await the watch's `alarm_ringing`
+     * reply. Returns true iff the watch's ring page has actually rendered
+     * within [timeoutMs] (its onShow handler sends `alarm_ringing` back).
+     * Used by AlarmRingService to start phone audio in lock-step with
+     * the watch — without this, the phone beats the watch by 500-1000ms
+     * on cold launches because P2P send ACK happens before the watch's
+     * JS engine has finished starting + mounting the ring page.
+     *
+     * Returns false on timeout / send failure / no paired watch.
      */
     suspend fun sendAlarmFiredAwaiting(alarmId: Long, timeoutMs: Long): Boolean
+
+    /**
+     * Suspending dismiss: waits up to [timeoutMs] for the watch to ACK
+     * the P2P send (207=COMM_SUCCESS). Used by AlarmRingService so the
+     * service doesn't tear down (and risk process-kill) before the watch
+     * has heard about the dismiss — otherwise the watch keeps ringing.
+     */
+    suspend fun sendAlarmDismissedAwaiting(alarmId: Long, timeoutMs: Long): Boolean
+
+    /** Same rationale as [sendAlarmDismissedAwaiting] but for snooze. */
+    suspend fun sendAlarmSnoozedAwaiting(
+        alarmId: Long,
+        rescheduleEpoch: Long,
+        timeoutMs: Long,
+    ): Boolean
 
     /** Receive-side seam. Pass `null` to detach. */
     fun setIncomingHandler(handler: IncomingMessageHandler?)

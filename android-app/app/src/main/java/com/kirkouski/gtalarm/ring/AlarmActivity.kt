@@ -33,7 +33,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.data.AlarmRepository
 import com.kirkouski.gtalarm.domain.Alarm
@@ -57,6 +59,22 @@ class AlarmActivity : ComponentActivity() {
             TAG,
             "onCreate id=$alarmId locked=${km?.isKeyguardLocked} secure=${km?.isKeyguardSecure}",
         )
+
+        // Close this Activity whenever the ringing service stops, regardless
+        // of source (phone tap, watch peer-end, auto-stop, self-destruct
+        // DELETE). The replayCache means we'd also see prior emissions —
+        // filter against `createdAtEpoch` so a stale signal from an earlier
+        // ring doesn't immediately finish a newly-started Activity.
+        val createdAtEpoch = System.currentTimeMillis()
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                RingEndedSignal.events.collect { endedAt ->
+                    if (endedAt < createdAtEpoch) return@collect
+                    Log.i(TAG, "ring-ended signal received endedAt=$endedAt — finishing")
+                    finishAndRemoveTask()
+                }
+            }
+        }
 
         setContent {
             var alarm by remember { mutableStateOf<Alarm?>(null) }

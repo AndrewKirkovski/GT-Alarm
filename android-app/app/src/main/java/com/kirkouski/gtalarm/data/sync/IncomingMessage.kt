@@ -74,4 +74,15 @@ sealed class IncomingMessage {
         override val updatedAtEpoch: Long,
         val hash: String,
     ) : IncomingMessage()
+
+    // Watch's reply to a phone-originated `alarm_fired`. Sent from the
+    // ring page's onShow handler — confirms the watch's ring UI is
+    // visible and vibrating. HuaweiWearBridge intercepts this for the
+    // pre-arm coordinator so the phone can wait for the watch to be
+    // actually ringing before starting its own audio (otherwise phone
+    // rings ~500-1000ms before watch on a cold-launch).
+    data class AlarmRinging(
+        override val alarmId: Long,
+        override val updatedAtEpoch: Long,
+    ) : IncomingMessage()
 }
