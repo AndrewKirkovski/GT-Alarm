@@ -219,17 +219,20 @@ class AlarmRingService : Service() {
             stopForegroundAndSelf()
             return
         }
-        // AWAIT the dismiss action before stopping. Earlier the
-        // stopForegroundAndSelf() fired in parallel with the launch,
-        // so a DELETE (self-destruct) coroutine could be cancelled
-        // mid-execution if the OS reaped the service — leaving a stale
-        // DB row + missing tombstone.
-        //
-        // Also AWAIT the watch broadcast on user-driven dismiss. Previous
-        // fire-and-forget sendAlarmDismissed lost the message if the
-        // process got killed shortly after stopForegroundAndSelf, leaving
-        // the watch ringing. Bounded by BROADCAST_AWAIT_MS so a dead
-        // watch link doesn't hang the service.
+        // Stop audio + vibration NOW for instant user feedback. We still
+        // need to keep the service alive a bit longer to:
+        //  (1) AWAIT the watch broadcast so the watch stops ringing too
+        //      (fire-and-forget was vulnerable to mid-flight process kill)
+        //  (2) AWAIT the dismiss action coroutine so a DELETE
+        //      (self-destruct) row + tombstone actually commits before
+        //      the OS reaps us.
+        // The notification stays up for those ~2s in the worst case but
+        // there's no audible cost.
+        player?.stop()
+        player = null
+        autoStopRunnable?.let { mainHandler.removeCallbacks(it) }
+        autoStopRunnable = null
+
         serviceScope.launch {
             if (!fromPeer) {
                 val acked = wearBridge.sendAlarmDismissedAwaiting(alarmId, BROADCAST_AWAIT_MS)
@@ -260,6 +263,14 @@ class AlarmRingService : Service() {
 
     private fun handleSnooze(alarmId: Long, fromPeer: Boolean, rescheduleEpochFromPeer: Long) {
         Log.d(TAG, "snooze id=$alarmId fromPeer=$fromPeer reschedule=$rescheduleEpochFromPeer")
+        // Stop audio + vibration NOW (same rationale as handleDismiss) —
+        // no user wants a snooze tap that keeps the alarm playing for
+        // another 2s while the watch ACK arrives.
+        player?.stop()
+        player = null
+        autoStopRunnable?.let { mainHandler.removeCallbacks(it) }
+        autoStopRunnable = null
+
         serviceScope.launch {
             if (fromPeer) {
                 if (rescheduleEpochFromPeer > 0L) {

@@ -7,46 +7,104 @@ import Logger from '../../common/logger.js';
 
 var DAY_BITS = [1, 2, 4, 8, 16, 32, 64];
 
+// Display order for the day-dot grid. Indexed slot 0..6 ↔ DAY_BITS[i].
+// Monday-first per user pref (task #68 will make this configurable);
+// for now hardcoded to Mon Tue Wed Thu Fri Sat Sun → bits 2,4,8,16,32,64,1.
+var DAY_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+
 function pad2(n) {
     return (n < 10 ? '0' : '') + n;
 }
 
-function daysSummary(self, alarm) {
-    // Three one-shot labels:
-    //   - "Timer"   — relative ("in N min") origin. Detected via the
-    //                 presence of relativeMinutes on the wire (Task #47
-    //                 will start sending it; until then this branch is
-    //                 inert and all relative alarms show "One-off").
-    //   - "One-off" — one-shot absolute with self-destruct (fire once
-    //                 then vanish). Auto-delete is the distinguishing
-    //                 feature.
-    //   - "Once"    — plain one-shot, persists in list after firing as a
-    //                 re-arm-able template.
-    if (alarm.daysOfWeek === 0 && alarm.relativeMinutes) return self.repeatTimer;
-    if (alarm.daysOfWeek === 0 && alarm.selfDestruct) return self.repeatOneOff;
-    if (!alarm.daysOfWeek || alarm.daysOfWeek === 0) return self.repeatOnce;
-    if (alarm.daysOfWeek === 127) return self.repeatAll;
-    if (alarm.daysOfWeek === 62) return self.repeatWeekdays; // Mo-Fr
-    if (alarm.daysOfWeek === 65) return self.repeatWeekends; // Sun+Sat
-    var labels = [self.d0, self.d1, self.d2, self.d3, self.d4, self.d5, self.d6];
-    var out = [];
-    for (var i = 0; i < 7; i++) {
-        if ((alarm.daysOfWeek & DAY_BITS[i]) !== 0) out.push(labels[i]);
-    }
-    return out.join(' ');
+/**
+ * Build the text label for a non-recurring alarm. Three flavors:
+ *   "Timer"   — relative ("in N min") origin
+ *   "One-off" — absolute one-shot with selfDestruct (auto-delete)
+ *   "Once"    — plain one-shot, persists in list after firing
+ * Recurring alarms (daysOfWeek != 0) use the dot grid instead, so this
+ * is only consulted in the non-recurring branch.
+ */
+function nonRecurringLabel(self, alarm) {
+    if (alarm.relativeMinutes) return self.repeatTimer;
+    if (alarm.selfDestruct) return self.repeatOneOff;
+    return self.repeatOnce;
 }
 
+/**
+ * Build the per-row state for the HML binding. All class names are
+ * computed in JS so the HML stays a flat tree — Lite Wearable's class
+ * binding accepts a plain string per element, no compound expressions.
+ */
 function formatRow(self, alarm) {
+    var enabled = !!alarm.enabled;
+    var isRecurring = !!alarm.daysOfWeek && alarm.daysOfWeek !== 0;
+    var daysText = isRecurring ? '' : nonRecurringLabel(self, alarm);
+
+    // 7 day-dot booleans in display order (Monday-first per user pref,
+    // see DAY_DISPLAY_ORDER + task #68). dN points at the bit slot
+    // visible in column N; the HML template binds dNOn / dNOff.
+    var dayBits = [false, false, false, false, false, false, false];
+    for (var i = 0; i < 7; i++) {
+        var bitIdx = DAY_DISPLAY_ORDER[i];
+        dayBits[i] = (alarm.daysOfWeek & DAY_BITS[bitIdx]) !== 0;
+    }
+
+    // Single-char letter labels for the dot grid. Pulled from the
+    // localized 2-char day names via charAt(0) so we get "M T W T F S S"
+    // in English, "Пн Вт Ср..." → "П В С..." in Russian, etc. Stored
+    // per-row because templates inside <list-item for=> may not see
+    // parent-scope variables reliably on ACE Lite.
+    var dayLetters = letterArrayFromSelf(self);
+
     return {
         id: alarm.id,
         time: pad2(alarm.hour) + ':' + pad2(alarm.minute),
-        daysText: daysSummary(self, alarm),
-        enabled: !!alarm.enabled,
-        // Class hints for the HML — let the row use a distinct color cue
-        // for timers (relative origin). Lit only when the relativeMinutes
-        // field is present in the wire payload (Task #47).
-        isTimer: alarm.daysOfWeek === 0 && !!alarm.relativeMinutes,
+        enabled: enabled,
+        isRecurring: isRecurring,
+        // Lite Wearable's HML `if=` may not handle `!` expressions
+        // reliably — expose the negation pre-computed so the template
+        // can just bind a boolean field.
+        isNotRecurring: !isRecurring,
+        daysText: daysText,
+        d0On: dayBits[0], d0Off: !dayBits[0],
+        d1On: dayBits[1], d1Off: !dayBits[1],
+        d2On: dayBits[2], d2Off: !dayBits[2],
+        d3On: dayBits[3], d3Off: !dayBits[3],
+        d4On: dayBits[4], d4Off: !dayBits[4],
+        d5On: dayBits[5], d5Off: !dayBits[5],
+        d6On: dayBits[6], d6Off: !dayBits[6],
+        dL0: dayLetters[0], dL1: dayLetters[1], dL2: dayLetters[2],
+        dL3: dayLetters[3], dL4: dayLetters[4], dL5: dayLetters[5],
+        dL6: dayLetters[6],
     };
+}
+
+/**
+ * Single-char letter labels in DAY_DISPLAY_ORDER. Pulled from the
+ * localized 2-char day strings via charAt(0). Used by formatRow to
+ * decorate each dot in the grid; recomputed per row (cheap — 7 chars
+ * per call) for template-scope safety on ACE Lite.
+ */
+function letterArrayFromSelf(self) {
+    var twoChar = [self.d0, self.d1, self.d2, self.d3, self.d4, self.d5, self.d6];
+    var out = ['', '', '', '', '', '', ''];
+    for (var i = 0; i < 7; i++) {
+        var idx = DAY_DISPLAY_ORDER[i];
+        var label = twoChar[idx] || '';
+        out[i] = label.length > 0 ? label.charAt(0) : '';
+    }
+    return out;
+}
+
+/**
+ * Compare two alarms for the flat list sort. Enabled rows come first
+ * (true < false in our DESC convention here), then by hour:minute
+ * ascending so the soonest in the day shows on top.
+ */
+function compareAlarms(a, b) {
+    if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+    if (a.hour !== b.hour) return a.hour - b.hour;
+    return a.minute - b.minute;
 }
 
 function formatLastSync(self, epoch) {
@@ -66,18 +124,25 @@ function formatLastSync(self, epoch) {
 export default {
     data: {
         title: '',
-        // Two-section list per spec: Upcoming = enabled alarms, Others =
-        // disabled. Split here so the HML can render two <list> blocks
-        // bound to separate arrays without filter-in-template logic.
-        // ACE Lite reactivity needs full array reassignment on update;
-        // see memory:litewearable_rendering_gotchas.md.
-        upcomingAlarms: [],
-        othersAlarms: [],
+        // Single flat list — sort by enabled-first, then hour:minute.
+        // The earlier two-section split (Upcoming/Others) is replaced
+        // by per-row visual cues: green dot vs hollow grey ring for
+        // status, dim text + dim day-dots for disabled rows. ACE Lite
+        // reactivity needs full array reassignment to fire the dirty-
+        // check observer; see memory:litewearable_rendering_gotchas.md.
+        //
+        // `alarms` is the combined array, retained for the `if=
+        // "{{alarms.length > 0}}"` empty-check. The HML renders two
+        // separate <list-item for=> templates because Lite Wearable
+        // HML rejects class data binding (verified 2026-05-12) — so we
+        // split rows into enabledAlarms/disabledAlarms here and bind
+        // each to its own fixed-class template.
+        alarms: [],
+        enabledAlarms: [],
+        disabledAlarms: [],
         emptyText: '',
         emptyHint: '',
         lastSyncText: '',
-        sectionUpcoming: '',
-        sectionOthers: '',
         editOnPhoneToast: '',
         // Localized "Timer" label for relative ("in N min") alarms.
         // ORIGIN-based, not behavior-based — a relative alarm with
@@ -144,8 +209,6 @@ export default {
         this.repeatWeekends = this.$t('strings.repeat_weekends');
         this.repeatTimer = this.$t('strings.repeat_timer');
         this.repeatOneOff = this.$t('strings.repeat_oneoff');
-        this.sectionUpcoming = this.$t('strings.section_upcoming');
-        this.sectionOthers = this.$t('strings.section_others');
         this.editOnPhoneToast = this.$t('strings.edit_on_phone');
         this.d0 = this.$t('strings.day_sun');
         this.d1 = this.$t('strings.day_mon');
@@ -330,13 +393,14 @@ export default {
         var self = this;
         // Force a fresh array reference BEFORE refresh fills it. ACE Lite
         // page state survives router.replace navigation — if we came back
-        // from ring.js, `self.upcomingAlarms` may still hold stale rows
-        // from the prior visit, AND the dirty-check observer may be wired
-        // to the OLD array reference. Clearing now and reassigning a fresh
-        // array in refresh() guarantees the observer sees a new identity
-        // and re-evaluates the <list-item for=> binding.
-        self.upcomingAlarms = [];
-        self.othersAlarms = [];
+        // from ring.js, `self.alarms` may still hold stale rows from the
+        // prior visit, AND the dirty-check observer may be wired to the
+        // OLD array reference. Clearing now and reassigning a fresh array
+        // in refresh() guarantees the observer sees a new identity and
+        // re-evaluates the <list-item for=> binding.
+        self.alarms = [];
+        self.enabledAlarms = [];
+        self.disabledAlarms = [];
         AlarmStore.setOnChange(function () {
             self.refresh();
             self.refreshInboundDiag();
@@ -377,22 +441,28 @@ export default {
             // Vue 2-style array-mutator hooks. Full reassignment of a new
             // array reference is required for the dirty-check to fire.
             // See memory:litewearable_rendering_gotchas.md "Data reactivity".
-            var upcoming = [];
-            var others = [];
-            for (var i = 0; i < items.length; i++) {
-                var row = formatRow(self, items[i]);
-                if (row.enabled) {
-                    upcoming.push(row);
-                } else {
-                    others.push(row);
-                }
+            //
+            // Sort enabled-first for visual scanability. Disabled rows
+            // appear at the bottom dimmed; the status-dot tells the user
+            // the state at a glance.
+            var sorted = items.slice();
+            sorted.sort(compareAlarms);
+            var rows = [];
+            var enabledRows = [];
+            var disabledRows = [];
+            for (var i = 0; i < sorted.length; i++) {
+                var row = formatRow(self, sorted[i]);
+                rows.push(row);
+                if (row.enabled) enabledRows.push(row);
+                else disabledRows.push(row);
             }
-            self.upcomingAlarms = upcoming;
-            self.othersAlarms = others;
+            self.alarms = rows;
+            self.enabledAlarms = enabledRows;
+            self.disabledAlarms = disabledRows;
+            var enabledCount = enabledRows.length;
             self.storeStatusText = 'st:' + items.length +
-                ' up:' + upcoming.length + ' ot:' + others.length;
-            Logger.i('index.refresh up=' + upcoming.length +
-                ' ot=' + others.length);
+                ' on:' + enabledCount + ' off:' + (items.length - enabledCount);
+            Logger.i('index.refresh n=' + items.length + ' on=' + enabledCount);
         });
         AlarmStore.getLastSyncEpoch(function (epoch) {
             self.lastSyncText = formatLastSync(self, epoch);

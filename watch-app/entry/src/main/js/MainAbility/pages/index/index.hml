@@ -1,55 +1,116 @@
 <stack class="container">
     <div class="content">
-        <text class="title">{{title}} · {{buildTag}}</text>
+        <text class="title">{{title}}</text>
 
-        <!-- Diagnostic strip, kept compact. PING button stays as a small
-             button so we can re-verify P2P after firmware updates without
-             rebuilding. Remaining diag lines collapse into the bottom strip
-             after the alarm list. -->
+        <!-- Diagnostic PING button — temporary. -->
         <div class="btn btn-ping" onclick="onPingPhone">
             <text class="btn-ping-text">PING PHONE</text>
         </div>
 
-        <!-- Upcoming section: enabled alarms. ACE Lite list directive
-             requires for= on a single list-item; section header is rendered
-             as a separate non-interactive list-item with display:none on
-             the switch slot. Section blocks are hidden when empty so a
-             single non-empty section doesn't leave a stranded header. -->
-        <list class="alarm-list" if="{{upcomingAlarms.length > 0}}">
-            <list-item class="alarm-section">
-                <text class="alarm-section-text">{{sectionUpcoming}}</text>
-            </list-item>
-            <list-item class="alarm-row" for="{{upcomingAlarms}}" tid="id"
+        <!-- Flat alarm list. Two <list-item> templates: enabled (green
+             dot, white text, indigo day-dots) and disabled (grey ring,
+             dim text, muted day-dots). Lite Wearable HML doesn't allow
+             class= data binding (verified 2026-05-12) — per-row
+             variants are achieved by switching templates rather than
+             switching classes.
+
+             Each day cell is letter-on-top + dot-below; letters from
+             self.dL0..dL6 (single-char of localized day labels). -->
+        <list class="alarm-list" if="{{alarms.length > 0}}">
+            <list-item class="alarm-row" for="{{enabledAlarms}}" tid="id"
                        onclick="onRowTap({{$item.id}})">
-                <div class="alarm-row-text">
-                    <text class="alarm-time">{{$item.time}}</text>
-                    <text class="alarm-days" if="{{$item.daysText}}">{{$item.daysText}}</text>
+                <div class="status-dot"></div>
+                <text class="alarm-time">{{$item.time}}</text>
+                <div class="alarm-days-grid" if="{{$item.isRecurring}}">
+                    <div class="day-cell">
+                        <text class="day-cell-letter">{{$item.dL0}}</text>
+                        <div class="day-dot-on" if="{{$item.d0On}}"></div>
+                        <div class="day-dot" if="{{$item.d0Off}}"></div>
+                    </div>
+                    <div class="day-cell">
+                        <text class="day-cell-letter">{{$item.dL1}}</text>
+                        <div class="day-dot-on" if="{{$item.d1On}}"></div>
+                        <div class="day-dot" if="{{$item.d1Off}}"></div>
+                    </div>
+                    <div class="day-cell">
+                        <text class="day-cell-letter">{{$item.dL2}}</text>
+                        <div class="day-dot-on" if="{{$item.d2On}}"></div>
+                        <div class="day-dot" if="{{$item.d2Off}}"></div>
+                    </div>
+                    <div class="day-cell">
+                        <text class="day-cell-letter">{{$item.dL3}}</text>
+                        <div class="day-dot-on" if="{{$item.d3On}}"></div>
+                        <div class="day-dot" if="{{$item.d3Off}}"></div>
+                    </div>
+                    <div class="day-cell">
+                        <text class="day-cell-letter">{{$item.dL4}}</text>
+                        <div class="day-dot-on" if="{{$item.d4On}}"></div>
+                        <div class="day-dot" if="{{$item.d4Off}}"></div>
+                    </div>
+                    <div class="day-cell">
+                        <text class="day-cell-letter">{{$item.dL5}}</text>
+                        <div class="day-dot-on" if="{{$item.d5On}}"></div>
+                        <div class="day-dot" if="{{$item.d5Off}}"></div>
+                    </div>
+                    <div class="day-cell">
+                        <text class="day-cell-letter">{{$item.dL6}}</text>
+                        <div class="day-dot-on" if="{{$item.d6On}}"></div>
+                        <div class="day-dot" if="{{$item.d6Off}}"></div>
+                    </div>
                 </div>
+                <text class="alarm-days-text" if="{{$item.isNotRecurring}}">{{$item.daysText}}</text>
+            </list-item>
+
+            <list-item class="alarm-row-dim" for="{{disabledAlarms}}" tid="id"
+                       onclick="onRowTap({{$item.id}})">
+                <div class="status-dot-off"></div>
+                <text class="alarm-time-dim">{{$item.time}}</text>
+                <div class="alarm-days-grid" if="{{$item.isRecurring}}">
+                    <div class="day-cell">
+                        <text class="day-cell-letter-dim">{{$item.dL0}}</text>
+                        <div class="day-dot-on-dim" if="{{$item.d0On}}"></div>
+                        <div class="day-dot" if="{{$item.d0Off}}"></div>
+                    </div>
+                    <div class="day-cell">
+                        <text class="day-cell-letter-dim">{{$item.dL1}}</text>
+                        <div class="day-dot-on-dim" if="{{$item.d1On}}"></div>
+                        <div class="day-dot" if="{{$item.d1Off}}"></div>
+                    </div>
+                    <div class="day-cell">
+                        <text class="day-cell-letter-dim">{{$item.dL2}}</text>
+                        <div class="day-dot-on-dim" if="{{$item.d2On}}"></div>
+                        <div class="day-dot" if="{{$item.d2Off}}"></div>
+                    </div>
+                    <div class="day-cell">
+                        <text class="day-cell-letter-dim">{{$item.dL3}}</text>
+                        <div class="day-dot-on-dim" if="{{$item.d3On}}"></div>
+                        <div class="day-dot" if="{{$item.d3Off}}"></div>
+                    </div>
+                    <div class="day-cell">
+                        <text class="day-cell-letter-dim">{{$item.dL4}}</text>
+                        <div class="day-dot-on-dim" if="{{$item.d4On}}"></div>
+                        <div class="day-dot" if="{{$item.d4Off}}"></div>
+                    </div>
+                    <div class="day-cell">
+                        <text class="day-cell-letter-dim">{{$item.dL5}}</text>
+                        <div class="day-dot-on-dim" if="{{$item.d5On}}"></div>
+                        <div class="day-dot" if="{{$item.d5Off}}"></div>
+                    </div>
+                    <div class="day-cell">
+                        <text class="day-cell-letter-dim">{{$item.dL6}}</text>
+                        <div class="day-dot-on-dim" if="{{$item.d6On}}"></div>
+                        <div class="day-dot" if="{{$item.d6Off}}"></div>
+                    </div>
+                </div>
+                <text class="alarm-days-text-dim" if="{{$item.isNotRecurring}}">{{$item.daysText}}</text>
             </list-item>
         </list>
 
-        <list class="alarm-list" if="{{othersAlarms.length > 0}}">
-            <list-item class="alarm-section">
-                <text class="alarm-section-text">{{sectionOthers}}</text>
-            </list-item>
-            <list-item class="alarm-row alarm-row-others" for="{{othersAlarms}}" tid="id"
-                       onclick="onRowTap({{$item.id}})">
-                <div class="alarm-row-text">
-                    <text class="alarm-time alarm-time-dim">{{$item.time}}</text>
-                    <text class="alarm-days alarm-days-dim" if="{{$item.daysText}}">{{$item.daysText}}</text>
-                </div>
-            </list-item>
-        </list>
-
-        <div class="empty" if="{{upcomingAlarms.length === 0 && othersAlarms.length === 0}}">
+        <div class="empty" if="{{alarms.length === 0}}">
             <text class="empty-title">{{emptyText}}</text>
             <text class="empty-hint">{{emptyHint}}</text>
         </div>
 
-        <!-- Diagnostic strip at the bottom: build-tag + store status + last
-             sync. Diag fields are collapsed onto fewer lines than the prior
-             debug view; PING-PHONE result still surfaces here for hardware
-             tests. -->
         <text class="diag-line">{{lastSyncText}}</text>
         <text class="diag-line">{{storeStatusText}}</text>
         <text class="diag-line">{{pingStatusText}}</text>
