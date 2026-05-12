@@ -73,6 +73,14 @@ fi
 echo "==> Pushing to phone: $PHONE_DEST"
 "$ADB" push "$HAP_OUT_WIN" "$PHONE_DEST"
 
+# Prune older HAPs so /sdcard/haps/ doesn't accumulate. Keep only the
+# freshest .hap (the one we just pushed). The double-quoted shell snippet
+# runs entirely on-device. -name expansion is used because some legacy
+# Huawei tools drop files with spaces in the name (e.g.
+# "entry-default-signed (5).hap"), which xargs without -0 can't handle.
+echo "==> Pruning older HAPs"
+"$ADB" shell 'cd /sdcard/haps && newest=$(ls -1t *.hap 2>/dev/null | head -1) && for f in *.hap; do [ "$f" != "$newest" ] && rm "$f" && echo "rm $f"; done; true' || true
+
 echo "==> /sdcard/haps/ on phone now:"
 "$ADB" shell "ls -la /sdcard/haps/" || true
 
