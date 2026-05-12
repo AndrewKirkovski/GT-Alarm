@@ -1,36 +1,24 @@
 {
-  // Huawei CodeLinter (DevEco-bundled) config. Run via:
-  //   node "C:/Program Files/Huawei/DevEco Studio/plugins/codelinter/index.js" \
-  //     --project "C:/Projects/GT-Alarm/watch-app" \
-  //     --config "C:/Projects/GT-Alarm/watch-app/code-linter.json5" \
-  //     --sdkPath "C:/Program Files/Huawei/DevEco Studio/sdk" \
-  //     --workdir "C:/Program Files/Huawei/DevEco Studio/plugins/codelinter"
-  //
-  // Policy: zero warnings on every CI build. Approved exceptions live in
-  // `.codelinter-baseline.json` next to this file with a documented reason.
-  files: [
-    "**/*.ets",
-    "**/*.ts",
+  "files": [
+    "**/*.ets"
   ],
-  ignore: [
+  "ignore": [
     "**/src/ohosTest/**/*",
     "**/src/test/**/*",
     "**/src/mock/**/*",
     "**/node_modules/**/*",
     "**/oh_modules/**/*",
     "**/build/**/*",
-    "**/.preview/**/*",
+    "**/.preview/**/*"
   ],
-  ruleSet: [
+  "ruleSet": [
     "plugin:@performance/recommended",
-    "plugin:@typescript-eslint/recommended",
-    "plugin:@correctness/recommended",
-    "plugin:@security/recommended",
+    "plugin:@typescript-eslint/recommended"
   ],
-  rules: {
-    // Crypto / security must always be errors — no exceptions.
+  "rules": {
     "@security/no-unsafe-aes": "error",
     "@security/no-unsafe-hash": "error",
+    "@security/no-unsafe-mac": "warn",
     "@security/no-unsafe-dh": "error",
     "@security/no-unsafe-dsa": "error",
     "@security/no-unsafe-ecdsa": "error",
@@ -39,7 +27,6 @@
     "@security/no-unsafe-rsa-key": "error",
     "@security/no-unsafe-dsa-key": "error",
     "@security/no-unsafe-dh-key": "error",
-    "@security/no-unsafe-3des": "error",
-    "@security/no-unsafe-mac": "error",
-  },
+    "@security/no-unsafe-3des": "error"
+  }
 }

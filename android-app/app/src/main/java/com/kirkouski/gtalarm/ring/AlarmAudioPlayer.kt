@@ -18,15 +18,21 @@ class AlarmAudioPlayer(private val context: Context) {
     private var vibrator: Vibrator? = null
 
     fun start(uri: String?, vibrateOnly: Boolean) {
+        Log.i(TAG, "start vibrateOnly=$vibrateOnly userUri=${uri != null}")
         startVibration()
         if (vibrateOnly) return
 
-        val playbackUri = uri?.let { runCatching { it.toUri() }.getOrNull() }
+        val parsedUserUri = uri?.let { runCatching { it.toUri() }.getOrNull() }
+        val playbackUri = parsedUserUri
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
         if (playbackUri == null) {
             Log.w(TAG, "no alarm audio available — vibration only")
             return
         }
+        if (parsedUserUri == null && uri != null) {
+            Log.w(TAG, "user uri unparseable, using system default")
+        }
+        Log.i(TAG, "audio source=${if (parsedUserUri != null) "user" else "default"} uri=$playbackUri")
 
         try {
             val mp = MediaPlayer().apply {

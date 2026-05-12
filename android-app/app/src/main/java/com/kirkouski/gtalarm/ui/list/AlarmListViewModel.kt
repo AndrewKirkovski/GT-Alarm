@@ -8,13 +8,18 @@ import com.kirkouski.gtalarm.data.AlarmRepository
 import com.kirkouski.gtalarm.data.OnboardingState
 import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.scheduler.AlarmScheduler
+import com.kirkouski.gtalarm.wear.ForceSyncResult
+import com.kirkouski.gtalarm.wear.PairedDeviceInfo
 import com.kirkouski.gtalarm.wear.WatchSyncStatus
 import com.kirkouski.gtalarm.wear.WearBridgeService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -31,7 +36,7 @@ class AlarmListViewModel @Inject constructor(
     private val repository: AlarmRepository,
     private val scheduler: AlarmScheduler,
     private val onboarding: OnboardingState,
-    wearBridge: WearBridgeService,
+    private val wearBridge: WearBridgeService,
 ) : ViewModel() {
 
     val alarms: StateFlow<List<Alarm>> = repository.observeAlarms()
@@ -44,6 +49,18 @@ class AlarmListViewModel @Inject constructor(
      * real CONNECTING/CONNECTED/ERROR transitions and the card auto-updates.
      */
     val watchStatus: StateFlow<WatchSyncStatus> = wearBridge.statusFlow
+
+    /** Bonded device's name/model — shown in the WatchSyncCard subtitle. */
+    val pairedDeviceInfo: StateFlow<PairedDeviceInfo?> = wearBridge.pairedDeviceInfo
+
+    private val _forceSyncEvents = MutableSharedFlow<ForceSyncResult>(extraBufferCapacity = 1)
+    /** One-shot events for showing the Force-sync result as a Snackbar/Toast. */
+    val forceSyncEvents: SharedFlow<ForceSyncResult> = _forceSyncEvents.asSharedFlow()
+
+    fun onForceSync() = viewModelScope.launch {
+        val result = wearBridge.forceSync(alarms.value)
+        _forceSyncEvents.tryEmit(result)
+    }
 
     private val _showBatteryOptCard = MutableStateFlow(computeShowBatteryOptCard())
     val showBatteryOptCard: StateFlow<Boolean> = _showBatteryOptCard.asStateFlow()

@@ -17,6 +17,12 @@ object AlarmNotifications {
     const val CHANNEL_ID = "alarm_ringing"
     const val NOTIFICATION_ID = 42
 
+    // Separate low-priority channel for "missed during reboot" notifications.
+    // Distinct from the ringing channel so users can mute it independently
+    // without losing actual alarm rings.
+    const val MISSED_CHANNEL_ID = "alarm_missed"
+    private const val MISSED_NOTIFICATION_BASE = 0x40_00_00_00
+
     fun ensureChannel(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
         if (nm.getNotificationChannel(CHANNEL_ID) != null) return
@@ -39,6 +45,68 @@ object AlarmNotifications {
             setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), attrs)
         }
         nm.createNotificationChannel(channel)
+    }
+
+    fun ensureMissedChannel(context: Context) {
+        val nm = context.getSystemService(NotificationManager::class.java)
+        if (nm.getNotificationChannel(MISSED_CHANNEL_ID) != null) return
+        val channel = NotificationChannel(
+            MISSED_CHANNEL_ID,
+            context.getString(R.string.notif_channel_missed_name),
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = context.getString(R.string.notif_channel_missed_desc)
+            enableLights(false)
+            enableVibration(false)
+            setBypassDnd(false)
+            lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+        }
+        nm.createNotificationChannel(channel)
+    }
+
+    // Posts a passive notification for a relative alarm whose fire time fell
+    // during device downtime (target < bootCompleteAt). The alarm row itself
+    // has already been deleted by the boot-recovery flow — this is purely
+    // an FYI for the user. The notification auto-cancels on tap.
+    fun postMissedNotification(context: Context, alarm: Alarm) {
+        ensureMissedChannel(context)
+        val title = context.getString(R.string.missed_notification_title)
+        val text = if (alarm.label.isBlank()) {
+            context.getString(R.string.missed_notification_text_unlabeled)
+        } else {
+            context.getString(R.string.missed_notification_text_labeled, alarm.label)
+        }
+        val builder = NotificationCompat.Builder(context, MISSED_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setAutoCancel(true)
+        val nm = context.getSystemService(NotificationManager::class.java)
+        // Distinct ID per missed alarm so multiple stack rather than collapse.
+        val notifId = MISSED_NOTIFICATION_BASE or (alarm.id.toInt() and 0x00_FF_FF_FF)
+        nm.notify(notifId, builder.build())
+    }
+
+    // Minimal placeholder notification used to satisfy Android's 5 s
+    // startForeground deadline. AlarmRingService starts FG with this
+    // BEFORE doing any I/O (DAO read, pre-arm), then upgrades to the
+    // real buildRingingNotification once the alarm row is loaded.
+    //
+    // Visibility/category/priority match the real ringing notification so
+    // Android FG_TYPE_MEDIA_PLAYBACK handling + lockscreen display behave
+    // identically for the brief placeholder window — avoids a visible
+    // "ranking flicker" when the upgrade swaps the notif body.
+    fun buildPlaceholderNotification(context: Context): Notification {
+        return NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentTitle(context.getString(R.string.alarm_notification_title))
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOngoing(true)
+            .build()
     }
 
     fun buildRingingNotification(

@@ -22,8 +22,6 @@ android-app/build/
 android-app/app/build/
 android-app/captures/
 android-app/local.properties
-watch-app/local.properties
-watch-app/**/local.properties
 android-app/.cxx/
 android-app/app/.cxx/
 android-app/app/release/
@@ -37,12 +35,20 @@ android-app/**/*.class
 # Keystores (commit signing config via env, not keystores)
 android-app/**/*.jks
 android-app/**/*.keystore
+android-app/keystore.properties
+android-app/**/keystore.properties
+
+# AGConnect services config — bundles app/project IDs and (if "Include key"
+# was selected on download) client_secret + API key. Default to gitignored
+# to avoid committing the keyed variant. The team can share the file out-of-band
+# (Drive / 1Password) until we agree which variant is repo-safe.
+android-app/app/agconnect-services.json
 
 # Gradle wrapper binary is committed; lock file cache is not
 android-app/.gradle/**
 
 # =========================
-# DevEco / HarmonyOS (watch-app/)
+# DevEco / HarmonyOS — live watch-app/
 # =========================
 watch-app/build/
 watch-app/**/build/
@@ -57,12 +63,41 @@ watch-app/**/*.hap
 watch-app/**/*.app
 watch-app/**/*.hsp
 watch-app/**/*.har
+watch-app/local.properties
+watch-app/**/local.properties
 
-# DevEco signing
-watch-app/**/*.p12
-watch-app/**/*.cer
-watch-app/**/*.csr
-watch-app/**/*.p7b
+# =========================
+# DevEco / HarmonyOS — legacy watch-app.old/
+# Kept around as reference during the LiteWearable rewrite (Phase 0b).
+# Same patterns as above; intentionally not collapsed because gitignore
+# patterns don't support brace expansion.
+# =========================
+watch-app.old/build/
+watch-app.old/**/build/
+watch-app.old/**/.hvigor/
+watch-app.old/**/.cxx/
+watch-app.old/**/.test/
+watch-app.old/oh_modules/
+watch-app.old/**/oh_modules/
+watch-app.old/**/.cache/
+watch-app.old/**/.preview/
+watch-app.old/**/*.hap
+watch-app.old/**/*.app
+watch-app.old/**/*.hsp
+watch-app.old/**/*.har
+watch-app.old/local.properties
+watch-app.old/**/local.properties
+
+# DevEco signing — covers project root + watch-app subtree (CSRs, certs,
+# profiles, keystores can land in either location depending on DevEco
+# Automatic-Signing flow)
+*.p12
+*.cer
+*.csr
+*.p7b
+*.pem
+*.jks
+*.keystore
 
 # Node (DevEco uses node internally)
 node_modules/
@@ -73,3 +108,6 @@ android-app/**/replay_*.log
 
 # Per-machine Claude Code state (settings.local.json, scheduled-tasks lock, etc.)
 .claude/
+
+# MCP server configuration — contains API keys (Recraft, etc.)
+.mcp.json

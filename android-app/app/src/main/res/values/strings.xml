@@ -1,14 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">GT Alarm</string>
     <string name="widget_label">Next Alarm</string>
 
     <string name="notif_channel_alarm_name">Alarm</string>
     <string name="notif_channel_alarm_desc">Ringing alarms</string>
 
+    <!-- reason: new for relative-alarm + self-destruct MVP. Translations
+         will land in a follow-up; tools:ignore silences the lint until then. -->
+    <string name="notif_channel_missed_name" tools:ignore="MissingTranslation">Missed reminders</string>
+    <string name="notif_channel_missed_desc" tools:ignore="MissingTranslation">Relative alarms that couldn\'t fire while the device was off</string>
+
     <string name="alarm_notification_title">Alarm</string>
     <string name="action_dismiss">Dismiss</string>
     <string name="action_snooze">Snooze</string>
+
+    <string name="missed_notification_title" tools:ignore="MissingTranslation">Reminder missed</string>
+    <string name="missed_notification_text_labeled" tools:ignore="MissingTranslation">\'%1$s\' was missed while the device was off.</string>
+    <string name="missed_notification_text_unlabeled" tools:ignore="MissingTranslation">An \"in N min\" reminder was missed while the device was off.</string>
 
     <string name="screen_list_title">Alarms</string>
     <string name="screen_edit_title_new">New alarm</string>
@@ -20,6 +29,20 @@
     <string name="field_audio_pick">Choose…</string>
     <string name="field_vibration_only">Vibration only</string>
     <string name="field_repeat">Repeat</string>
+    <string name="field_snooze_minutes">Snooze duration</string>
+    <string name="field_snooze_minutes_value">%1$d min</string>
+
+    <!-- reason: new for relative-alarm + self-destruct MVP. Translations
+         will land in a follow-up; tools:ignore silences the lint until then. -->
+    <string name="alarm_mode_absolute" tools:ignore="MissingTranslation">At time</string>
+    <string name="alarm_mode_relative" tools:ignore="MissingTranslation">In…</string>
+    <string name="field_relative_minutes" tools:ignore="MissingTranslation">Fires in</string>
+    <string name="field_relative_minutes_custom" tools:ignore="MissingTranslation">Custom (1–1440 min)</string>
+    <string name="field_self_destruct" tools:ignore="MissingTranslation">Delete after firing</string>
+    <string name="list_relative_in_min" tools:ignore="MissingTranslation">in %1$d min</string>
+    <string name="list_relative_in_hr_min" tools:ignore="MissingTranslation">in %1$d h %2$d min</string>
+    <string name="list_relative_in_sec" tools:ignore="MissingTranslation">in %1$d s</string>
+    <string name="list_relative_fired" tools:ignore="MissingTranslation">firing now</string>
     <string name="save">Save</string>
     <string name="delete">Delete</string>
     <string name="cancel">Cancel</string>
@@ -53,4 +76,62 @@
     <string name="watch_status_card_connecting">Watch: connecting…</string>
     <string name="watch_status_card_connected">Watch: connected</string>
     <string name="watch_status_card_error">Watch: connection error</string>
+
+    <string name="voice_alarm_set">Alarm set for %1$s</string>
+    <string name="voice_alarm_failed">Couldn\'t set alarm</string>
+
+    <string name="action_open_help">Help</string>
+    <string name="screen_help_title">Voice setup</string>
+    <string name="help_intro">Android doesn\'t have a single setting called \"default alarm app\". When you ask Google Assistant to set an alarm, the system either uses an app you\'ve picked before, or shows a chooser the first time. Choosing GT Alarm and tapping \"Always\" makes it the default thereafter.</string>
+    <string name="help_status_default">GT Alarm is the default alarm app on this device.</string>
+    <string name="help_status_disambiguator">Multiple alarm apps are installed. The next time you say \"Hey Google, set an alarm\", Android will show a chooser — pick GT Alarm and tap Always.</string>
+    <string name="help_status_other">%1$s is currently the default. Use the steps for your phone brand below to switch.</string>
+    <string name="help_status_none">No alarm app is registered on this device. Try reinstalling GT Alarm.</string>
+    <string name="help_for_your_device">FOR YOUR DEVICE</string>
+    <string name="help_open_default_apps">Open Default apps in Settings</string>
+    <string name="help_reset_hint">If a different app got set as default by mistake: Settings → Apps → that app → Open by default → Clear defaults.</string>
+
+    <string name="help_pair_watch_title">Authorize Huawei watch</string>
+    <string name="help_pair_watch_body">Authorize Wear Engine access so alarms can ring on a Huawei Sports Watch / GT-series device that is already paired through Huawei Health. Requires the Huawei Health app; nothing happens on devices without it.</string>
+    <string name="help_pair_watch_button">Authorize watch access</string>
+
+    <!-- Debug controls — intentionally English-only (translatable="false"). -->
+    <string name="help_debug_title" translatable="false">Debug</string>
+    <string name="help_debug_body" translatable="false">Inserts a one-shot alarm that fires in exactly 60 seconds. Use to iterate the ring/dismiss/snooze flow without waiting for a real alarm time. Pairs with the build-tuned 1-minute snooze.</string>
+    <string name="help_debug_test_alarm_button" translatable="false">Schedule test alarm in 1 minute</string>
+    <string name="help_debug_test_alarm_toast" translatable="false">Test alarm fires in 60s</string>
+    <string name="help_debug_fire_now_button" translatable="false">Fire alarm NOW (test watch ring)</string>
+    <string name="help_debug_fire_now_toast" translatable="false">Firing alarm id=%1$d (watch should ring too)</string>
+
+    <!-- WatchSyncCard + Force-sync — debug/diagnostic UI, English-only. -->
+    <string name="watch_status_card_device_unknown" translatable="false">Device: unknown</string>
+    <string name="watch_status_card_force_sync" translatable="false">Force sync</string>
+    <!-- reason: Debug-only English-only diagnostic toast. PluralsCandidate
+         lint warning is irrelevant for a debug string we'll only ever see
+         in English during hardware testing. -->
+    <string name="force_sync_ok" translatable="false" tools:ignore="PluralsCandidate">Synced %1$d alarm(s) to watch</string>
+    <string name="force_sync_already" translatable="false" tools:ignore="PluralsCandidate">Already in sync (%1$d alarm(s))</string>
+    <string name="force_sync_no_device" translatable="false">No bonded watch found in Huawei Health</string>
+    <string name="force_sync_not_authorized" translatable="false">Wear Engine permission not granted — tap "Authorize watch access" in Help</string>
+    <string name="force_sync_disconnected" translatable="false">Watch is bonded but currently disconnected</string>
+    <string name="force_sync_peer_app_missing" translatable="false">Watch app not installed or not launched yet (ping=%1$d)</string>
+    <string name="force_sync_error" translatable="false">Force sync failed: %1$s</string>
+
+    <string name="help_section_pixel_title">Google Pixel / stock Android</string>
+    <string name="help_section_pixel_body">Pixel ships with the Google Clock app handling alarm voice commands. The first time you say \"Hey Google, set an alarm\", Android may show a chooser if both apps qualify — pick GT Alarm and tap Always. To swap later, open Settings → Apps → Google Clock → Open by default → Clear defaults, then voice-trigger again and pick GT Alarm.</string>
+
+    <string name="help_section_samsung_title">Samsung Galaxy (One UI)</string>
+    <string name="help_section_samsung_body">Galaxy phones come pre-installed with Samsung Clock. One UI doesn\'t expose a \"default alarm app\" setting — instead, Google Assistant will show a chooser the first time it fires \"set alarm\" and both apps qualify. Pick GT Alarm + tap Always. Bixby may not honor third-party clocks. Make sure GT Alarm is on the battery-optimization exempt list (the card on the alarm list links to that setting) — One UI deep-sleep can otherwise delay alarms.</string>
+
+    <string name="help_section_xiaomi_title">Xiaomi / Redmi / POCO (HyperOS / MIUI)</string>
+    <string name="help_section_xiaomi_body">MIUI Clock is the system default. Voice-set alarms via Google Assistant will trigger a chooser the first time — pick GT Alarm + Always. Note that third-party alarm apps may not show the alarm-clock icon in the status bar (a HyperOS limitation). Also visit GT Alarm\'s battery card; MIUI\'s autostart and background limits are aggressive and can suppress alarms otherwise.</string>
+
+    <string name="help_section_oneplus_title">OnePlus (OxygenOS)</string>
+    <string name="help_section_oneplus_body">OxygenOS uses the OnePlus Clock by default. The first \"Hey Google, set an alarm\" should show a chooser — pick GT Alarm + tap Always. Visit the battery optimization card on the alarm list; OxygenOS deep-sleep can delay alarms unless GT Alarm is exempted.</string>
+
+    <string name="help_section_huawei_title">Huawei / Honor</string>
+    <string name="help_section_huawei_body">Huawei phones without Google Mobile Services (most models since 2020) don\'t run Google Assistant — voice-set won\'t work via the GT Alarm intent. Native assistants (Celia, Bixby) typically don\'t honor third-party alarm apps. If you have a GMS-installed Huawei (older models), follow the Pixel / stock Android steps.</string>
+
+    <string name="help_section_other_title">Other Android devices</string>
+    <string name="help_section_other_body">Most Android phones use the system Clock app by default. When Google Assistant fires \"set an alarm\", the system shows a chooser if multiple apps can handle it — pick GT Alarm and tap Always. The system remembers the choice per-intent.</string>
 </resources>

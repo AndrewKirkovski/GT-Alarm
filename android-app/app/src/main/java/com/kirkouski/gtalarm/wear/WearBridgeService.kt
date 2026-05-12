@@ -5,45 +5,25 @@ import com.kirkouski.gtalarm.domain.Alarm
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Contract between the phone app and a paired wearable. Today this is a no-op
- * stub (see [NoOpWearBridge]); once Huawei Wear Engine vendor approval lands,
- * a `HuaweiWearBridge` will bind here and use HiWear P2P to talk to the watch.
+ * Contract between the phone app and a paired wearable. Wire format and LWW
+ * semantics live in `docs/sync-architecture.md` §2 — keep this interface in
+ * lock-step with that document.
  *
- * Wire format (agreed with the watch side, see docs/sync-architecture.md §2).
- * Message-type vocabulary matches the watch's WearBridgeStub exactly:
- *   { "type": "alarm_added" | "alarm_updated" | "alarm_toggled"
- *           | "alarm_deleted" | "alarm_fired" | "alarm_dismissed"
- *           | "alarm_snoozed",
- *     "alarmId": <number>,
- *     "updatedAtEpoch": <number>,                 // LWW key, always present
- *     "alarm"?: <full alarm object on add/update/toggle>,
- *     "rescheduleEpoch": <number> on snooze,
- *     "enabled"?: <bool> on toggle }
- *
- * The `updatedAtEpoch` is the LWW key: receivers compare against their local
- * value and apply only if the incoming stamp is strictly newer. Ties on live
- * rows favour the incoming message (deterministic convergence to the leader);
- * ties involving a tombstone favour the local tombstone (delete is sticky —
- * see docs/sync-architecture.md §5.2).
- *
- * IMPORTANT: every send method must receive an `updatedAtEpoch > 0`. The
- * `0L` sentinel on `Alarm.updatedAtEpoch` only exists to keep Room's column
- * default sane for migrated v1 rows — by the time an alarm reaches this
- * bridge the AlarmRepository has already stamped a real timestamp. Impls
- * (`NoOpWearBridge`, future `HuaweiWearBridge`) precondition-check this.
+ * Every send method requires `updatedAtEpoch > 0`. Implementations may drop
+ * the send when the stamp is below an NTP-sane threshold rather than crash
+ * the caller.
  */
 interface WearBridgeService {
-    /**
-     * Hot connection-state stream observed by the UI (see `AlarmListScreen`'s
-     * watch-sync card). Implementations expose a [StateFlow] so the latest
-     * status is always immediately available to a new collector.
-     *
-     * - [NoOpWearBridge] holds this at [WatchSyncStatus.NOT_CONNECTED] forever.
-     * - A future `HuaweiWearBridge` will drive it from Wear-Engine connection
-     *   callbacks (CONNECTING on attach, CONNECTED on session ready, ERROR on
-     *   transport failure, NOT_CONNECTED on detach).
-     */
+    /** UI-observable connection-state stream. */
     val statusFlow: StateFlow<WatchSyncStatus>
+
+    /**
+     * Resolved bonded device (`null` until [forceSync] or a successful send
+     * has run). Surfaces name + model so the WatchSyncCard can show
+     * "HUAWEI WATCH GT 6 · FRA-B19" instead of just a connected/not-connected
+     * flag.
+     */
+    val pairedDeviceInfo: StateFlow<PairedDeviceInfo?>
 
     fun sendAlarmAdded(alarm: Alarm)
     fun sendAlarmUpdated(alarm: Alarm)
@@ -54,17 +34,30 @@ interface WearBridgeService {
     fun sendAlarmSnoozed(alarmId: Long, rescheduleEpoch: Long)
 
     /**
-     * Receive-side seam. The bridge implementation calls `handler?.handle(msg)`
-     * for every peer message it decodes. `NoOpWearBridge` stores the handler
-     * but never invokes it (no peer); `HuaweiWearBridge` will once Wear-Engine
-     * P2P is wired up. Pass `null` to detach.
-     *
-     * **Threading contract:** `IncomingMessageHandler.handle` is `suspend`. The
-     * bridge implementation is responsible for invoking it on a coroutine
-     * scope it owns (typically `Dispatchers.IO` or a `ServiceCoroutineScope`),
-     * NOT directly from a binder/system callback thread. The interface deliberately
-     * accepts the handler instance rather than a lambda so each implementation
-     * can pick its own dispatching strategy.
+     * Suspend variant of [sendAlarmFired] that awaits delivery up to
+     * [timeoutMs]. Returns true iff a 207 (COMM_SUCCESS) result came back
+     * within the budget. Used by AlarmRingService to pre-arm the watch
+     * BEFORE the phone starts audio — keeps the two devices ringing
+     * in sync instead of phone-first, watch-late.
      */
+    suspend fun sendAlarmFiredAwaiting(alarmId: Long, timeoutMs: Long): Boolean
+
+    /** Receive-side seam. Pass `null` to detach. */
     fun setIncomingHandler(handler: IncomingMessageHandler?)
+
+    /**
+     * Renders the Wear Engine auth dialog via Huawei Health. Activity context
+     * required (the dialog is rendered by Huawei Health, not us). User-driven
+     * — wired to the "Authorize watch access" button in HelpScreen, NOT
+     * auto-fired on launch.
+     */
+    fun requestPermissionFromActivity(activity: android.app.Activity)
+
+    /**
+     * User-initiated "Force sync" button. Pings the peer Lite Wearable app
+     * (which auto-launches it on Lite), then dispatches `alarm_added`
+     * envelopes for every alarm in [alarms]. Returns one of the
+     * [ForceSyncResult] cases for UI display.
+     */
+    suspend fun forceSync(alarms: List<Alarm>): ForceSyncResult
 }

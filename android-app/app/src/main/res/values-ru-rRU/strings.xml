@@ -20,6 +20,8 @@
     <string name="field_audio_pick">Выбрать…</string>
     <string name="field_vibration_only">Только вибрация</string>
     <string name="field_repeat">Повтор</string>
+    <string name="field_snooze_minutes">Длительность откладывания</string>
+    <string name="field_snooze_minutes_value">%1$d мин</string>
     <string name="save">Сохранить</string>
     <string name="delete">Удалить</string>
     <string name="cancel">Отмена</string>
@@ -48,10 +50,38 @@
     <string name="battery_opt_card_action">Открыть настройки</string>
     <string name="battery_opt_card_dismiss">Не сейчас</string>
 
-    <!-- TODO i18n: translate watch sync card strings (English placeholders) -->
-    <string name="watch_status_card_title">Watch sync</string>
-    <string name="watch_status_card_not_connected">Watch: not connected</string>
-    <string name="watch_status_card_connecting">Watch: connecting…</string>
-    <string name="watch_status_card_connected">Watch: connected</string>
-    <string name="watch_status_card_error">Watch: connection error</string>
+    <string name="watch_status_card_title">Синхронизация с часами</string>
+    <string name="watch_status_card_not_connected">Часы: не подключены</string>
+    <string name="watch_status_card_connecting">Часы: подключение…</string>
+    <string name="watch_status_card_connected">Часы: подключены</string>
+    <string name="watch_status_card_error">Часы: ошибка подключения</string>
+
+    <string name="voice_alarm_set">Будильник установлен на %1$s</string>
+    <string name="voice_alarm_failed">Не удалось установить будильник</string>
+
+    <string name="action_open_help">Справка</string>
+    <string name="screen_help_title">Настройка голоса</string>
+    <string name="help_intro">В Android нет единой настройки «приложение будильника по умолчанию». Когда вы просите Google Ассистент поставить будильник, система либо использует ранее выбранное приложение, либо показывает диалог выбора при первом запуске. Выбор GT Alarm и нажатие «Всегда» делает его приложением по умолчанию.</string>
+    <string name="help_status_default">GT Alarm — приложение будильника по умолчанию на этом устройстве.</string>
+    <string name="help_status_disambiguator">Установлено несколько приложений будильника. В следующий раз, когда вы скажете «Hey Google, set an alarm», Android покажет диалог выбора — выберите GT Alarm и нажмите «Всегда».</string>
+    <string name="help_status_other">%1$s — текущее приложение по умолчанию. Используйте инструкцию для марки вашего телефона ниже, чтобы переключить.</string>
+    <string name="help_status_none">На этом устройстве не зарегистрировано ни одного приложения будильника. Попробуйте переустановить GT Alarm.</string>
+    <string name="help_for_your_device">ДЛЯ ВАШЕГО УСТРОЙСТВА</string>
+    <string name="help_open_default_apps">Открыть «Приложения по умолчанию» в настройках</string>
+    <string name="help_reset_hint">Если другое приложение по ошибке установлено как умолчание: Настройки → Приложения → это приложение → Открывать по умолчанию → Очистить.</string>
+    <string name="help_pair_watch_title">Авторизация часов Huawei</string>
+    <string name="help_pair_watch_body">Подключите уже сопряжённые часы Huawei Sports Watch / GT, чтобы будильники звонили на запястье. Требуется приложение Huawei Health и уже сопряжённые через него часы. На устройствах без Huawei Health ничего не произойдёт.</string>
+    <string name="help_pair_watch_button">Авторизовать доступ к часам</string>
+    <string name="help_section_pixel_title">Google Pixel / стоковый Android</string>
+    <string name="help_section_pixel_body">На Pixel голосовые команды для будильников обрабатывает приложение Google Clock. Когда вы первый раз скажете «Hey Google, set an alarm», Android может показать диалог выбора, если оба приложения подходят — выберите GT Alarm и нажмите «Всегда». Чтобы поменять позже, откройте Настройки → Приложения → Google Clock → Открывать по умолчанию → Очистить, затем снова вызовите голосом и выберите GT Alarm.</string>
+    <string name="help_section_samsung_title">Samsung Galaxy (One UI)</string>
+    <string name="help_section_samsung_body">Телефоны Galaxy идут с предустановленным Samsung Clock. One UI не показывает настройку «приложение будильника по умолчанию» — вместо этого Google Ассистент покажет диалог выбора, когда первый раз сработает «set alarm» и оба приложения подходят. Выберите GT Alarm + «Всегда». Bixby может не поддерживать сторонние часы. Убедитесь, что GT Alarm в списке исключений из оптимизации батареи (карточка на списке будильников ведёт к этой настройке) — иначе глубокий сон One UI может задерживать будильники.</string>
+    <string name="help_section_xiaomi_title">Xiaomi / Redmi / POCO (HyperOS / MIUI)</string>
+    <string name="help_section_xiaomi_body">MIUI Clock — системное приложение по умолчанию. Голосовые будильники через Google Ассистент в первый раз вызовут диалог выбора — выберите GT Alarm + «Всегда». Учтите, что сторонние приложения будильников могут не показывать значок будильника в статус-баре (ограничение HyperOS). Также посетите карточку батареи GT Alarm; ограничения MIUI на автозапуск и фон агрессивны и могут блокировать будильники.</string>
+    <string name="help_section_oneplus_title">OnePlus (OxygenOS)</string>
+    <string name="help_section_oneplus_body">OxygenOS по умолчанию использует OnePlus Clock. Первое «Hey Google, set an alarm» должно показать диалог выбора — выберите GT Alarm + «Всегда». Посетите карточку оптимизации батареи в списке будильников; глубокий сон OxygenOS может задерживать будильники без исключения GT Alarm.</string>
+    <string name="help_section_huawei_title">Huawei / Honor</string>
+    <string name="help_section_huawei_body">На телефонах Huawei без Google Mobile Services (большинство моделей с 2020) Google Ассистент не работает — голосовая установка через GT Alarm недоступна. Собственные ассистенты (Celia, Bixby) обычно не поддерживают сторонние приложения будильников. Если у вас Huawei с GMS (старые модели), следуйте инструкции для Pixel / стокового Android.</string>
+    <string name="help_section_other_title">Другие устройства Android</string>
+    <string name="help_section_other_body">Большинство телефонов Android по умолчанию использует системное Clock. Когда Google Ассистент вызывает «set an alarm», система показывает диалог выбора, если несколько приложений могут обработать — выберите GT Alarm и нажмите «Всегда». Система запоминает выбор для каждого намерения.</string>
 </resources>

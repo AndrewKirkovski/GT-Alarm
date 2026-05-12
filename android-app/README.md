@@ -74,11 +74,14 @@ Nothing else in the app needs to change.
 
 ## Wire format (phone ↔ watch)
 
-```json
-{ "type": "alarm_fired" | "dismiss" | "snooze",
-  "alarmId": <number>,
-  "rescheduleEpoch"?: <number> }
-```
+See `docs/sync-architecture.md` §2 for the full envelope schema. Per-direction
+notes:
+
+- **phone → watch** `alarm_snoozed` carries `rescheduleEpoch` so the watch can
+  display "snoozed until HH:MM".
+- **watch → phone** `alarm_snoozed` carries only `alarmId`+`updatedAtEpoch` —
+  the phone owns the per-alarm `snoozeMinutes` and computes the reschedule
+  time locally.
 
 ## License
 

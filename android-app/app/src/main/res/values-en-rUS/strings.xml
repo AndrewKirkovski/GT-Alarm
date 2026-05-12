@@ -20,6 +20,8 @@
     <string name="field_audio_pick">Choose…</string>
     <string name="field_vibration_only">Vibration only</string>
     <string name="field_repeat">Repeat</string>
+    <string name="field_snooze_minutes">Snooze duration</string>
+    <string name="field_snooze_minutes_value">%1$d min</string>
     <string name="save">Save</string>
     <string name="delete">Delete</string>
     <string name="cancel">Cancel</string>
@@ -53,4 +55,33 @@
     <string name="watch_status_card_connecting">Watch: connecting…</string>
     <string name="watch_status_card_connected">Watch: connected</string>
     <string name="watch_status_card_error">Watch: connection error</string>
+
+    <string name="voice_alarm_set">Alarm set for %1$s</string>
+    <string name="voice_alarm_failed">Couldn\'t set alarm</string>
+
+    <string name="action_open_help">Help</string>
+    <string name="screen_help_title">Voice setup</string>
+    <string name="help_intro">Android doesn\'t have a single setting called \"default alarm app\". When you ask Google Assistant to set an alarm, the system either uses an app you\'ve picked before, or shows a chooser the first time. Choosing GT Alarm and tapping \"Always\" makes it the default thereafter.</string>
+    <string name="help_status_default">GT Alarm is the default alarm app on this device.</string>
+    <string name="help_status_disambiguator">Multiple alarm apps are installed. The next time you say \"Hey Google, set an alarm\", Android will show a chooser — pick GT Alarm and tap Always.</string>
+    <string name="help_status_other">%1$s is currently the default. Use the steps for your phone brand below to switch.</string>
+    <string name="help_status_none">No alarm app is registered on this device. Try reinstalling GT Alarm.</string>
+    <string name="help_for_your_device">FOR YOUR DEVICE</string>
+    <string name="help_open_default_apps">Open Default apps in Settings</string>
+    <string name="help_reset_hint">If a different app got set as default by mistake: Settings → Apps → that app → Open by default → Clear defaults.</string>
+    <string name="help_pair_watch_title">Authorize Huawei watch</string>
+    <string name="help_pair_watch_body">Authorize Wear Engine access so alarms can ring on a Huawei Sports Watch / GT-series device that is already paired through Huawei Health. Requires the Huawei Health app; nothing happens on devices without it.</string>
+    <string name="help_pair_watch_button">Authorize watch access</string>
+    <string name="help_section_pixel_title">Google Pixel / stock Android</string>
+    <string name="help_section_pixel_body">Pixel ships with the Google Clock app handling alarm voice commands. The first time you say \"Hey Google, set an alarm\", Android may show a chooser if both apps qualify — pick GT Alarm and tap Always. To swap later, open Settings → Apps → Google Clock → Open by default → Clear defaults, then voice-trigger again and pick GT Alarm.</string>
+    <string name="help_section_samsung_title">Samsung Galaxy (One UI)</string>
+    <string name="help_section_samsung_body">Galaxy phones come pre-installed with Samsung Clock. One UI doesn\'t expose a \"default alarm app\" setting — instead, Google Assistant will show a chooser the first time it fires \"set alarm\" and both apps qualify. Pick GT Alarm + tap Always. Bixby may not honor third-party clocks. Make sure GT Alarm is on the battery-optimization exempt list (the card on the alarm list links to that setting) — One UI deep-sleep can otherwise delay alarms.</string>
+    <string name="help_section_xiaomi_title">Xiaomi / Redmi / POCO (HyperOS / MIUI)</string>
+    <string name="help_section_xiaomi_body">MIUI Clock is the system default. Voice-set alarms via Google Assistant will trigger a chooser the first time — pick GT Alarm + Always. Note that third-party alarm apps may not show the alarm-clock icon in the status bar (a HyperOS limitation). Also visit GT Alarm\'s battery card; MIUI\'s autostart and background limits are aggressive and can suppress alarms otherwise.</string>
+    <string name="help_section_oneplus_title">OnePlus (OxygenOS)</string>
+    <string name="help_section_oneplus_body">OxygenOS uses the OnePlus Clock by default. The first \"Hey Google, set an alarm\" should show a chooser — pick GT Alarm + tap Always. Visit the battery optimization card on the alarm list; OxygenOS deep-sleep can delay alarms unless GT Alarm is exempted.</string>
+    <string name="help_section_huawei_title">Huawei / Honor</string>
+    <string name="help_section_huawei_body">Huawei phones without Google Mobile Services (most models since 2020) don\'t run Google Assistant — voice-set won\'t work via the GT Alarm intent. Native assistants (Celia, Bixby) typically don\'t honor third-party alarm apps. If you have a GMS-installed Huawei (older models), follow the Pixel / stock Android steps.</string>
+    <string name="help_section_other_title">Other Android devices</string>
+    <string name="help_section_other_body">Most Android phones use the system Clock app by default. When Google Assistant fires \"set an alarm\", the system shows a chooser if multiple apps can handle it — pick GT Alarm and tap Always. The system remembers the choice per-intent.</string>
 </resources>

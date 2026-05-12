@@ -1,0 +1,34 @@
+<stack class="ring" onswipe="onSwipe">
+    <!-- Decorative perimeter ring — engine-supported `progress type="arc"`.
+         Static 100% fill in pink/red to match the alarm-fired accent.
+         Sits behind the content (stack children render in source order,
+         later children on top). -->
+    <progress type="arc" percent="100" class="ring-arc"></progress>
+
+    <div class="ring-content">
+        <image src="common/bell.png" class="ring-bell"></image>
+        <text class="ring-title">{{title}}</text>
+        <text class="ring-time">{{time}}</text>
+        <text class="ring-label" if="{{label}}">{{label}}</text>
+
+        <div class="ring-actions">
+            <div class="btn btn-snooze" if="{{!snoozePressed}}"
+                 onclick="onSnooze" ontouchstart="onSnoozeDown" ontouchend="onSnoozeUp">
+                <text class="btn-text">{{labelSnooze}}</text>
+            </div>
+            <div class="btn btn-snooze-pressed" if="{{snoozePressed}}"
+                 onclick="onSnooze" ontouchstart="onSnoozeDown" ontouchend="onSnoozeUp">
+                <text class="btn-text">{{labelSnooze}}</text>
+            </div>
+
+            <div class="btn btn-dismiss" if="{{!dismissPressed}}"
+                 onclick="onDismiss" ontouchstart="onDismissDown" ontouchend="onDismissUp">
+                <text class="btn-text">{{labelDismiss}}</text>
+            </div>
+            <div class="btn btn-dismiss-pressed" if="{{dismissPressed}}"
+                 onclick="onDismiss" ontouchstart="onDismissDown" ontouchend="onDismissUp">
+                <text class="btn-text">{{labelDismiss}}</text>
+            </div>
+        </div>
+    </div>
+</stack>

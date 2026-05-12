@@ -19,11 +19,19 @@ class BootReceiver : BroadcastReceiver() {
     @Inject @IoDispatcher lateinit var ioDispatcher: CoroutineDispatcher
 
     override fun onReceive(context: Context, intent: Intent) {
-        Log.d(TAG, "boot/time event: ${intent.action}")
+        val action = intent.action
+        Log.d(TAG, "boot/time event: $action")
         val pending = goAsync()
         CoroutineScope(ioDispatcher).launch {
             try {
-                repository.rescheduleAll()
+                if (action == Intent.ACTION_BOOT_COMPLETED) {
+                    // Only the boot path needs the "missed during downtime"
+                    // rule. Time/timezone change events fire while the device
+                    // is already up — no downtime to reckon with.
+                    repository.rescheduleAllOnBoot()
+                } else {
+                    repository.rescheduleAll()
+                }
             } finally {
                 pending.finish()
             }

@@ -1,0 +1,57 @@
+<stack class="container">
+    <div class="content">
+        <text class="title">{{title}} · {{buildTag}}</text>
+
+        <!-- Diagnostic strip, kept compact. PING button stays as a small
+             button so we can re-verify P2P after firmware updates without
+             rebuilding. Remaining diag lines collapse into the bottom strip
+             after the alarm list. -->
+        <div class="btn btn-ping" onclick="onPingPhone">
+            <text class="btn-ping-text">PING PHONE</text>
+        </div>
+
+        <!-- Upcoming section: enabled alarms. ACE Lite list directive
+             requires for= on a single list-item; section header is rendered
+             as a separate non-interactive list-item with display:none on
+             the switch slot. Section blocks are hidden when empty so a
+             single non-empty section doesn't leave a stranded header. -->
+        <list class="alarm-list" if="{{upcomingAlarms.length > 0}}">
+            <list-item class="alarm-section">
+                <text class="alarm-section-text">{{sectionUpcoming}}</text>
+            </list-item>
+            <list-item class="alarm-row" for="{{upcomingAlarms}}" tid="id"
+                       onclick="onRowTap({{$item.id}})">
+                <div class="alarm-row-text">
+                    <text class="alarm-time">{{$item.time}}</text>
+                    <text class="alarm-days" if="{{$item.daysText}}">{{$item.daysText}}</text>
+                </div>
+            </list-item>
+        </list>
+
+        <list class="alarm-list" if="{{othersAlarms.length > 0}}">
+            <list-item class="alarm-section">
+                <text class="alarm-section-text">{{sectionOthers}}</text>
+            </list-item>
+            <list-item class="alarm-row alarm-row-others" for="{{othersAlarms}}" tid="id"
+                       onclick="onRowTap({{$item.id}})">
+                <div class="alarm-row-text">
+                    <text class="alarm-time alarm-time-dim">{{$item.time}}</text>
+                    <text class="alarm-days alarm-days-dim" if="{{$item.daysText}}">{{$item.daysText}}</text>
+                </div>
+            </list-item>
+        </list>
+
+        <div class="empty" if="{{upcomingAlarms.length === 0 && othersAlarms.length === 0}}">
+            <text class="empty-title">{{emptyText}}</text>
+            <text class="empty-hint">{{emptyHint}}</text>
+        </div>
+
+        <!-- Diagnostic strip at the bottom: build-tag + store status + last
+             sync. Diag fields are collapsed onto fewer lines than the prior
+             debug view; PING-PHONE result still surfaces here for hardware
+             tests. -->
+        <text class="diag-line">{{lastSyncText}}</text>
+        <text class="diag-line">{{storeStatusText}}</text>
+        <text class="diag-line">{{pingStatusText}}</text>
+    </div>
+</stack>

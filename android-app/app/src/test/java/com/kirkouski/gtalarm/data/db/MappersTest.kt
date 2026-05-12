@@ -19,6 +19,7 @@ class MappersTest {
             audioUri = "content://media/audio/42",
             audioName = "Birds",
             isVibrationOnly = false,
+            snoozeMinutes = 15,
             updatedAtEpoch = 1_700_000_000_000L,
         )
         val entity = alarm.toEntity()
@@ -31,6 +32,7 @@ class MappersTest {
         assertEquals(alarm.audioUri, entity.audioUri)
         assertEquals(alarm.audioName, entity.audioName)
         assertEquals(alarm.isVibrationOnly, entity.isVibrationOnly)
+        assertEquals(alarm.snoozeMinutes, entity.snoozeMinutes)
         assertEquals(alarm.updatedAtEpoch, entity.updatedAtEpoch)
     }
 
@@ -47,6 +49,7 @@ class MappersTest {
             audioName = null,
             isVibrationOnly = true,
             updatedAtEpoch = 1_750_000_000_000L,
+            snoozeMinutes = 5,
         )
         val alarm = entity.toDomain()
         assertEquals(entity.id, alarm.id)
@@ -58,6 +61,7 @@ class MappersTest {
         assertEquals(entity.audioUri, alarm.audioUri)
         assertEquals(entity.audioName, alarm.audioName)
         assertEquals(entity.isVibrationOnly, alarm.isVibrationOnly)
+        assertEquals(entity.snoozeMinutes, alarm.snoozeMinutes)
         assertEquals(entity.updatedAtEpoch, alarm.updatedAtEpoch)
     }
 
@@ -83,5 +87,11 @@ class MappersTest {
     fun `default updatedAtEpoch is zero (LWW sentinel for legacy rows)`() {
         val alarm = Alarm()
         assertEquals(0L, alarm.updatedAtEpoch)
+    }
+
+    @Test
+    fun `default snoozeMinutes is the canonical default`() {
+        val alarm = Alarm()
+        assertEquals(Alarm.DEFAULT_SNOOZE_MINUTES, alarm.snoozeMinutes)
     }
 }

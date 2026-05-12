@@ -1,0 +1,199 @@
+/* GT 6 round watch (466 × 466 px). Strictly within documented Lite
+   Wearable CSS — verified against the official cssConfig.json:
+   no `background:` shorthand, no linear-gradient, no border-style,
+   no :active, NO `transform`.
+
+   Architecture: root is `<stack>` with a single `.content` flex column
+   (title, last-sync text, list/empty). Phase 0b cleanup removed the
+   absolutely-positioned debug action buttons (Seed/Ring/Clear) — the
+   watch is read-only display + per-row switch; alarms are managed on
+   the phone and pushed via Wear Engine. */
+
+.container {
+    width: 466px;
+    height: 466px;
+    background-color: #0F0F23;
+}
+
+.content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 466px;
+    height: 466px;
+    background-color: #0F0F23;
+}
+
+.title {
+    width: 466px;
+    height: 36px;
+    text-align: center;
+    color: #F1F5F9;
+    font-size: 30px;
+    margin-top: 8px;
+    margin-bottom: 2px;
+}
+
+/* "Last sync: 3 min ago" subtitle. Bumped from incomingHandler on every
+   applied peer message; auto-refreshes every 30s while the page is open.
+   Hidden during diag mode (no last-sync row in HML) — kept in CSS for the
+   field to retain a stable layout slot if we re-add the row. */
+.last-sync {
+    width: 466px;
+    height: 22px;
+    text-align: center;
+    color: #6B7280;
+    font-size: 14px;
+    margin-bottom: 10px;
+}
+
+.alarm-list {
+    width: 466px;
+    height: 130px;
+    background-color: #0F0F23;
+}
+
+/* Section header inside the <list>. Renders as a non-interactive
+   list-item; we keep it tall enough to be visually distinct from rows
+   but compact enough that two sections + 1–2 rows each fit in the 110 px
+   alarm-list slot before the user has to scroll. */
+.alarm-section {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    width: 410px;
+    height: 22px;
+    margin-left: 28px;
+    margin-right: 28px;
+    margin-top: 4px;
+    margin-bottom: 2px;
+    padding-left: 8px;
+}
+
+.alarm-section-text {
+    color: #6366F1;
+    font-size: 16px;
+    height: 22px;
+    text-align: left;
+}
+
+.alarm-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    width: 410px;
+    height: 60px;
+    margin-left: 28px;
+    margin-right: 28px;
+    margin-bottom: 6px;
+    padding-left: 22px;
+    padding-right: 18px;
+    background-color: #1F1F2A;
+    border-width: 1px;
+    border-color: #2D2D3F;
+    border-radius: 18px;
+}
+
+/* "Others" rows: dimmer background + slightly muted text. Visual cue that
+   these alarms are disabled / not currently scheduled. */
+.alarm-row-others {
+    background-color: #14141C;
+    border-color: #1E1E2C;
+}
+
+/* Left section: time + repeat label stacked vertically. Label was
+   dropped per the binary-format spec (no labels on the wire) — watch
+   shows only the time + repeat hint. */
+.alarm-row-text {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    width: 350px;
+    height: 56px;
+}
+
+.alarm-time {
+    color: #F1F5F9;
+    font-size: 28px;
+    height: 32px;
+}
+
+.alarm-days {
+    color: #A5B4CB;
+    font-size: 16px;
+    height: 22px;
+}
+
+.alarm-time-dim {
+    color: #818CB0;
+}
+
+.alarm-days-dim {
+    color: #5C6582;
+}
+
+.empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 466px;
+    height: 160px;
+    background-color: #0F0F23;
+}
+
+.empty-title {
+    color: #F1F5F9;
+    font-size: 32px;
+    height: 40px;
+    margin-bottom: 8px;
+    text-align: center;
+}
+
+.empty-hint {
+    color: #818CB0;
+    font-size: 22px;
+    height: 28px;
+    text-align: center;
+}
+
+/* Debug PING PHONE button — temporary diagnostic for watch→phone P2P
+   delivery testing. Removed once we confirm the receive direction works.
+   Compressed from 60→44 px to make room for TEST TIMEOUT button below. */
+.btn-ping {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 280px;
+    height: 44px;
+    margin-top: 8px;
+    background-color: #4338CA;
+    border-radius: 22px;
+    border-width: 1px;
+    border-color: #6366F1;
+}
+
+.btn-ping-text {
+    color: #F1F5F9;
+    font-size: 20px;
+    height: 26px;
+    text-align: center;
+}
+
+/* Diagnostic strip at bottom: 3 lines of small text. Used during the
+   MVP push to give the user direct visibility into sync health without
+   opening DevEco HiLog. Heights sum: 3 × (18 + 2) = 60 px. */
+.diag-line {
+    width: 380px;
+    height: 18px;
+    margin-left: 43px;
+    margin-right: 43px;
+    margin-top: 2px;
+    text-align: center;
+    color: #6B7280;
+    font-size: 13px;
+}

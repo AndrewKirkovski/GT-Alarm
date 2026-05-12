@@ -86,7 +86,7 @@ Do not implement against memory of how an API used to work. APIs change.
 ## ANDROID APP — `com.kirkouski.gtalarm`
 
 ### Alarm management
-- 🟡 Create alarm: time, label, days-of-week, audio URI, vibration-only flag — `AlarmEditScreen`
+- 🟡 Create alarm: time, label, days-of-week, audio URI, vibration-only flag, snooze duration — `AlarmEditScreen`
 - 🟡 Edit any field — `AlarmEditViewModel.load`
 - 🟡 Swipe-to-delete on list row — `SwipeToDismissBox` wired in `AlarmListScreen.SwipeToDeleteRow` (Phase 3b.3, 2026-04-25)
 - 🟡 Toggle enable / disable — `Switch` in `AlarmListScreen`
@@ -111,7 +111,7 @@ Do not implement against memory of how an API used to work. APIs change.
 
 ### Dismiss & snooze
 - 🟡 Dismiss from full-screen activity (primary button) and from notification action
-- 🟡 Snooze +10 min from full-screen activity and from notification action
+- 🟡 Snooze duration is configurable **per alarm** (`Alarm.snoozeMinutes`, range 1–60, default 10). The full-screen activity and notification action both call `AlarmRingService.handleSnooze`, which calls `AlarmRepository.snooze(id)` with no minutes override, causing the repo to read the alarm's own `snoozeMinutes` value. The edit screen exposes a preset chip row (1 / 5 / 10 / 30 min) and persists the choice via Room migration v3. Watch ring page reads the same field from its local `AlarmStore` copy of the alarm and uses it for the `rescheduleEpoch` it sends back to the phone. Wire format `alarm` payload carries `snoozeMinutes` on add/update/toggle.
 - 🟡 Snooze reuses `alarm.id` as `PendingIntent` `requestCode` so a second snooze cancels the first
 
 ### Audio picker
@@ -206,7 +206,7 @@ Do not implement against memory of how an API used to work. APIs change.
 - ❌ Day-letter chip labels from i18n
 
 ### Wear Engine integration
-- ❌ `import wearengine from "@system.wearengine"` works on Lite (architecturally confirmed via Chinese-language research; empirically unverified until AGConnect approval lands)
+- ❌ `import wearengine from "@system.wearengine"` works on Lite — architecturally confirmed via Chinese-language research. Owner: Andrei Kirkouski. End-to-end runtime test gated on Phase 5b AGConnect Wear Engine approval.
 - ❌ Pairing metadata in `config.json`: `metaData.customizeData.supportLists = "<phone-pkg>:<sha256-no-colons>"` — required for Wear Engine on Lite to accept the phone-side counterpart
 - ❌ End-to-end smoke test: phone sends `alarm_fired`, watch ring page renders within 500 ms
 

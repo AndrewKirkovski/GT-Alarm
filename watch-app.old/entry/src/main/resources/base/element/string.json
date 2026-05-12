@@ -1,0 +1,75 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "GT Alarm watch module" },
+    { "name": "entry_desc", "value": "GT Alarm entry ability" },
+    { "name": "perm_reminder_reason", "value": "Schedule reliable alarms that survive reboot" },
+    { "name": "perm_vibrate_reason", "value": "Vibrate when an alarm rings" },
+
+    { "name": "screen_list_title", "value": "Alarms" },
+    { "name": "screen_edit_new", "value": "New alarm" },
+    { "name": "screen_edit_edit", "value": "Edit alarm" },
+
+    { "name": "action_save", "value": "Save" },
+    { "name": "action_saving", "value": "Saving…" },
+    { "name": "action_delete", "value": "Delete" },
+    { "name": "action_delete_alarm", "value": "Delete alarm" },
+    { "name": "action_add", "value": "Add" },
+    { "name": "action_cancel", "value": "Cancel" },
+
+    { "name": "field_label", "value": "Label" },
+    { "name": "field_repeat", "value": "Repeat" },
+
+    { "name": "no_alarms", "value": "No alarms" },
+    { "name": "tap_plus_to_add", "value": "Tap + to add" },
+    { "name": "loading", "value": "…" },
+
+    { "name": "notif_disabled_title", "value": "Notifications disabled" },
+    { "name": "notif_tap_to_grant", "value": "Tap to grant" },
+
+    { "name": "reminder_default_title", "value": "Alarm" },
+    { "name": "reminder_action_close", "value": "Dismiss" },
+    { "name": "reminder_action_snooze", "value": "Snooze" },
+
+    { "name": "day_mon", "value": "Mo" },
+    { "name": "day_tue", "value": "Tu" },
+    { "name": "day_wed", "value": "We" },
+    { "name": "day_thu", "value": "Th" },
+    { "name": "day_fri", "value": "Fr" },
+    { "name": "day_sat", "value": "Sa" },
+    { "name": "day_sun", "value": "Su" },
+
+    { "name": "day_full_mon", "value": "Monday" },
+    { "name": "day_full_tue", "value": "Tuesday" },
+    { "name": "day_full_wed", "value": "Wednesday" },
+    { "name": "day_full_thu", "value": "Thursday" },
+    { "name": "day_full_fri", "value": "Friday" },
+    { "name": "day_full_sat", "value": "Saturday" },
+    { "name": "day_full_sun", "value": "Sunday" },
+
+    { "name": "repeat_once", "value": "Once" },
+    { "name": "repeat_every_day", "value": "Every day" },
+    { "name": "repeat_weekdays", "value": "Weekdays" },
+    { "name": "repeat_weekends", "value": "Weekends" },
+
+    { "name": "state_on", "value": "on" },
+    { "name": "state_off", "value": "off" },
+
+    { "name": "delete_dialog_title", "value": "Delete alarm?" },
+    { "name": "delete_dialog_warning", "value": "This cannot be undone" },
+
+    { "name": "err_save_failed", "value": "Could not save alarm" },
+    { "name": "err_cancel_previous", "value": "Could not cancel previous alarm — try again" },
+    { "name": "err_arm_alarm", "value": "Could not arm alarm — check notification permission and retry" },
+
+    { "name": "a11y_add_alarm", "value": "Add alarm" },
+    { "name": "a11y_alarm_row_no_label", "value": "Alarm at %1$s, %2$s" },
+    { "name": "a11y_alarm_row_with_label", "value": "Alarm at %1$s, %2$s, %3$s" },
+    { "name": "a11y_day_state", "value": "%1$s, %2$s" },
+    { "name": "a11y_snooze_alarm", "value": "Snooze alarm for 10 minutes" },
+    { "name": "a11y_cancel_deletion", "value": "Cancel deletion" },
+    { "name": "a11y_confirm_delete", "value": "Confirm delete alarm" },
+
+    { "name": "ampm_am", "value": "AM" },
+    { "name": "ampm_pm", "value": "PM" }
+  ]
+}

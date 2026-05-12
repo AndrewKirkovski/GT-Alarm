@@ -1,42 +1,43 @@
 # GT Alarm — Phone ↔ Watch Sync Architecture
 
-**Status:** in-progress · **Updated:** 2026-04-25 · **Owner:** Andrei Kirkouski
+**Status:** Phase 0b architecture pivot · **Updated:** 2026-04-27 · **Owner:** Andrei Kirkouski
 
-Companion document to `docs/acceptance-criteria.md`. This is the design-of-record for how the Android phone app and HarmonyOS watch app stay in sync, who fires the alarm, who plays sound, what happens when the user dismisses on one device, and how snooze-then-re-fire propagates.
+Companion document to `docs/acceptance-criteria.md`. This is the design-of-record for how the Android phone app and HarmonyOS LiteWearable watch app stay in sync, who fires the alarm, who plays sound, what happens when the user dismisses on one device, and how snooze-then-re-fire propagates.
 
 > **Pre-decision read:** Before changing any of the call sites listed under "Code touch points" or the JSON wire format, re-read this document end-to-end.
+
+> **2026-04-27 architecture pivot — read first:** Empirical install testing on the GT 6 confirmed the watch runs **HarmonyOS LiteWearable, NOT full HarmonyOS NEXT**. LiteWearable lacks `reminderAgentManager` and any scheduling primitive that survives device sleep — only `setTimeout` / `setInterval`, foreground-only. **Phone is now the sole scheduler.** The watch is an online-armed thin client: it receives "ring now" pings from the phone via Wear Engine and renders the ring UI. It does not compute or persist fire times for offline operation. The legacy NEXT-targeted watch app lives in `watch-app.old/` for reference; the live `watch-app/` is being rewritten as a LiteWearable JS project (Phase 0b). All watch-side details below describe the new design.
 
 ---
 
 ## 1. Layered model
 
 ```
-                Android phone (Kotlin / Compose)         |   HarmonyOS watch (ArkTS / ArkUI, GT 6)
-                                                         |
-  ┌─────────────────────────────────┐                    |    ┌─────────────────────────────────┐
-  │ AlarmRepository (Room v1)       │                    |    │ AlarmStore (preferences, JSON)  │
-  │  ↕ Hilt-injected                │                    |    │  ↕ static class                 │
-  │ AlarmScheduler.setAlarmClock()  │                    |    │ ReminderService.publishReminder │
-  │  ↕                              │                    |    │  ↕                              │
-  │ AlarmRingService (FG service)   │                    |    │ EntryAbility + AlarmRingPage    │
-  │  ↕ DISMISS / SNOOZE intents     |                    |    │  ↕ Dismiss / Snooze taps        │
-  └─────────────┬───────────────────┘                    |    └─────────────┬───────────────────┘
-                │                                        |                  │
-                │ WearBridgeService (Hilt, single binding)                  │ WearBridgeStub (single class)
-                │ ──────────────────────────  P2P channel  ─────────────── │
-                │      JSON over Wear Engine HiWear P2pClient (post-vendor-approval)
-                │      No-op Logger today
+                Android phone (Kotlin / Compose, Samsung)        |   HarmonyOS LiteWearable (JS / HML / CSS, GT 6)
+                                                                 |
+  ┌─────────────────────────────────────────┐                    |    ┌─────────────────────────────────────┐
+  │ AlarmRepository (Room v2, +updatedAtEpoch)                   |    │ AlarmStore (@system.storage KV)     │
+  │  ↕ Hilt-injected                                             |    │  receive-only mirror for display    │
+  │ AlarmScheduler.setAlarmClock()  ← SOLE SCHEDULER             |    │  ↕                                  │
+  │  ↕                                                           |    │ ring page (HML/CSS/JS)              │
+  │ AlarmRingService (FG service)                                |    │  ↕ Dismiss / Snooze taps            │
+  │  ↕ DISMISS / SNOOZE intents             |                    |    └─────────────────────┬───────────────┘
+  │ HuaweiWearBridge (post-AGConnect approval)                   |                          │
+  └─────────────────────┬───────────────────┘                    |                          │
+                        │                                        |                          │ @system.wearengine
+                        │                                                                   │ (P2pClient)
+                        │ ─────────────────  Wear Engine P2P (Bluetooth via Huawei Health)  │
+                        │                          JSON, single line per message
 ```
 
-**Today (pre-Wear-Engine):**
-- Android side: `WearBridgeService` interface, `NoOpWearBridge` Hilt-bound. Every call logs to `Log.d(TAG="WearBridge")`.
-- Watch side: `WearBridgeStub.ets` (singleton with static methods). Every call logs to hilog domain `0xA1A1` tag `GTAlarm`.
-- The two devices are **not actually talking**. Each runs an independent alarm chain.
+**Today (pre-AGConnect-approval, Phase 5a complete on phone, Phase 0b in flight on watch):**
+- Android side: `WearBridgeService` interface, `NoOpWearBridge` Hilt-bound. Receive-side `IncomingMessageHandler` + `LwwResolver` + `Tombstones` already landed. Send-side wrapped through `AlarmRepository`, `AlarmRingService`, `EditAlarmViewModel`. Every call logs to `Log.d(TAG="WearBridge")`.
+- Watch side: new `watch-app/` is LiteWearable target (`apiType: "faMode"`, `srcLanguage: "js"`, `deviceTypes: ["liteWearable"]`). Wear Engine P2P seam at `js/default/services/wearBridge.js`. Today the seam logs only; the `P2pClient` calls go live once AGConnect Wear Engine approval lands.
+- The two devices are **not actually talking** yet. The phone schedules and rings independently; the watch is unarmed.
 
-**Post-approval (~2 weeks out per project plan):**
+**Post-AGConnect approval (~2 weeks out, gated on Wear Engine SDK approval):**
 - Android: drop in `HuaweiWearBridge` implementing `WearBridgeService`, swap one `@Binds` line in `WearModule`, add `implementation("com.huawei.hms:wearengine:<latest>")` to `app/build.gradle.kts`.
-- Watch: replace `WearBridge.send()` body with `wearEngine.getP2pClient().send(peerDevice, JSON.stringify(msg))`. Nothing else changes.
-- Wire format below is the contract — already used by both sides today.
+- Watch: replace the seam's no-op `send()` with `wearengine.getP2pClient().send(peerDevice, JSON.stringify(msg))`, register `onMessage` callback that routes through the watch-side `IncomingMessageHandler`. Wire format below is the contract — it's already coded on the phone side and being built into the LiteWearable rewrite.
 
 ---
 
@@ -61,106 +62,184 @@ JSON over P2P. Every message is a single line, single object, no nesting:
 | `type`            | string  | always                                                        |
 | `alarmId`         | number  | always — same id across both devices (more on this below)     |
 | `updatedAtEpoch`  | number  | always — wall-clock ms of the local mutation; LWW rule below  |
-| `rescheduleEpoch` | number  | `alarm_snoozed` only — wall-clock epoch ms of next ring       |
+| `rescheduleEpoch` | number  | **phone→watch `alarm_snoozed` only** — wall-clock epoch ms of next ring; the watch direction OMITS this field (phone owns per-alarm duration) |
 | `enabled`         | boolean | `alarm_toggled` only                                          |
 | `alarm`           | object  | `alarm_added` / `alarm_updated` only — full record (see §5.1) |
 
-**Alarm-id consistency:** the phone's Room PK (`Long`) and the watch's `AlarmStore` numeric id MUST refer to the same alarm. Implementation: phone is **id-allocator** (assigns the canonical id on first add); after that both devices are equal-rank for mutations.
+### 2.1 Payload-size budget
 
-**Conflict-resolution rule: last-write-wins (LWW).** Every mutation on either device stamps `updatedAtEpoch = Date.now()` before broadcasting. When a `alarm_added/updated/deleted/toggled` message arrives:
+**Constraint status:** open until measured on real GT 6 hardware. A Chinese-language / LiteWearable-specific research pass did not find a Huawei-published maximum byte size for `@system.wearengine` P2P message payloads. Huawei's public Wear Engine samples demonstrate both custom messages and file transfer, but they do not state a max payload size or the LiteWearable rejection/error behavior for oversized messages. Treat the transport as a small control-message pipe until proven otherwise.
+
+**Project rule:** every JSON control payload MUST stay comfortably small. Target ≤ 1 KiB, hard cap 4 KiB UTF-8 encoded. Current expected sizes:
+
+| message | expected UTF-8 size |
+| --- | ---: |
+| `alarm_fired` / `alarm_deleted` / `alarm_dismissed` | < 128 B |
+| `alarm_snoozed` | < 160 B |
+| `alarm_toggled` | < 160 B |
+| `alarm_added` / `alarm_updated` with normal label + URI | < 1 KiB |
+
+### 2.2 Per-alarm fields in the `alarm` payload
+
+The `alarm` envelope (sent with `alarm_added` / `alarm_updated`) carries:
+
+| field | type | required | clamp |
+| --- | --- | --- | --- |
+| `id` | number | yes (envelope `alarmId` wins on disagreement) | — |
+| `label` | string | no (default `""`) | bounded by §2.1 budget |
+| `hour` | number | yes | 0–23 (sender validates) |
+| `minute` | number | yes | 0–59 (sender validates) |
+| `daysOfWeek` | number | no (default `0`) | 0–127 bitmask |
+| `enabled` | boolean | yes | — |
+| `audioUri` | string\|null | no | phone-local content URI; watch ignores |
+| `isVibrationOnly` | boolean | no (default `false`) | — |
+| `snoozeMinutes` | number | no (default `10`) | **clamped to 1–60 on receive** |
+| `updatedAtEpoch` | number | yes | non-negative |
+
+The receive-side parser on the phone (`WearJsonCodec`) clamps `snoozeMinutes` into `[Alarm.MIN_SNOOZE_MINUTES, Alarm.MAX_SNOOZE_MINUTES]` so a malformed peer can't push out-of-range values into the DB. The watch's `AlarmStore` stores whatever arrives; the watch's ring page applies the same range check before using the value for snooze scheduling.
+
+Implementation requirements before real P2P is enabled:
+- Reject or trim outbound `alarm.label` to the product limit before building the bridge envelope.
+- Never send ringtone/audio bytes over P2P. `audioUri` is a phone-local identifier only; the watch must not dereference it. If the watch needs an audible cue, it uses a bundled watch-side tone/vibration.
+- Log outbound payload byte length in `HuaweiWearBridge` and watch-side `wearBridge.js`.
+- Add a hardware spike after AGConnect approval that sends 1 KiB, 2 KiB, 4 KiB, 8 KiB, 16 KiB, 32 KiB, and 64 KiB messages to the LiteWearable app and records success, failure code, truncation, latency, and receiver behavior. Do not raise the 4 KiB cap without that measurement.
+
+**Alarm-id consistency:** the phone's Room PK (`Long`) and the watch's `AlarmStore` numeric id MUST refer to the same alarm. The phone is the sole id allocator (it owns scheduling, see §3); the watch only ever receives ids generated by the phone.
+
+**Conflict-resolution rule: last-write-wins (LWW), even though watch-originated mutations are now rare.** Every mutation on either device stamps `updatedAtEpoch = Date.now()` before broadcasting. The watch can still originate mutations (toggle, dismiss-flips-enabled-on-one-shot, snooze acks), so the LWW rules still apply on both sides:
 - If `incoming.updatedAtEpoch > local.updatedAtEpoch` (or no local record exists) → apply the incoming write, do NOT re-broadcast (avoid loop).
 - If `incoming.updatedAtEpoch < local.updatedAtEpoch` → ignore the incoming message and re-broadcast our newer local state so the sender catches up.
 - Tie (`==`) on a live row → incoming wins (deterministic tie-break; common-case is the user's most recent action propagating).
-- Tie (`==`) involving a local tombstone → **local tombstone wins** (delete is sticky, see §5.2 below). Both Tombstones impls (`Tombstones.kt` and `Tombstones.ets`) implement `tombstone.epoch >= incoming.epoch ⇒ suppress`.
+- Tie (`==`) involving a local tombstone → **local tombstone wins** (delete is sticky, see §5.2 below). Both Tombstones impls (`Tombstones.kt` on phone and the Lite-port on watch) implement `tombstone.epoch >= incoming.epoch ⇒ suppress`.
 
 **Caveats:**
-- Clock skew between phone and watch can flip the winner the wrong way. Accepted for MVP. If it becomes a problem, escalate to a Lamport counter ahead of `updatedAtEpoch`.
-- A delete is also stamped — a tombstone with `updatedAtEpoch` shippped via `alarm_deleted` MUST beat an older `alarm_updated`. Implementation requirement: the local store keeps a deletion tombstone (or at least the `updatedAtEpoch` of the deletion) for some retention window so a stale `alarm_updated` arriving later doesn't resurrect the row.
+- Clock skew between phone and watch can flip the winner the wrong way. Both devices stamp `updatedAtEpoch = Date.now()` (wall clock); skew tolerance budget: 60 s (one minute is the smallest user-visible alarm-time granularity). Larger skew is tracked in Phase 5b under "NTP-anchored clocks before pairing".
+- A delete is also stamped — a tombstone with `updatedAtEpoch` shipped via `alarm_deleted` MUST beat an older `alarm_updated`. Implementation requirement: the local store keeps a deletion tombstone (or at least the `updatedAtEpoch` of the deletion) for some retention window so a stale `alarm_updated` arriving later doesn't resurrect the row. Already implemented on the phone (Tombstones, 256-entry / 7-day ring buffer); needs to be re-implemented on the LiteWearable watch in plain JS against `@system.storage`.
 
 ---
 
-## 3. Where the alarm fires (design decision)
+## 2.3 Wake-and-send protocol (phone → Lite Wearable, REVISED 2026-05-11)
 
-**Both devices fire independently.** Each side has its own scheduling agent (`AlarmManager.setAlarmClock` on phone, `reminderAgentManager.publishReminder` on watch), each maintains its own scheduled state, each runs its own ring service. The P2P channel is for **state sync**, not for triggering.
+The Lite Wearable JS app dies fast when backgrounded and there is **no** keep-alive primitive (no Service in FA Model, no `setInterval` survives sleep). When the phone needs to push a message, the watch app is usually NOT running. Wear Engine's auto-launch wakes it on first ping/send, but the watch JS chain (`app.onCreate` → `WearBridge.setIncomingHandler` → `P2pClient.registerReceiver`) takes **~1 second** on GT 6 Pro. **Every `send` during that 1 s window returns 206 (COMM_FAIL)** because the watch-side receiver isn't bound yet.
 
-Why both, not one:
-- Watch must work with phone in another room / out of BT range. The Reminder Agent persists across reboot and runs in a system service — that's why we use it instead of waking up on a phone-driven trigger.
-- Phone must work without the watch. Same reason mirrored.
-- The redundancy cost: a bit of double-ring at the moment of fire, before the dismiss propagates. We accept it (alarm clocks should err on the side of *more* attention, not less).
+**Result we MUST achieve before any send:** ping returns 202 (APP_RUNNING) — not just 201 (APP_NOT_RUNNING). The phone bridge implements `ensurePeerAppRunning(device)`:
 
-**Audio plays on the device whose user-facing UI is currently visible.** If the user is wearing the watch, the watch vibrates + plays the system alarm tone (HarmonyOS Reminder Agent does this — we cannot suppress it; see §6). Phone simultaneously plays its own alarm via `AlarmRingService` with `USAGE_ALARM`. First Dismiss wins (see §4).
+```
+loop until ping == 202 OR deadline (5 s):
+    code = pingPeer(device)
+    if 202: cache "running" for 5 s, return true
+    if 201: delay 400 ms, retry
+    if 200/203/etc: return false (fatal — app not installed, or P2P error)
+```
+
+Cached result lets sync-on-fire and force-sync bursts pay the ping cost ONCE; subsequent sends in the burst skip the poll. A 206 response from any send invalidates the cache so the next attempt re-polls.
+
+Per Huawei Wear Engine `ResultCode`:
+- 200 `WATCH_APP_NOT_EXIT` — peer not installed; abort.
+- 201 `WATCH_APP_NOT_RUNNING` — installed but launching; wait, do NOT send.
+- 202 `WATCH_APP_RUNNING` — receiver bound; send.
+- 203 `OTHER_ERROR` — abort with surfaced error.
+- 206 / 207 are `SendCallback.onSendResult` codes (fail / success). Truth source for delivery — `Task<Void>` success only means dispatch, not delivery.
+
+Both directions of `ensureReceiverRegistered` matter: the phone keeps its own `Receiver` bound via `setIncomingHandler` — same lifecycle on watch via `wearBridge.registerReceiver` in `app.onCreate`. The 1 s startup delay is on the WATCH side only; phone is always-on.
+
+Wired in `android-app/.../wear/HuaweiWearBridge.kt` (`ensurePeerAppRunning`, `pollUntilRunning`, `wakeMutex`). See memory:wear_engine_wake_protocol.md for tuned constants + rationale.
+
+---
+
+## 3. Where the alarm fires (design decision — REVISED 2026-04-27)
+
+**The phone is the sole scheduler. Both devices ring, but only the phone's `AlarmManager` is responsible for firing on time.** When the alarm time arrives:
+
+1. Phone's `AlarmManager.setAlarmClock` PendingIntent fires.
+2. Phone starts `AlarmRingService`, plays audio, shows full-screen `AlarmActivity`.
+3. Phone immediately sends `{ type: "alarm_fired", alarmId, updatedAtEpoch }` to the watch via Wear Engine.
+4. Watch receives the fire ping, renders its ring page (HML/CSS/JS), and starts vibration.
+
+**Why phone-only scheduling:**
+- LiteWearable has no scheduling primitive that survives device sleep. `setTimeout` / `setInterval` are foreground-only and die when the JS engine sleeps. There is no `reminderAgentManager` on Lite.
+- Even if we coded around this with a "phone pre-pushes upcoming alarms and watch arms `setTimeout` while paired", the watch would fail to fire when its JS process is paged out — which on GT 6 happens within minutes of inactivity.
+- The dependency cost is real: if the watch is out of Bluetooth range when the alarm time arrives, the watch will not ring. The phone still rings on its own schedule. Acceptable trade-off because the phone always has the user-facing wake path; the watch is a convenience surface for tap-to-dismiss when the user is wearing it.
+
+**Audio: phone always plays its own alarm via `AlarmRingService` with `USAGE_ALARM`.** Watch optionally vibrates and plays a short tone. There is no system-level "watch alarm tone" on Lite (no Reminder Agent), so the watch is silent unless we explicitly play audio inside the page. First Dismiss wins — see §4.
+
+**Pre-arming for in-range cases (Phase 5b candidate, not committed):** the phone could send `{ type: "alarm_armed", alarmId, fireAtEpoch }` shortly before the scheduled time so the watch can pre-render the ring UI without a perceptible "fire→render" gap. Optimization, not load-bearing. Defer until end-to-end is working.
 
 ---
 
 ## 4. Flow diagrams
 
-### 4.1 — Alarm fires on both devices, user dismisses on watch
+### 4.1 — Alarm fires, phone+watch both ring, user dismisses on watch
 
 ```
-T=0s      Both system schedulers fire simultaneously.
-          Phone:                                     Watch:
-            AlarmBroadcastReceiver fires               Reminder Agent renders system card
-            → AlarmRingService starts FG               → maxScreenWantAgent launches
-            → notification w/ fullScreenIntent         → EntryAbility.handleIncomingWant
-            → AlarmActivity over keyguard              → reads gtalarm.alarmId from params
-            → MediaPlayer(USAGE_ALARM).start()         → AlarmRingPage on Navigation stack
-            → Vibrator + screen wake                   → vibrator.startVibration loop
-                                                       → system alarm tone (we cannot mute)
+T=-Δs     Optional pre-arm (deferred): phone sends alarm_armed to watch.
+          Watch caches { alarmId, fireAtEpoch } so when alarm_fired arrives
+          the ring page is already preloaded.
 
-T+1s      WearBridge: phone sends { type: alarm_fired, alarmId: 7 }   ─→  watch logs (no-op today)
-          WearBridge: watch sends { type: alarm_fired, alarmId: 7 }   ─→  phone logs (no-op today)
-          (Today both fire signals are dropped. Post-WearEngine they let
-           each device know the other has a live ring in progress.)
+T=0s      Phone's AlarmManager fires.
+            – AlarmBroadcastReceiver
+            – AlarmRingService starts FG
+            – notification w/ fullScreenIntent
+            – AlarmActivity over keyguard
+            – MediaPlayer(USAGE_ALARM).start()
+            – Vibrator + screen wake
+
+T+0.1s    Phone sends { type: "alarm_fired", alarmId, updatedAtEpoch } over Wear Engine.
+
+T+0.15s   Sync-on-fire: phone iterates repository.getAll() and pushes one
+          { type: "alarm_added", alarm } per row. The watch app is awake for
+          the ring window, so the receiver channel is hot; this is a free
+          opportunity to drag the watch's AlarmStore into agreement without
+          requiring a manual Force-sync trip. Cheap and idempotent — LWW on
+          the watch side discards rows it already has at an equal/newer stamp.
+
+T+0.2s    Watch's onMessage handler routes the message.
+            – ring page (HML) pushed
+            – vibrator.vibrate({ pattern: [...] })
+            – optional short audio (NOT system-tone — there's no system tone on Lite)
 
 T+8s      User taps Dismiss on watch.
-          AlarmRingPage.onDismiss():
-            – stopVibration()
-            – if (one-shot) cancelReminder + AlarmStore.update(enabled=false)
-            – pathStack.pop()
-            – WearBridgeStub.notifyDismissed(7)        ─→  phone
+          ring page onDismiss():
+            – stopVibration
+            – AlarmStore.update(enabled=false) for one-shots
+            – wearBridge.notifyDismissed(alarmId)  ─→  phone
 
-T+8.1s    Phone receives { type: alarm_dismissed, alarmId: 7 }
-          AlarmRingService.handleDismiss():
-            – MediaPlayer.stop()
-            – Vibrator.cancel()
-            – stopForegroundAndSelf()
-            – wearBridge.sendDismiss is NOT re-broadcast (avoid loop)
+T+8.1s    Phone receives { type: "alarm_dismissed", alarmId, updatedAtEpoch }
+          IncomingMessageHandler:
+            – AlarmRingService.handleDismiss(alarmId)
+            – MediaPlayer.stop / Vibrator.cancel / stopForegroundAndSelf
+            – do NOT re-broadcast (avoid loop)
           AlarmActivity.finish()
 ```
 
-**Idempotence rule:** receiving a dismiss for an `alarmId` whose ring service is already stopped is a no-op. Receiving a dismiss for an alarm we never fired (skewed clocks, P2P delivery delay) is also a no-op — the local side will time out on its own at `ringDuration: 60s`.
+**Idempotence rule:** receiving a dismiss for an `alarmId` whose ring service is already stopped is a no-op. Receiving a dismiss for an alarm we never fired (skewed clocks, P2P delivery delay) is also a no-op — the local side will time out on its own at the configured ring duration.
 
-### 4.2 — Snooze on phone, re-fire after 10 min, both devices ring again
+### 4.2 — Snooze on phone, re-fire after 10 min, watch re-rings on next fire
 
 ```
-T=0s    Both fire (as above).
+T=0s    Both ring (as in 4.1).
 
 T+5s    User taps Snooze on phone.
-        AlarmRingService.handleSnooze():
+        AlarmRingService.handleSnooze:
           – computes newTrigger = now + SNOOZE_MINUTES (10) * 60_000
           – AlarmManager.setAlarmClock(newTrigger, PI) — REUSES alarm.id as requestCode
-          – wearBridge.sendSnooze(7, newTrigger) ─→ watch
-          – stopForegroundAndSelf()
-          – AlarmActivity.finish()
+          – wearBridge.notifySnoozed(alarmId, rescheduleEpoch=newTrigger) ─→ watch
+          – stopForegroundAndSelf
+          – AlarmActivity.finish
 
-T+5.1s  Watch receives { type: alarm_snoozed, alarmId: 7, rescheduleEpoch: T+10min }
-        WearBridge listener (post-WearEngine path):
-          – AlarmStore.getById(7)
-          – cancelReminder(item.reminderId)              ← cancel the watch's own re-fire chain
-          – publishReminder with hour/minute derived from rescheduleEpoch
-            (HarmonyOS Reminder doesn't accept absolute epoch — we set explicit
-             hour:minute and clear daysOfWeek for a one-shot)
-          – AlarmStore.update(item) with new reminderId
-          – AlarmRingPage.pop() if it's still on the stack
+T+5.1s  Watch receives { type: "alarm_snoozed", alarmId, updatedAtEpoch, rescheduleEpoch }.
+          – stop ring page (pop the route)
+          – stopVibration
+          – do NOT try to schedule anything locally (no Lite scheduler exists)
+          – the snooze is informational-only on the watch; phone will fire again in 10 min
+            and the next "alarm_fired" message will re-render the ring page
 
-T+10min Both system schedulers fire again. Loop returns to §4.1.
+T+10min Phone's AlarmManager fires (the rescheduled trigger). Loop returns to §4.1.
 ```
 
-**Snooze-chain cap:** the watch's `reminderAgentManager` is configured with `snoozeTimes: 3, timeInterval: 600` at original publish time. The system will auto-snooze up to 3 times if the user taps the SNOOZE action button on the system card (NOT our in-app Snooze button). Our in-app Snooze button explicitly reschedules and exits — this is the path that propagates cross-device.
+**Snooze on watch (asymmetric — phone owns duration):** watch's ring page Snooze tap sends `{ type: "alarm_snoozed", alarmId, updatedAtEpoch }` — no `rescheduleEpoch`. The phone's `IncomingMessageHandler.applySnooze` looks up the local `Alarm.snoozeMinutes` for that id, computes `trigger = now + minutes·60_000`, and dispatches the from-peer snooze intent to `AlarmRingService` (which calls `repository.snoozeAt(trigger)` to schedule without echoing the broadcast). This keeps the per-alarm snooze duration authoritative on the phone — the watch is a thin trigger surface and never picks the reschedule time.
 
-**Phone side has no equivalent built-in snooze chain** — every snooze re-runs `AlarmManager.setAlarmClock` with a fresh trigger. Phone can snooze indefinitely until the user dismisses.
-
-### 4.3 — Edit on phone, mirror to watch
+### 4.3 — Edit on phone, mirror to watch (display-only)
 
 ```
 User opens AlarmEditScreen on phone, changes 07:00 → 06:30, saves.
@@ -170,81 +249,81 @@ AlarmRepository.update(alarm):
   – AlarmScheduler.cancel(alarm.id)
   – AlarmScheduler.scheduleNext(alarm)   ← computes nextTriggerEpoch
   – widget.update(ctx, glanceId)
-  – wearBridge.sendAlarmUpdate(alarm)    ─→ watch
+  – wearBridge.sendAlarmUpdated(alarm)    ─→ watch (full Alarm payload)
 
-Watch receives { type: alarm_updated, alarmId: 7 }
-WearBridge listener:
-  – fetch the FULL alarm payload (separate request? or carry in the message?)
-       see §5 "Open question"
-  – AlarmStore.update(item)
-  – cancelReminder(old.reminderId)
-  – publishReminder(new alarm)
-  – AlarmStore.update with new reminderId
-  – bumpRefresh() → list re-renders
+Watch receives { type: "alarm_updated", alarmId, alarm: {...}, updatedAtEpoch }
+  – AlarmStore.update(item)               ← updates local KV cache
+  – list re-renders if visible
+  – DOES NOT publish a watch-side reminder; the watch never schedules anything
 ```
 
-### 4.4 — Reboot survival (no P2P involved)
+### 4.4 — Reboot survival (asymmetric)
 
 ```
-Watch reboot:
-  reminderAgentManager persists across reboot — no app code runs at boot.
-  When the alarm time arrives, the system fires our maxScreenWantAgent.
-  EntryAbility.onCreate runs reconcileReminders() to clean up any drift
-  between local store and OS reminder list.
-
 Phone reboot:
-  BootReceiver fires on BOOT_COMPLETED (post-unlock) and
-  LOCKED_BOOT_COMPLETED (direct-boot — but we defer Room reads).
+  BootReceiver fires on BOOT_COMPLETED + LOCKED_BOOT_COMPLETED
+  + MY_PACKAGE_REPLACED + TIMEZONE_CHANGED + TIME_SET (5 actions).
   rescheduleAll() iterates AlarmRepository, re-runs setAlarmClock on every
-  enabled alarm.
+  enabled alarm. Phone is fully self-recovering.
+
+Watch reboot:
+  No persistent state to recover for scheduling — the watch was never
+  scheduling anything. AlarmStore (the display cache) is restored from
+  @system.storage and the list re-renders showing whatever was last
+  synced. When the phone fires the next alarm, alarm_fired arrives via
+  P2P and the ring page renders; same flow as cold-start.
+
+  If the watch is out of phone-Bluetooth-range at the time of reboot AND
+  the phone fires while the watch is offline, the watch never sees the
+  fire and silently misses it. The phone still rings on time. This is
+  the documented limitation of phone-only scheduling.
 ```
 
-Reboot does NOT trigger any cross-device sync — both sides recover from their own persistent state. P2P comes back online only when both devices are awake and paired.
+Reboot does NOT trigger any cross-device sync — the phone recovers from its own persistent state. P2P comes back online only when both devices are awake and paired.
 
 ---
 
 ## 5. Open questions / known gaps
 
 ### 5.1 — Decided: full payload travels with `alarm_added` / `alarm_updated`
-The message body carries the full `Alarm` record (hour, minute, daysOfWeek, label, enabled, audioUri, isVibrationOnly, updatedAtEpoch). Stateless — the receiver applies it directly without a round-trip. Schema-drift risk handled by including a `schemaVersion` field if/when the contract grows; today both sides agree on the v1 shape implicit in `domain/Alarm.kt` and `model/AlarmItem.ets`.
+The message body carries the full `Alarm` record (hour, minute, daysOfWeek, label, enabled, audioUri, isVibrationOnly, updatedAtEpoch). Stateless — the receiver applies it directly without a round-trip. Schema-drift risk handled by including a `schemaVersion` field if/when the contract grows; today both sides agree on the v1 shape implicit in `domain/Alarm.kt` (phone) and the LiteWearable port's AlarmItem JS object.
 
-### 5.2 — Decided: last-write-wins on offline-edit conflicts (2026-04-25)
-Per §2's conflict-resolution rule. Both sides MUST stamp `updatedAtEpoch = Date.now()` on every local mutation (Room insert/update/delete on phone; `AlarmStore.add/update/delete` on watch) BEFORE broadcasting. Tracking items:
-- ❌ Add `updatedAtEpoch: Long` (non-null) to `domain/Alarm.kt` + `data/db/AlarmEntity.kt` (Room migration v1→v2 required, **not** `fallbackToDestructiveMigration`).
-- ❌ Add `updatedAtEpoch: number` to `model/AlarmItem.ts` interface + `AlarmStore.validate` to require it.
-- ❌ Stamp on every mutation: phone `AlarmRepository.{insert,update,delete,setEnabled}`; watch `EditPage.onSave`, `Index.onToggle`, `Index.performPendingDelete`, `AlarmRingPage.onDismiss` (when it flips enabled=false on one-shot).
-- ❌ Apply LWW comparison in receiver paths once `WearBridge` listeners exist (Phase 3 hardware test).
-- ❌ Deletion tombstones — keep deleted ids + their `updatedAtEpoch` in a small ring buffer (suggest 7-day retention, max 256 entries) so a stale `alarm_updated` arriving after a delete cannot resurrect.
+### 5.2 — Decided: last-write-wins on offline-edit conflicts (2026-04-25, still applies)
+Per §2's conflict-resolution rule. Both sides MUST stamp `updatedAtEpoch = Date.now()` on every local mutation. Phone-side implementation is complete (Phase 4 + Phase 5a). Watch-side implementation is being ported in Phase 0b — same algorithm, JS instead of ArkTS.
 
-### 5.3 — Snooze on watch propagating to phone reschedule
-Symmetric to §4.2 but with phone as receiver. Implementation matches; no new design.
+### 5.3 — Decided: phone is sole scheduler (2026-04-27)
+See §3. Watch is online-armed thin client. Watch-originated edits (toggle, dismiss-flips-enabled, snooze) still propagate via the wire format and still apply LWW, but no scheduling work happens on the watch.
 
-### 5.4 — First-fire jitter
-Both system schedulers may fire 0–2s apart even when scheduled identically (phone `setAlarmClock` precision vs HarmonyOS Reminder Agent precision). Acceptable; first dismiss wins anyway.
+### 5.4 — Open: pre-arm vs reactive ring rendering on watch
+Today's design (§3) renders the ring page reactively from `alarm_fired`. Pre-arming via `alarm_armed` (T-Δs before fire) is a candidate optimization once latency measurements come in. Defer.
 
-### 5.5 — One-shot timeout regression
-Already tracked in AC item 12 / `memory/watch_pending_after_i18n.md`. If the system `ringDuration: 60s` lapses on the watch without a Dismiss tap, `enabled` stays `true` until the next cold-start `reconcileReminders()`. Same gap exists on phone-side auto-dismiss. Under LWW: a stale ring that times out without flipping `enabled=false` will be overwritten by any subsequent edit on either device, so this gap is bounded by the next user action — not corruption-class.
+### 5.5 — Open: watch out-of-range-at-fire UX
+When the watch is out of Bluetooth range or paged-out at fire time, the user only gets the phone ring. The watch silently misses. Tracked under Phase 5b: surface a "missed alarm at HH:MM" toast on the watch on next reconnect, sourced from the phone replaying the most-recent `alarm_fired` envelope when `setIncomingHandler` re-attaches.
+
+### 5.6 — Resolved 2026-04-27: GT 6 is LiteWearable, not full NEXT
+Empirically confirmed via failed install + Huawei Developer Forum moderator quote on identical case. See `gt6_hardware_constraints.md`. The legacy `watch-app.old/` (NEXT-targeted, will not install on GT 6) is kept in-tree as a porting reference for Phase 0b; new code lives in `watch-app/`.
 
 ---
 
 ## 6. Customization — what we can and cannot style
 
-Researched 2026-04-25 against developer.huawei.com + developer.android.com + SDK `.d.ts` + community write-ups.
+Researched 2026-04-25 + revised 2026-04-27 against developer.huawei.com + developer.android.com + Lite Wearable docs.
 
-### 6.1 — HarmonyOS watch (Reminder Agent)
+### 6.1 — HarmonyOS LiteWearable watch
 
 | Surface                     | Customizable? | Mechanism / constraint |
 |-----------------------------|---------------|------------------------|
-| System reminder card colors / fonts | ❌ | System-rendered. We control text + icon assets, not styling. `slotType` is a slot-type enum, not a theme. |
-| Action button **icons**     | ❌            | `actionButton[].title` is text only. No icon field. |
-| Card vs fullscreen path     | ⚠️ partial    | OS shows the card briefly, then auto-launches `maxScreenWantAgent`. Cannot suppress card. |
-| **Fullscreen ring page** (our `AlarmRingPage.ets`) | ✅ | We own every pixel. `setWindowLayoutFullScreen(true)` + `setWindowSystemBarProperties` for status bar. Round display: own background `Image`/`Color`. |
-| System alarm ringtone       | ❌            | `REMINDER_TYPE_ALARM` always plays the system tone. We cannot suppress it. We can layer additional audio via `AVPlayer` in our page, but the OS ringtone plays alongside — risk of cacophony. Prefer NOT layering. |
-| Vibration pattern           | ✅            | `vibrationPattern: number[]` in `ReminderRequest` (publish-time), or `vibrator.startVibration({type:'pattern', pattern: [...]})` from the page (runtime). We use the runtime path today — see `AlarmRingPage.startVibration`. |
+| System reminder card        | N/A           | LiteWearable has no Reminder Agent. There is no system-rendered alarm card before our ring page — we render the entire alarm UI ourselves. |
+| **Fullscreen ring page** (our `js/default/pages/ring/ring.{hml,css,js}`) | ✅ | We own every pixel. Round display: own background `<image>` / `<canvas>`. HML/CSS supports full styling. |
+| System alarm ringtone       | N/A           | No system-played alarm tone on Lite. We can play audio via `@system.media` or `@system.audio` from inside the page if we want a tone (off by default — phone audio is the primary). |
+| Vibration pattern           | ✅            | `vibrator.vibrate({type:'pattern', pattern: [...]})` from the page. We start vibration when the ring page mounts and stop on dismiss. |
+| Lock-screen takeover        | ⚠️ different model | LiteWearable apps don't run "over keyguard" the way Android does. The watch face is what shows when the watch is asleep; an `alarm_fired` ping wakes the JS process and the OS launches our ring page on top of the watch face. This is the Lite equivalent of "fullscreen alarm". |
 
-**Bottom line — watch:** background and design freedom is on the **fullscreen page only**. The card before it and the alarm tone behind it are system-owned.
+**Bottom line — watch:** we own everything visible. There is no system-level alarm UI on Lite to compete with — it's all ours.
 
 ### 6.2 — Android phone
+
+(Unchanged from prior version — Android-side surfaces are not affected by the watch architecture pivot.)
 
 | Surface                     | Customizable? | Mechanism / constraint |
 |-----------------------------|---------------|------------------------|
@@ -257,9 +336,7 @@ Researched 2026-04-25 against developer.huawei.com + developer.android.com + SDK
 | Lock-screen "Next alarm" indicator | ✅       | `AlarmManager.setAlarmClock(AlarmClockInfo, PI)` populates this automatically. `Settings.System.NEXT_ALARM_FORMATTED` is deprecated — use `AlarmManager.getNextAlarmClock()`. |
 | Samsung One UI 7 alarm UI override | ✅ ours | `setAlarmClock` PendingIntent reaches our `AlarmActivity` cleanly. One UI 7 removed the alarm icon from the status bar (UI redesign), but does not intercept third-party alarms. |
 
-**Bottom line — phone:** like the watch, we own the fullscreen activity completely. The notification card before it is constrained by Material You + system layout templates.
-
-**Recommended approach for design freedom:** treat the system notification card on both platforms as a "you have a notification" handoff, not as the actual alarm UI. Keep both notification cards minimal (system defaults + label). Spend design effort on `AlarmActivity` (phone) and `AlarmRingPage` (watch), where we control the entire surface.
+**Recommended approach:** treat the system notification card as a "you have a notification" handoff, not as the actual alarm UI. Spend design effort on `AlarmActivity` (phone) and `pages/ring/ring.hml` (watch), where we control the entire surface.
 
 ---
 
@@ -268,28 +345,31 @@ Researched 2026-04-25 against developer.huawei.com + developer.android.com + SDK
 When changing the sync contract, update **all** of these in the same change:
 
 **Wire format** (must stay in lock-step):
+- `android-app/app/src/main/java/com/kirkouski/gtalarm/data/sync/IncomingMessage.kt` — sealed class
 - `android-app/app/src/main/java/com/kirkouski/gtalarm/wear/WearBridgeService.kt` — interface
-- `watch-app/entry/src/main/ets/util/WearBridgeStub.ets` — `BridgeMessage` interface + send
+- `watch-app/entry/src/main/js/default/services/wearBridge.js` — message shape + send/onMessage seam (Phase 0b WIP)
 
-**Phone-side call sites** (mutations + ring lifecycle):
-- `wear/NoOpWearBridge.kt` — replace with `HuaweiWearBridge` post-approval
-- `data/AlarmRepository.kt` — `sendAlarmUpdate` on every mutation
-- `ring/AlarmRingService.kt` — `sendDismiss` / `sendSnooze` on action handlers
+**Phone-side call sites** (mutations + ring lifecycle, all already wired through Phase 4 + 5a):
+- `wear/NoOpWearBridge.kt` — replace with `HuaweiWearBridge.kt` post-AGConnect-approval
+- `data/AlarmRepository.kt` — `sendAlarmAdded/Updated/Deleted/Toggled` on every mutation
+- `ring/AlarmRingService.kt` — `sendAlarmFired/Dismissed/Snoozed` on action handlers
+- `data/sync/IncomingMessageHandler.kt` — receive-side LWW dispatch (Phase 5a)
 - `di/WearModule.kt` — single `@Binds` swap
 
-**Watch-side call sites:**
-- `service/ReminderService.publishAlarm` and `cancelAlarm`
-- `pages/EditPage.onSave` (notifyAdded/notifyUpdated)
-- `pages/Index.performPendingDelete` (notifyDeleted)
-- `pages/Index.onToggle` (notifyToggled)
-- `pages/AlarmRingPage.onDismiss` / `onSnooze` (notifyDismissed/notifySnoozed)
-- `ability/EntryAbility.fireAlarm` (notifyFired) + `reconcileReminders`
+**Watch-side call sites** (new — being implemented in Phase 0b):
+- `js/default/services/alarmStore.js` — `@system.storage`-backed local cache (mirrors phone's Room)
+- `js/default/services/lwwResolver.js` — port of `LwwResolver.kt`
+- `js/default/services/tombstones.js` — port of `Tombstones.kt` (256-entry / 7-day ring buffer)
+- `js/default/services/incomingMessageHandler.js` — port of phone-side handler; routes `alarm_fired` to ring page, `alarm_*` mutations to AlarmStore
+- `js/default/services/wearBridge.js` — Wear Engine seam; today no-op, post-approval calls `wearengine.getP2pClient().send/onMessage`
+- `js/default/pages/ring/ring.js` — `onDismiss` / `onSnooze` send acks back to phone
+- `js/default/app.js` — `onCreate` wires the Wear Engine onMessage callback to `incomingMessageHandler.handle`
 
 ---
 
 ## 8. Local testing strategy
 
-Researched 2026-04-25. **Verdict: each side is fully testable on emulators in isolation, but the cross-device sync chain (scenarios in §4) is NOT testable on emulators — Wear Engine is physical-device-only.** Plan accordingly.
+Researched 2026-04-25 + revised 2026-04-27. **Verdict: each side is partially testable in isolation; the cross-device sync chain is hardware-only.**
 
 ### 8.1 — What works on emulators
 
@@ -298,48 +378,49 @@ Researched 2026-04-25. **Verdict: each side is fully testable on emulators in is
 - `BootReceiver` triggered via `adb shell am broadcast -a android.intent.action.BOOT_COMPLETED -n com.kirkouski.gtalarm/.scheduler.BootReceiver`.
 - `setAlarmClock` is whitelisted from Doze; `adb shell dumpsys deviceidle force-idle` then wait for fire — confirmed working on AVD.
 - `MediaPlayer(USAGE_ALARM)` plays through emulator audio output.
-- Force-fire without waiting: `adb shell am start-foreground-service -a com.kirkouski.gtalarm.ACTION_RING --el alarm_id 1 -n com.kirkouski.gtalarm/.ring.AlarmRingService`.
+- Phase 5a `IncomingMessageHandler` unit-tested via fakes (82 tests passing).
 
-**DevEco Studio HarmonyOS NEXT wearable emulator:** 🟡 partial
-- `reminderAgentManager.publishReminder` API surface compiles + accepts publish calls.
-- `maxScreenWantAgent` fullscreen launch behavior is **not officially confirmed** by Huawei docs to fire end-to-end on the emulator. Community examples exist (DEV Community, Medium Huawei Developers) but none state "fullscreen wantAgent fires on the emulator." Treat as 🟡 until verified locally.
-- HiLog inspection works: `hdc hilog | grep GTAlarm`.
-- Reboot survival of reminders on the emulator: undocumented; assume untestable until verified on real GT 6.
+**DevEco Studio LiteWearable simulator:** 🟡 partial
+- Renders HML pages + executes JS lifecycle. Sufficient for visual iteration on the ring page, list, edit page; no animation/perf guarantees match the GT 6 (CPU and GPU profiles differ).
+- `vibrator.vibrate` is a no-op on simulator.
+- `@system.wearengine` not available on simulator — there is no peer to talk to. The Wear Engine seam falls back to logging.
+- No native unit-test framework on Lite (Hypium is NEXT-only). Pure-logic modules (`lwwResolver.js`, `tombstones.js`, `incomingMessageHandler.js` core) get extracted as plain JS and tested via Node + jest under `.local/jest-lite/`. UI / page-lifecycle is manual-test only.
 
 ### 8.2 — What does NOT work on emulators (hard gates)
 
-❌ **Wear Engine is physical-device-only.** Per Huawei Wear Engine Codelab (`developer.huawei.com/consumer/en/codelab/WearEngine/`), requirements explicitly list "A Huawei phone (USB cable)" + "A Huawei watch" — zero mention of emulator support. The SDK couples to HMS system bindings that don't exist on emulator images.
+❌ **Wear Engine is physical-device-only** — confirmed both via Huawei codelab requirements and empirically: simulator instances of HMS / Huawei Health do not exist.
 
-❌ **No DevEco "emulator pair" mode.** Unlike Google's Wear OS pairing assistant (Android Studio + Wear OS AVD), Huawei does not document any phone-emulator ↔ watch-emulator pairing path. Physical devices pair via the "Super Device radar" UI; there is no emulator equivalent.
+❌ **No DevEco "emulator pair" mode** — Huawei does not document any phone-emulator ↔ watch-emulator pairing path. Real Samsung phone + real GT 6 paired through Huawei Health is the only viable end-to-end test bench.
 
-❌ **Local socket / loopback Wear Engine mock — DO NOT BUILD ONE.** The agent research explicitly warns: a local socket adapter would replicate the API surface but not the actual HMS system behavior, giving false confidence. Bugs that depend on real BT/HMS pairing semantics, message ordering, channel restart, peer-disconnected, etc. will all be invisible. **Skip mocking the transport entirely.**
+❌ **Local socket / loopback Wear Engine mock — DO NOT BUILD ONE** — would replicate the API surface but not the actual HMS system behavior, giving false confidence. Bugs that depend on real BT/HMS pairing semantics, message ordering, channel restart, peer-disconnected, etc. will all be invisible. Skip mocking the transport entirely.
 
 ### 8.3 — Coverage matrix per §4 scenario
 
-| §4 scenario | Phone (AVD) | Watch (DevEco emulator) | Cross-device | Verdict |
+| §4 scenario | Phone (AVD) | Watch (Lite simulator) | Cross-device | Verdict |
 |---|---|---|---|---|
-| 4.1 Alarm fires both sides + dismiss on watch | ✅ phone-only fire testable | 🟡 watch-only fire (fullscreen unconfirmed) | ❌ Wear Engine | **Half-testable.** Each side fires in its own emulator; the cross-device dismiss propagation is hardware-only. |
-| 4.2 Snooze on phone → watch reschedule | ✅ phone snooze-and-reschedule | 🟡 watch republish | ❌ | Hardware-only end-to-end. |
-| 4.3 Edit on phone → watch mirror | ✅ phone Repository mutation + bridge log | 🟡 watch upsert + bridge log | ❌ | Hardware-only end-to-end. |
-| 4.4 Reboot survival | ✅ AVD reboot via `adb reboot`; BootReceiver fires | 🟡 unverified on emulator | N/A (no P2P) | Phone is testable on AVD; watch needs real GT 6. |
+| 4.1 Alarm fires + dismiss on watch | ✅ phone-only fire testable | 🟡 ring page renders manually-triggered | ❌ Wear Engine | **Half-testable.** Each side works in isolation; the cross-device dismiss propagation is hardware-only. |
+| 4.2 Snooze on phone → watch acks | ✅ phone snooze-and-reschedule | 🟡 watch ring page Snooze tap → log | ❌ | Hardware-only end-to-end. |
+| 4.3 Edit on phone → watch mirror | ✅ phone Repository mutation + bridge log | 🟡 AlarmStore.update visible | ❌ | Hardware-only end-to-end. |
+| 4.4 Reboot survival (phone) | ✅ AVD reboot via `adb reboot`; BootReceiver fires | N/A — watch doesn't schedule | N/A | Phone-only; watch reboot is trivial since there's no scheduling state to recover. |
 
 ### 8.4 — Recommended test plan
 
 **Phase 1 — emulator (now, no hardware):**
-- Run AC test matrix items A1–A6 on AVD. Mark ✅ as each verifies.
-- Run AC test matrix items W1–W3 on DevEco wearable emulator (alarm publish + dismiss/snooze tap inside the watch UI; not cross-device).
-- Code review the bridge call sites (this doc §7) to confirm every mutation routes through `WearBridge`/`WearBridgeStub`. The no-op stubs make the contract testable via HiLog/Logcat without any P2P.
+- Run AC matrix items A1–A6 on AVD. Mark ✅ as each verifies.
+- Phase 0b watch: run pure-logic JS modules under jest; manually exercise pages on Lite simulator.
+- Code review the bridge call sites (this doc §7) to confirm every mutation routes through `WearBridge`/`wearBridge.js`. The no-op stubs make the contract testable via Logcat/console.log without any P2P.
 
-**Phase 2 — single-device hardware (after GT 6 access):**
-- Real GT 6 over Wi-Fi `hdc`: re-verify W1–W3 scenarios. Confirm fullscreen `maxScreenWantAgent` fires + survives reboot.
+**Phase 2 — single-device hardware (now, GT 6 + Samsung phone available):**
+- Real GT 6 via `应用调测助手` (App Debug Assistant) install path: re-verify watch-side scenarios. Ring page render, vibration, dismiss tap dispatch, AlarmStore persistence across reboot.
 - Real Samsung phone: verify One UI 7 alarm icon-removal does not break our `setAlarmClock` flow; verify Sleeping/Deep-sleeping app battery menu doesn't deny our foreground service.
 
-**Phase 3 — cross-device hardware (after Wear Engine approval, ~2 weeks out):**
-- Drop in `HuaweiWearBridge.kt` + replace `WearBridge.send` body on watch (this doc §7).
-- Pair real Samsung phone + real GT 6 via Huawei Health app.
+**Phase 3 — cross-device hardware (after AGConnect Wear Engine approval, ~2 weeks out):**
+- Drop in `HuaweiWearBridge.kt` + replace `wearBridge.js` send/onMessage with real Wear Engine calls (this doc §7).
+- Verify Wear Engine works on Samsung phone with sideloaded HMS Core (architecturally favourable per Chinese-language research). Owner: Andrei Kirkouski. End-to-end smoke test gated on Phase 5b AGConnect approval.
+- Pair real Samsung phone + real GT 6 via Huawei Health app (already confirmed working — UDID readback succeeded).
 - Run §4 scenarios end-to-end: dismiss propagation, snooze loop, edit mirroring.
 - This is the **only** point at which the inter-device contract becomes verifiable. Plan the AC flip from 🟡 → ✅ on cross-device items to happen here, not earlier.
 
 ### 8.5 — Implication for design iteration speed
 
-Because the cross-device contract is hardware-gated and the hardware is gated on vendor approval, **any churn in the wire format (§2) or flow (§4) before Phase 3 lands is expensive**: you can't catch the bugs locally. Keep the contract minimal, lock it now, and resist adding new message types until Phase 3 is running. The seven message types defined today are enough to cover §4.1–§4.4 without new fields.
+Because the cross-device contract is hardware-gated and the hardware is gated on AGConnect Wear Engine approval, **any churn in the wire format (§2) or flow (§4) before Phase 3 lands is expensive**: you can't catch the bugs locally. Keep the contract minimal, lock it now, and resist adding new message types until Phase 3 is running. The seven message types defined today are enough to cover §4.1–§4.4 without new fields.

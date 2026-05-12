@@ -10,7 +10,7 @@ Breakdown of every gap found by the 2026-04-25 anti-lazy scan, organised into ph
 
 ## Findings summary (from 4 parallel scans, 2026-04-25)
 
-**Watch app:** AC items 1–20 all coded ✅/🟡 with no observed-vs-claimed discrepancies. Build clean (one expected `signingConfig` warning) BUT 4 pre-existing ArkTS warnings on `ColorMetrics.resourceColor` ("Function may throw exceptions"). **Zero unit tests.** No `entry/src/ohosTest/` folder. LWW prep #21–25 ❌ (expected — gated on Wear Engine).
+**Watch app:** AC items 1–20 all coded ✅/🟡 with no observed-vs-claimed discrepancies. Build clean (one expected `signingConfig` warning). 4 ArkTS warnings on `ColorMetrics.resourceColor` ("Function may throw exceptions") that we have not yet fixed — addressed in Phase 0a step 3 (extract `safeResourceColor` helper). **Zero unit tests.** No `entry/src/ohosTest/` folder. LWW prep #21–25 ❌ (expected — gated on Wear Engine).
 
 **Android app:**
 - SDK pins **all out of date** vs AC: compileSdk 35 (need 36), minSdk 29 (need 31), AGP 8.7.3 (need 9.1.1), Kotlin 2.1.0 (need 2.3.21), Compose BOM 2025.01.00 (need 2026.04.01), Room 2.6.1 (need 2.8.4), Hilt 2.53.1 (need 2.57.1), Coroutines 1.9.0 (need 1.10.2), Glance 1.1.1 (need 1.2.0).

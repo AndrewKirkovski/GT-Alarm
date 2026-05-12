@@ -1,0 +1,55 @@
+{
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "storeFile": "C:/Projects/!keys/deveco.p12",
+          "storePassword": "00000018874E0F82402C8F2214DC3E761E7DAD6EDFFD6086D1A3761501997DE246D04CC648C7080E",
+          "keyAlias": "gtalarm.watch",
+          "keyPassword": "00000018B721BC061A04E76033A5199D0E6F6EA15C4F734AD73FEBB28CCE1BBC19AE4E56213B60DE",
+          "signAlg": "SHA256withECDSA",
+          "profile": "C:/Projects/GT-Alarm/watch-app/GT Debug ProfileDebug.p7b",
+          "certpath": "C:/Projects/GT-Alarm/watch-app/Debug GT6.cer"
+        }
+      }
+    ],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "compatibleSdkVersion": "5.1.0(18)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "useNormalizedOHMUrl": true
+          }
+        },
+        "targetSdkVersion": "6.0.1(21)"
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

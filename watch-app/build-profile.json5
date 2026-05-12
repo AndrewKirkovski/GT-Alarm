@@ -1,23 +1,64 @@
 {
   "app": {
-    "signingConfigs": [],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "storeFile": "C:/Projects/!keys/deveco.p12",
+          "storePassword": "00000018C42D9349E632246F3AFBEBBA9B1F2C3924151BED18F7E6F2443EAE728E4EE1DB0A630ADA",
+          "keyAlias": "gtalarm.watch",
+          "keyPassword": "00000018B598E54F917FFED7A8DE4929A7F8D71A733DFA1AE0AA513167A7AF415DD5151C44AE99F9",
+          "signAlg": "SHA256withECDSA",
+          "profile": "C:/Projects/GT-Alarm/cert/debug-gt6.p7b",
+          "certpath": "C:/Projects/GT-Alarm/cert/debug-gt6.cer"
+        }
+      },
+      {
+        "name": "release",
+        "type": "HarmonyOS",
+        "material": {
+          "storeFile": "C:/Projects/!keys/deveco.p12",
+          "storePassword": "00000018C42D9349E632246F3AFBEBBA9B1F2C3924151BED18F7E6F2443EAE728E4EE1DB0A630ADA",
+          "keyAlias": "gtalarm.watch",
+          "keyPassword": "00000018B598E54F917FFED7A8DE4929A7F8D71A733DFA1AE0AA513167A7AF415DD5151C44AE99F9",
+          "signAlg": "SHA256withECDSA",
+          "profile": "C:/Projects/GT-Alarm/cert/release-gt6.p7b",
+          "certpath": "C:/Projects/GT-Alarm/cert/release-gt6.cer"
+        }
+      }
+    ],
     "products": [
       {
         "name": "default",
         "signingConfig": "default",
+        "targetSdkVersion": "6.0.1(21)",
         "compatibleSdkVersion": "5.1.0(18)",
         "runtimeOS": "HarmonyOS",
         "buildOption": {
           "strictMode": {
-            "useNormalizedOHMUrl": true
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": false
           }
-        },
-        "targetSdkVersion": "6.0.1(21)"
+        }
+      },
+      {
+        "name": "release",
+        "signingConfig": "release",
+        "targetSdkVersion": "6.0.1(21)",
+        "compatibleSdkVersion": "5.1.0(18)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": false
+          }
+        }
       }
     ],
     "buildModeSet": [
       {
-        "name": "debug"
+        "name": "debug",
       },
       {
         "name": "release"

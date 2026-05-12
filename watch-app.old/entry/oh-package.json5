@@ -1,0 +1,12 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "GT Alarm watch entry module",
+  "main": "",
+  "author": "Andrei Kirkouski",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.21"
+  }
+}

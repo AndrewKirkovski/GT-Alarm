@@ -1,4 +1,35 @@
+import groovy.json.JsonSlurper
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
+
+// Load shared keystore credentials from gitignored keystore.properties.
+// Same .p12 signs BOTH the Android phone app AND the watch HAP — single
+// signer identity registered under both AGConnect Console entries. Without
+// this signing config wired into both debug AND release buildTypes, debug
+// builds fall back to Android Studio's default debug keystore (CN=Android
+// Debug), whose fingerprint will NOT match the SHA-256 registered in
+// AGConnect Console or the watch's `supportLists` value — Wear Engine
+// pairing fails silently with "peer app not authorized".
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+
+// Read AGConnect appid from agconnect-services.json so the manifest meta-data
+// stays in lock-step with the registered AGConnect Console entry. Manual
+// declaration (the @SerializedName "appid=...") is still required because
+// `agcp { manifest = false }` skips auto-injection (AGP 9 incompat).
+val agconnectAppId: String = run {
+    val f = file("agconnect-services.json")
+    if (!f.exists()) {
+        ""
+    } else {
+        @Suppress("UNCHECKED_CAST")
+        val json = JsonSlurper().parse(f) as Map<String, Any>
+        val client = json["client"] as? Map<*, *>
+        client?.get("app_id")?.toString().orEmpty()
+    }
+}
 
 plugins {
     alias(libs.plugins.android.application)
@@ -7,6 +38,18 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
     alias(libs.plugins.detekt)
+    alias(libs.plugins.huawei.agconnect)
+}
+
+// AGCP 1.9.5.302 manifest-injection uses AGP internals (`getMetadataByConfig()`)
+// removed in AGP 9.1; disable until AGCP ships an AGP-9 compatible release.
+// Side effect: agconnect-services.json is build-time-only (read by `agconnectAppId`
+// above for the manifestPlaceholder). Wear Engine reads the appid from the
+// manifest meta-data, so functionality is preserved. Adding any AGConnect
+// runtime SDK (analytics, push, crash) requires re-enabling this and bumping
+// AGCP — tracked in Phase 2.
+agcp {
+    manifest = false
 }
 
 android {
@@ -22,6 +65,28 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+
+        manifestPlaceholders["agconnectAppId"] = "appid=$agconnectAppId"
+    }
+
+    // Single shared signing config for both debug and release: the shared
+    // .p12 (alias `gtalarm.watch`, EC P-256) is the AGConnect-registered
+    // signer for both this app and the watch HAP. See
+    // memory:keystore_path.md for the SHA-256 fingerprint and AGConnect
+    // pairing details. CI must gate release builds on keystore.properties
+    // presence — AGP otherwise silently produces an unsigned release APK.
+    signingConfigs {
+        if (keystoreProps.getProperty("storeFile") != null) {
+            create("shared") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storeType = keystoreProps.getProperty("storeType") ?: "PKCS12"
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                    ?: keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = System.getenv("KEY_PASSWORD")
+                    ?: keystoreProps.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
@@ -32,10 +97,16 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfigs.findByName("shared")?.let { signingConfig = it }
         }
         debug {
-            applicationIdSuffix = ".debug"
+            // No applicationIdSuffix and the same signing key as release: the
+            // watch's supportLists entry is keyed on (applicationId + cert
+            // SHA-256). A `.debug` suffix or AGP's auto debug keystore would
+            // break pairing. Side-by-side install of release + local debug
+            // requires a separate AGConnect Console entry — not supported.
             isMinifyEnabled = false
+            signingConfigs.findByName("shared")?.let { signingConfig = it }
         }
     }
 
@@ -181,10 +252,19 @@ dependencies {
     implementation(libs.glance.appwidget)
     implementation(libs.glance.material3)
 
+    // Huawei Wear Engine SDK — phone-side P2P transport to Sports Watch / Lite
+    // Wearable. Resolved against the Huawei Maven repo declared in
+    // settings.gradle.kts dependencyResolutionManagement.
+    implementation(libs.huawei.wearengine)
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
     testImplementation(libs.turbine)
+    // Real org.json — overrides the Android stub on the unit-test classpath
+    // so WearJsonCodecTest can exercise actual parsing semantics rather
+    // than the default-value stubs Android ships for JVM tests.
+    testImplementation(libs.org.json)
 
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.room.testing)

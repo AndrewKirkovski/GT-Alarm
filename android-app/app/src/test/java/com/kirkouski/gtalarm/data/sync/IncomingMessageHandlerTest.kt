@@ -1,5 +1,6 @@
 package com.kirkouski.gtalarm.data.sync
 
+import android.content.Context
 import com.kirkouski.gtalarm.data.Tombstones
 import com.kirkouski.gtalarm.data.db.AlarmDao
 import com.kirkouski.gtalarm.data.db.AlarmEntity
@@ -25,6 +26,7 @@ import org.junit.Test
 
 class IncomingMessageHandlerTest {
 
+    private lateinit var context: Context
     private lateinit var dao: FakeAlarmDao
     private lateinit var tombstones: Tombstones
     private lateinit var scheduler: AlarmScheduler
@@ -33,6 +35,9 @@ class IncomingMessageHandlerTest {
 
     @Before
     fun setUp() {
+        context = mockk(relaxed = true) {
+            every { startService(any()) } returns null
+        }
         dao = FakeAlarmDao()
         tombstones = mockk(relaxed = true)
         scheduler = mockk(relaxed = true)
@@ -42,7 +47,7 @@ class IncomingMessageHandlerTest {
         // tests overriding this MUST also pass an explicit `any()` for the 3rd
         // arg (see the sticky-tombstone tie-break test).
         every { tombstones.isTombstoned(any(), any(), any()) } returns false
-        handler = IncomingMessageHandler(dao, tombstones, scheduler, widgetRefresher)
+        handler = IncomingMessageHandler(context, dao, tombstones, scheduler, widgetRefresher)
     }
 
     private fun makeAlarm(
@@ -233,33 +238,30 @@ class IncomingMessageHandlerTest {
     // --- Snooze / Dismiss / Fired ---
 
     @Test
-    fun `AlarmSnoozed reschedules the local AlarmManager at rescheduleEpoch`() = runTest {
+    fun `AlarmSnoozed dispatches a peer snooze intent for the live ring service`() = runTest {
         dao.upsert(AlarmEntity(id = 11L, label = "z", hour = 8, minute = 0, daysOfWeek = 0,
             enabled = true, audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L))
-        val rescheduleAt = 1_700_000_000_000L
 
-        handler.handle(IncomingMessage.AlarmSnoozed(11L, updatedAtEpoch = 200L, rescheduleEpoch = rescheduleAt))
+        handler.handle(IncomingMessage.AlarmSnoozed(11L, updatedAtEpoch = 200L))
 
-        verify { scheduler.scheduleAt(match { it.id == 11L }, eq(rescheduleAt)) }
+        verify { context.startService(any()) }
     }
 
     @Test
-    fun `AlarmSnoozed for unknown id is a no-op`() = runTest {
-        handler.handle(IncomingMessage.AlarmSnoozed(999L, 200L, rescheduleEpoch = 5_000L))
+    fun `AlarmSnoozed for unknown id is a no-op (no intent, no scheduler call)`() = runTest {
+        handler.handle(IncomingMessage.AlarmSnoozed(999L, 200L))
 
+        verify(exactly = 0) { context.startService(any()) }
         verify(exactly = 0) { scheduler.scheduleAt(any(), any()) }
     }
 
     @Test
-    fun `AlarmFired and AlarmDismissed are non-mutating in Phase 5a (log-only)`() = runTest {
+    fun `AlarmFired is non-mutating (informational only)`() = runTest {
         dao.upsert(AlarmEntity(id = 4L, label = "ring", hour = 7, minute = 0, daysOfWeek = 0,
             enabled = true, audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L))
 
         handler.handle(IncomingMessage.AlarmFired(4L, 200L))
-        handler.handle(IncomingMessage.AlarmDismissed(4L, 200L))
 
-        // No DAO mutation, no scheduler / widget side-effects (HuaweiWearBridge will
-        // wire a real ring intent when peer transport lands).
         val row = dao.getById(4L)
         assertEquals(1L, row!!.updatedAtEpoch)
         assertTrue(row.enabled)
@@ -268,10 +270,15 @@ class IncomingMessageHandlerTest {
         verify(exactly = 0) { scheduler.cancel(any()) }
         coVerify(exactly = 0) { widgetRefresher.refresh() }
     }
+
+    @Test
+    fun `AlarmDismissed dispatches a dismiss intent to AlarmRingService`() = runTest {
+        handler.handle(IncomingMessage.AlarmDismissed(4L, 200L))
+
+        verify { context.startService(any()) }
+    }
 }
 
-// In-memory fake DAO mirroring the one in AlarmRepositoryTest. Duplicated by
-// design — keeps each test class self-contained, no cross-test fixture coupling.
 private class FakeAlarmDao : AlarmDao {
     private val rows = MutableStateFlow<Map<Long, AlarmEntity>>(emptyMap())
     private var nextId = 1L

@@ -20,6 +20,8 @@
     <string name="field_audio_pick">选择…</string>
     <string name="field_vibration_only">仅震动</string>
     <string name="field_repeat">重复</string>
+    <string name="field_snooze_minutes">稍后提醒时长</string>
+    <string name="field_snooze_minutes_value">%1$d 分钟</string>
     <string name="save">保存</string>
     <string name="delete">删除</string>
     <string name="cancel">取消</string>
@@ -48,10 +50,38 @@
     <string name="battery_opt_card_action">打开设置</string>
     <string name="battery_opt_card_dismiss">暂不</string>
 
-    <!-- TODO i18n: translate watch sync card strings (English placeholders) -->
-    <string name="watch_status_card_title">Watch sync</string>
-    <string name="watch_status_card_not_connected">Watch: not connected</string>
-    <string name="watch_status_card_connecting">Watch: connecting…</string>
-    <string name="watch_status_card_connected">Watch: connected</string>
-    <string name="watch_status_card_error">Watch: connection error</string>
+    <string name="watch_status_card_title">手表同步</string>
+    <string name="watch_status_card_not_connected">手表：未连接</string>
+    <string name="watch_status_card_connecting">手表：正在连接…</string>
+    <string name="watch_status_card_connected">手表：已连接</string>
+    <string name="watch_status_card_error">手表：连接错误</string>
+
+    <string name="voice_alarm_set">闹钟已设置为 %1$s</string>
+    <string name="voice_alarm_failed">无法设置闹钟</string>
+
+    <string name="action_open_help">帮助</string>
+    <string name="screen_help_title">语音设置</string>
+    <string name="help_intro">Android 没有单一的「默认闹钟应用」设置。当您要求 Google 助理设置闹钟时，系统会使用您之前选择的应用，或在首次使用时显示选择对话框。选择 GT Alarm 并点击「始终」即可将其设为默认。</string>
+    <string name="help_status_default">GT Alarm 是此设备上的默认闹钟应用。</string>
+    <string name="help_status_disambiguator">已安装多个闹钟应用。下次您说「Hey Google, set an alarm」时，Android 会显示选择对话框 — 请选择 GT Alarm 并点击「始终」。</string>
+    <string name="help_status_other">当前默认应用是 %1$s。请使用下面对应您手机品牌的步骤进行切换。</string>
+    <string name="help_status_none">此设备上未注册任何闹钟应用。请尝试重新安装 GT Alarm。</string>
+    <string name="help_for_your_device">适用于您的设备</string>
+    <string name="help_open_default_apps">在设置中打开「默认应用」</string>
+    <string name="help_reset_hint">如果其他应用被误设为默认：设置 → 应用 → 该应用 → 默认打开 → 清除默认设置。</string>
+    <string name="help_pair_watch_title">授权华为手表</string>
+    <string name="help_pair_watch_body">连接已通过华为运动健康配对的华为 Sports Watch / GT 系列设备，让闹钟在腕上响铃。需要华为运动健康应用以及通过它配对的手表。在没有华为运动健康的设备上将不执行任何操作。</string>
+    <string name="help_pair_watch_button">授权手表访问</string>
+    <string name="help_section_pixel_title">Google Pixel / 原生 Android</string>
+    <string name="help_section_pixel_body">Pixel 出厂搭载 Google Clock 处理闹钟语音命令。当您首次说「Hey Google, set an alarm」时，如果两个应用都符合条件，Android 可能会显示选择对话框 — 请选择 GT Alarm 并点击「始终」。如需稍后切换，请打开设置 → 应用 → Google Clock → 默认打开 → 清除默认设置，然后再次通过语音触发并选择 GT Alarm。</string>
+    <string name="help_section_samsung_title">三星 Galaxy（One UI）</string>
+    <string name="help_section_samsung_body">Galaxy 手机预装了 Samsung Clock。One UI 不提供「默认闹钟应用」设置 — 相反，当 Google 助理首次触发「set alarm」并且两个应用都符合条件时，会显示选择对话框。请选择 GT Alarm 并点击「始终」。Bixby 可能不支持第三方时钟应用。请确保 GT Alarm 在电池优化白名单中（闹钟列表上的卡片可链接到该设置），否则 One UI 的深度睡眠可能延迟闹钟。</string>
+    <string name="help_section_xiaomi_title">小米 / Redmi / POCO（HyperOS / MIUI）</string>
+    <string name="help_section_xiaomi_body">MIUI Clock 是系统默认。通过 Google 助理设置语音闹钟首次会触发选择对话框 — 请选择 GT Alarm 并点击「始终」。请注意，第三方闹钟应用可能不会在状态栏显示闹钟图标（HyperOS 限制）。还请访问 GT Alarm 的电池卡片；MIUI 的自启动和后台限制比较严格，否则可能会抑制闹钟。</string>
+    <string name="help_section_oneplus_title">一加（OxygenOS）</string>
+    <string name="help_section_oneplus_body">OxygenOS 默认使用 OnePlus Clock。首次「Hey Google, set an alarm」应显示选择对话框 — 请选择 GT Alarm 并点击「始终」。请访问闹钟列表上的电池优化卡片；除非将 GT Alarm 排除，否则 OxygenOS 的深度睡眠可能延迟闹钟。</string>
+    <string name="help_section_huawei_title">华为 / 荣耀</string>
+    <string name="help_section_huawei_body">没有 Google Mobile Services 的华为手机（自 2020 年起的大多数型号）无法运行 Google 助理 — 通过 GT Alarm 意图的语音设置将无法使用。原生助手（Celia、Bixby）通常不支持第三方闹钟应用。如果您有装有 GMS 的华为手机（较老型号），请按照 Pixel / 原生 Android 的步骤操作。</string>
+    <string name="help_section_other_title">其他 Android 设备</string>
+    <string name="help_section_other_body">大多数 Android 手机默认使用系统 Clock 应用。当 Google 助理触发「set an alarm」时，如果多个应用都能处理，系统会显示选择对话框 — 请选择 GT Alarm 并点击「始终」。系统会按意图记住选择。</string>
 </resources>

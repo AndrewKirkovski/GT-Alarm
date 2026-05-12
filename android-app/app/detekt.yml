@@ -128,13 +128,10 @@ naming:
     ignoreAnnotated: ['Composable']
   MatchingDeclarationName:
     # Currently flags AudioPicker.kt (declares `PickedAudio`) and
-    # GtNavGraph.kt (declares `Routes`). Both files are pre-existing
-    # naming conventions: GtNavGraph is the package-level home for the
-    # nav graph; AudioPicker is the visual picker file (Compose-state
-    # tuple `PickedAudio` is the data carrier inside it).
-    # Tracked under docs/execution-plan.md Phase 2 cleanup — when we
-    # bump and revisit module structure, we'll either rename or split
-    # these. For now: baselined.
+    # GtNavGraph.kt (declares `Routes`). GtNavGraph is the package-level
+    # home for the nav graph; AudioPicker is the visual picker file
+    # (Compose-state tuple `PickedAudio` is the data carrier inside it).
+    # Tracked under docs/execution-plan.md Phase 2 module-structure pass.
     active: true
 
 style:

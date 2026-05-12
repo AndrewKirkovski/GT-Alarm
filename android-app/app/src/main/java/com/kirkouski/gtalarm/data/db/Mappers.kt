@@ -12,7 +12,10 @@ fun AlarmEntity.toDomain(): Alarm = Alarm(
     audioUri = audioUri,
     audioName = audioName,
     isVibrationOnly = isVibrationOnly,
+    snoozeMinutes = snoozeMinutes,
     updatedAtEpoch = updatedAtEpoch,
+    relativeMinutes = relativeMinutes,
+    selfDestruct = selfDestruct,
 )
 
 fun Alarm.toEntity(): AlarmEntity = AlarmEntity(
@@ -26,4 +29,7 @@ fun Alarm.toEntity(): AlarmEntity = AlarmEntity(
     audioName = audioName,
     isVibrationOnly = isVibrationOnly,
     updatedAtEpoch = updatedAtEpoch,
+    snoozeMinutes = snoozeMinutes,
+    relativeMinutes = relativeMinutes,
+    selfDestruct = selfDestruct,
 )

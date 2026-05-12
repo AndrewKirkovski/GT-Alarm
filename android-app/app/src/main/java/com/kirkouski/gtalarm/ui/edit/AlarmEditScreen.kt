@@ -20,8 +20,11 @@ import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Snooze
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -30,11 +33,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberTimePickerState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kirkouski.gtalarm.R
+import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.domain.DaysOfWeek
 import com.kirkouski.gtalarm.util.rememberLocaleOrderedDayBits
 import com.kirkouski.gtalarm.util.shortLabelResForDayBit
@@ -130,8 +139,42 @@ fun AlarmEditScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                TimePicker(state = timeState)
+            // Mode toggle [At time] / [In…] — only on new alarms. Existing
+            // alarms keep their mode locked (per spec: switching types is a
+            // create+delete operation, not an in-place edit).
+            if (!state.isExistingAlarm) {
+                ModeToggle(
+                    mode = state.mode,
+                    onChange = vm::updateMode,
+                )
+            }
+
+            if (state.mode == AlarmMode.ABSOLUTE) {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    TimePicker(state = timeState)
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Repeat,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                    Text(
+                        text = stringResource(R.string.field_repeat),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
+                DayRow(
+                    mask = state.daysOfWeek,
+                    onToggle = vm::toggleDay,
+                )
+            } else {
+                RelativeRow(
+                    minutes = state.relativeMinutes,
+                    onChange = vm::updateRelativeMinutes,
+                )
             }
 
             OutlinedTextField(
@@ -142,23 +185,6 @@ fun AlarmEditScreen(
                 leadingIcon = { Icon(Icons.AutoMirrored.Filled.Label, contentDescription = null) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-            )
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Repeat,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(end = 8.dp),
-                )
-                Text(
-                    text = stringResource(R.string.field_repeat),
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            }
-            DayRow(
-                mask = state.daysOfWeek,
-                onToggle = vm::toggleDay,
             )
 
             Row(
@@ -203,10 +229,190 @@ fun AlarmEditScreen(
                 )
             }
 
+            SnoozeRow(
+                value = state.snoozeMinutes,
+                onChange = vm::updateSnoozeMinutes,
+            )
+
+            // Self-destruct: only visible when the alarm is one-shot. Hidden
+            // entirely (not greyed out) for recurring per the spec — recurring
+            // + self-destruct is illegal and there's no UX for it.
+            val isOneShot = state.mode == AlarmMode.RELATIVE || state.daysOfWeek == 0
+            if (isOneShot) {
+                SelfDestructRow(
+                    checked = state.selfDestruct,
+                    onToggle = vm::toggleSelfDestruct,
+                )
+            }
+
             Spacer(Modifier.height(16.dp))
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModeToggle(mode: AlarmMode, onChange: (AlarmMode) -> Unit) {
+    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        AlarmMode.entries.forEachIndexed { idx, m ->
+            SegmentedButton(
+                selected = mode == m,
+                onClick = { onChange(m) },
+                shape = SegmentedButtonDefaults.itemShape(idx, AlarmMode.entries.size),
+            ) {
+                val labelRes = when (m) {
+                    AlarmMode.ABSOLUTE -> R.string.alarm_mode_absolute
+                    AlarmMode.RELATIVE -> R.string.alarm_mode_relative
+                }
+                Text(stringResource(labelRes))
+            }
+        }
+    }
+}
+
+@Composable
+private fun RelativeRow(minutes: Int, onChange: (Int) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.Timer,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(end = 8.dp),
+            )
+            Text(
+                text = stringResource(R.string.field_relative_minutes),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            RELATIVE_PRESETS.forEach { preset ->
+                RelativeChip(
+                    minutes = preset,
+                    selected = preset == minutes,
+                    onClick = { onChange(preset) },
+                )
+            }
+        }
+        // Custom field — accepts any value in [MIN_RELATIVE_MINUTES, MAX_RELATIVE_MINUTES].
+        // Updates state only when the input is a valid integer in range; otherwise
+        // the prior value persists.
+        OutlinedTextField(
+            value = minutes.toString(),
+            onValueChange = { raw ->
+                raw.toIntOrNull()?.takeIf {
+                    it in Alarm.MIN_RELATIVE_MINUTES..Alarm.MAX_RELATIVE_MINUTES
+                }?.let(onChange)
+            },
+            label = { Text(stringResource(R.string.field_relative_minutes_custom)) },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun RelativeChip(minutes: Int, selected: Boolean, onClick: () -> Unit) {
+    val bg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+    val fg = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+    Box(
+        modifier = Modifier
+            .size(width = 56.dp, height = 36.dp)
+            .clip(CircleShape)
+            .background(bg)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = "$minutes", color = fg, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+private val RELATIVE_PRESETS = listOf(5, 15, 30, 60)
+
+@Composable
+private fun SelfDestructRow(checked: Boolean, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Default.DeleteForever,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(end = 12.dp),
+        )
+        Text(
+            text = stringResource(R.string.field_self_destruct),
+            modifier = Modifier.weight(1f),
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = { onToggle() },
+        )
+    }
+}
+
+@Composable
+private fun SnoozeRow(value: Int, onChange: (Int) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Default.Snooze,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(end = 12.dp),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(stringResource(R.string.field_snooze_minutes))
+            Text(
+                text = stringResource(R.string.field_snooze_minutes_value, value),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        // Picker is a row of preset chips. Range-aware: presets within
+        // [MIN, MAX] are shown; the live `value` highlights whichever
+        // preset matches. Custom non-preset values (set via wire format /
+        // migration) just unhighlight all chips but stay valid.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SNOOZE_PRESETS.forEach { preset ->
+                SnoozeChip(
+                    minutes = preset,
+                    selected = preset == value,
+                    onClick = { onChange(preset) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SnoozeChip(minutes: Int, selected: Boolean, onClick: () -> Unit) {
+    val bg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+    val fg = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+    Box(
+        modifier = Modifier
+            .size(width = 44.dp, height = 36.dp)
+            .clip(CircleShape)
+            .background(bg)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = "$minutes", color = fg, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+// Compact preset list: 1 (debug-friendly), 5, 10 (legacy default), 30.
+// Values outside this list still flow through the wire format / migration —
+// SnoozeRow's "$value min" text always reflects the actual state.
+private val SNOOZE_PRESETS = listOf(
+    Alarm.MIN_SNOOZE_MINUTES,
+    5,
+    Alarm.DEFAULT_SNOOZE_MINUTES,
+    30,
+)
 
 @Composable
 private fun DayRow(mask: Int, onToggle: (Int) -> Unit) {

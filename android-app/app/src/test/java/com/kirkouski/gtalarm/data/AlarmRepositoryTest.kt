@@ -8,6 +8,7 @@ import com.kirkouski.gtalarm.domain.DaysOfWeek
 import com.kirkouski.gtalarm.scheduler.AlarmScheduler
 import com.kirkouski.gtalarm.wear.WearBridgeService
 import com.kirkouski.gtalarm.widget.WidgetRefresher
+import android.content.Context
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
@@ -31,6 +32,7 @@ class AlarmRepositoryTest {
     private lateinit var wearBridge: WearBridgeService
     private lateinit var tombstones: Tombstones
     private lateinit var widgetRefresher: WidgetRefresher
+    private lateinit var appContext: Context
     private lateinit var repo: AlarmRepository
 
     @Before
@@ -40,7 +42,12 @@ class AlarmRepositoryTest {
         wearBridge = mockk(relaxed = true)
         tombstones = mockk(relaxed = true)
         widgetRefresher = mockk(relaxed = true)
-        repo = AlarmRepository(dao, scheduler, wearBridge, tombstones, widgetRefresher)
+        // Context is only used by rescheduleAllOnBoot() for the missed
+        // notification — these unit tests don't exercise that path. A
+        // relaxed mock is enough; if a test ever hits it, the NotificationManager
+        // call would NPE and that's the signal to switch to a real Robolectric ctx.
+        appContext = mockk(relaxed = true)
+        repo = AlarmRepository(dao, scheduler, wearBridge, tombstones, widgetRefresher, appContext)
     }
 
     @Test
@@ -122,17 +129,35 @@ class AlarmRepositoryTest {
     }
 
     @Test
-    fun `snooze schedules at trigger, broadcasts snoozed, returns trigger`() = runTest {
+    fun `snooze with explicit override schedules at trigger, broadcasts snoozed, returns trigger`() = runTest {
         dao.upsert(AlarmEntity(id = 11L, label = "Z", hour = 8, minute = 0, daysOfWeek = 0,
-            enabled = true, audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L))
+            enabled = true, audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L,
+            snoozeMinutes = 10))
         val before = System.currentTimeMillis()
 
-        val trigger = repo.snooze(11L, minutes = 5)
+        val trigger = repo.snooze(11L, minutesOverride = 5)
 
         assertNotNull(trigger)
         assertTrue("snooze must return a future trigger time", trigger!! >= before + 5 * 60_000L - 100L)
         verify { scheduler.scheduleAt(match { it.id == 11L }, eq(trigger)) }
         verify { wearBridge.sendAlarmSnoozed(11L, eq(trigger)) }
+    }
+
+    @Test
+    fun `snooze without override reads the per-alarm snoozeMinutes`() = runTest {
+        dao.upsert(AlarmEntity(id = 12L, label = "Custom", hour = 8, minute = 0, daysOfWeek = 0,
+            enabled = true, audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L,
+            snoozeMinutes = 7))
+        val before = System.currentTimeMillis()
+
+        val trigger = repo.snooze(12L)
+
+        assertNotNull(trigger)
+        assertTrue(
+            "snooze must honor alarm's own 7-min duration",
+            trigger!! >= before + 7 * 60_000L - 100L && trigger <= before + 7 * 60_000L + 1_000L,
+        )
+        verify { scheduler.scheduleAt(match { it.id == 12L }, eq(trigger)) }
     }
 
     @Test

@@ -1,7 +1,9 @@
 package com.kirkouski.gtalarm.ring
 
+import android.app.KeyguardManager
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -50,6 +52,11 @@ class AlarmActivity : ComponentActivity() {
         configureWindow()
 
         val alarmId = intent.getLongExtra(AlarmRingService.EXTRA_ALARM_ID, -1L)
+        val km = getSystemService(KeyguardManager::class.java)
+        Log.i(
+            TAG,
+            "onCreate id=$alarmId locked=${km?.isKeyguardLocked} secure=${km?.isKeyguardSecure}",
+        )
 
         setContent {
             var alarm by remember { mutableStateOf<Alarm?>(null) }
@@ -76,12 +83,17 @@ class AlarmActivity : ComponentActivity() {
     }
 
     private fun sendAction(action: String, alarmId: Long) {
+        Log.i(TAG, "user tap action=$action id=$alarmId")
         val intent = Intent(this, AlarmRingService::class.java).apply {
             this.action = action
             putExtra(AlarmRingService.EXTRA_ALARM_ID, alarmId)
         }
         lifecycleScope.launch { startService(intent) }
         finishAndRemoveTask()
+    }
+
+    private companion object {
+        const val TAG = "AlarmActivity"
     }
 }
 

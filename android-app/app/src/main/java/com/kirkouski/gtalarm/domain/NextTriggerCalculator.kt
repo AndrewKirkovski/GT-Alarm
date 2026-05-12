@@ -4,10 +4,24 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 
 object NextTriggerCalculator {
+    // reason: 4 early returns are intentional and each handles a distinct
+    // alarm class (relative, one-shot absolute, recurring loop hit, recurring
+    // loop fallback). A single-return refactor with a nullable accumulator
+    // would obscure the branches and require an `error()` for the unreachable
+    // fallback. The branches are explicit by design.
+    @Suppress("ReturnCount")
     fun nextTriggerEpochMillis(
         alarm: Alarm,
         now: ZonedDateTime = ZonedDateTime.now(ZoneId.systemDefault()),
     ): Long {
+        // Relative ("in N min") alarms: fire time is fixed at the moment of
+        // activation. Toggle-off-then-on bumps `updatedAtEpoch` so the timer
+        // slides forward — the calculator doesn't need any reset logic. Cold
+        // reboot recovery handled in BootReceiver (past-due rule).
+        if (alarm.isRelative) {
+            return alarm.computedFireEpoch()
+        }
+
         val candidateToday = now
             .withHour(alarm.hour)
             .withMinute(alarm.minute)

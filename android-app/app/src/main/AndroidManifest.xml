@@ -11,11 +11,22 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- Alarm clock category apps are exempt from Google Play's restriction on
-         REQUEST_IGNORE_BATTERY_OPTIMIZATIONS. Used only to deep-link the user
-         to the system "ignore battery optimizations" dialog so Samsung's One UI
-         doesn't put us in deep sleep and skip alarms. -->
+    <!-- Alarm-clock-category exemption from Google Play's REQUEST_IGNORE_BATTERY
+         restriction; deep-links to the OS dialog so One UI doesn't deep-sleep us. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Wear Engine has no <uses-permission> — runtime-only via
+         HiWear.getAuthClient(...).requestPermission(DEVICE_MANAGER). -->
+
+    <!-- Android 11+ package-visibility queries: SET_ALARM resolves alarm-app
+         handlers; com.huawei.health is the documented Wear Engine bridge on
+         non-Huawei phones (Samsung). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <package android:name="com.huawei.health" />
+    </queries>
 
     <application
         android:name=".GtAlarmApp"
@@ -30,6 +41,15 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.GtAlarm"
         tools:targetApi="34">
+
+        <!-- Phone-side AGConnect appid (the watch HAP has its own separate
+             entry under the Sports Watch / Lite Wearable track). Manually
+             declared because `agcp { manifest = false }` (AGP 9 compat) skips
+             auto-injection. Value MUST match client.app_id in
+             agconnect-services.json. Format: `appid=<numeric_id>`. -->
+        <meta-data
+            android:name="com.huawei.hms.client.appid"
+            android:value="${agconnectAppId}" />
 
         <activity
             android:name=".MainActivity"
@@ -51,6 +71,18 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:theme="@style/Theme.GtAlarm.Fullscreen" />
+
+        <activity
+            android:name=".voice.AddAlarmShimActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.SET_ALARM" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
 
         <service
             android:name=".ring.AlarmRingService"

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Watch
@@ -25,6 +26,7 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -38,7 +40,10 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,7 +62,10 @@ import com.kirkouski.gtalarm.util.RelativeTime
 import com.kirkouski.gtalarm.util.TimeFormatter
 import com.kirkouski.gtalarm.util.rememberLocaleOrderedDayBits
 import com.kirkouski.gtalarm.util.shortLabelResForDayBit
+import com.kirkouski.gtalarm.wear.ForceSyncResult
+import com.kirkouski.gtalarm.wear.PairedDeviceInfo
 import com.kirkouski.gtalarm.wear.WatchSyncStatus
+import android.widget.Toast
 
 // reason: Compose top-level screen composables are inherently long because
 // they declare a tree of layout, state hoisting, and side-effects in one
@@ -74,16 +82,35 @@ fun AlarmListScreen(
     onEdit: (Long) -> Unit,
     onOpenExactAlarmSettings: () -> Unit,
     onOpenBatteryOptSettings: () -> Unit,
+    onOpenHelp: () -> Unit,
     vm: AlarmListViewModel = hiltViewModel(),
 ) {
     val alarms by vm.alarms.collectAsStateWithLifecycle()
     val canExact = vm.canScheduleExact()
     val showBatteryOptCard by vm.showBatteryOptCard.collectAsStateWithLifecycle()
     val watchStatus by vm.watchStatus.collectAsStateWithLifecycle()
+    val pairedDevice by vm.pairedDeviceInfo.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        vm.forceSyncEvents.collect { result ->
+            val msg = forceSyncToast(context, result)
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+        }
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text(stringResource(R.string.screen_list_title)) })
+            TopAppBar(
+                title = { Text(stringResource(R.string.screen_list_title)) },
+                actions = {
+                    IconButton(onClick = onOpenHelp) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.HelpOutline,
+                            contentDescription = stringResource(R.string.action_open_help),
+                        )
+                    }
+                },
+            )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = onAdd) {
@@ -100,7 +127,11 @@ fun AlarmListScreen(
             // is NoOpWearBridge so this is permanently NOT_CONNECTED; once a real
             // HuaweiWearBridge lands the same card animates through real states
             // because it reads from the interface, not the impl.
-            WatchSyncCard(status = watchStatus)
+            WatchSyncCard(
+                status = watchStatus,
+                pairedDevice = pairedDevice,
+                onForceSync = { vm.onForceSync() },
+            )
             if (showBatteryOptCard) {
                 BatteryOptRationaleCard(
                     onOpenSettings = {
@@ -156,8 +187,16 @@ fun AlarmListScreen(
     }
 }
 
+// reason: single linear Card + Column + Row tree with no reorderable
+// sections. Splitting into header/body/button composables would add a
+// state-routing layer for ~3 lines saved.
+@Suppress("LongMethod")
 @Composable
-private fun WatchSyncCard(status: WatchSyncStatus) {
+private fun WatchSyncCard(
+    status: WatchSyncStatus,
+    pairedDevice: PairedDeviceInfo?,
+    onForceSync: () -> Unit,
+) {
     val bodyRes = when (status) {
         WatchSyncStatus.NOT_CONNECTED -> R.string.watch_status_card_not_connected
         WatchSyncStatus.CONNECTING -> R.string.watch_status_card_connecting
@@ -169,33 +208,69 @@ private fun WatchSyncCard(status: WatchSyncStatus) {
         modifier = Modifier
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(24.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.size(12.dp))
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = stringResource(R.string.watch_status_card_title),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text(
-                    text = stringResource(bodyRes),
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
+                Spacer(Modifier.size(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.watch_status_card_title),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = stringResource(bodyRes),
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    pairedDevice?.let { info ->
+                        val devText = listOf(info.name, info.model)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" · ")
+                            .ifBlank { stringResource(R.string.watch_status_card_device_unknown) }
+                        Text(
+                            text = devText,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+                }
+            }
+            OutlinedButton(
+                onClick = onForceSync,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+            ) {
+                Text(stringResource(R.string.watch_status_card_force_sync))
             }
         }
     }
+}
+
+private fun forceSyncToast(
+    context: android.content.Context,
+    result: ForceSyncResult,
+): String = when (result) {
+    is ForceSyncResult.Ok -> context.getString(R.string.force_sync_ok, result.alarmCount)
+    is ForceSyncResult.AlreadyInSync ->
+        context.getString(R.string.force_sync_already, result.alarmCount)
+    ForceSyncResult.NoDevice -> context.getString(R.string.force_sync_no_device)
+    ForceSyncResult.NotAuthorized -> context.getString(R.string.force_sync_not_authorized)
+    ForceSyncResult.Disconnected -> context.getString(R.string.force_sync_disconnected)
+    is ForceSyncResult.PeerAppMissing ->
+        context.getString(R.string.force_sync_peer_app_missing, result.pingCode)
+    is ForceSyncResult.Error -> context.getString(R.string.force_sync_error, result.message)
 }
 
 @Composable
@@ -298,11 +373,25 @@ private fun AlarmRow(
         ) {
             val ctx = LocalContext.current
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = TimeFormatter.formatHourMinute(ctx, alarm.hour, alarm.minute),
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.Light,
-                )
+                if (alarm.isRelative) {
+                    // Live countdown is the prominent text for relative alarms.
+                    // Different color (tertiary) so user spots it at a glance and
+                    // remembers it resets on toggle off→on. Matches the watch
+                    // list's color-cue convention.
+                    val countdownText = rememberRelativeCountdownText(alarm)
+                    Text(
+                        text = countdownText,
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Light,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                } else {
+                    Text(
+                        text = TimeFormatter.formatHourMinute(ctx, alarm.hour, alarm.minute),
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Light,
+                    )
+                }
                 if (alarm.label.isNotBlank()) {
                     Text(alarm.label, fontSize = 14.sp)
                 }
@@ -320,14 +409,59 @@ private fun AlarmRow(
 private fun subtitleLine(alarm: Alarm): String {
     val days = daysLabel(alarm.daysOfWeek)
     if (!alarm.enabled) return days
-    // Recompute on alarm content change so list updates after edit/toggle.
-    // Doesn't tick — relative text is approximate by design (FORMAT_ABBREV_RELATIVE
-    // collapses sub-minute intervals). The list refreshes on every list-screen
-    // resume via observeAlarms() emission, which is sufficient for our cadence.
+    // For relative alarms the prominent text already shows the live countdown;
+    // subtitle reduces to a hint that the timer resets on toggle. For absolute
+    // alarms we keep the legacy "in N min" approximate text (doesn't tick).
+    if (alarm.isRelative) return ""
     val nextTrigger = remember(alarm) { NextTriggerCalculator.nextTriggerEpochMillis(alarm) }
     val relative = RelativeTime.formatUntil(nextTrigger)
     return if (relative.isEmpty()) days else "$days  ·  $relative"
 }
+
+// Ticks the countdown for a relative alarm. Cadence:
+//   > 60 s remaining: refresh every 30 s
+//   ≤ 60 s remaining: refresh every 1 s (so user sees seconds counting down
+//                     on the final approach)
+// Stops ticking 5 s past fire time — by then the alarm has rung and the row
+// will be deleted by the self-destruct path (or moved off-screen).
+@Composable
+private fun rememberRelativeCountdownText(alarm: Alarm): String {
+    val target = alarm.computedFireEpoch()
+    // mutableLongStateOf keyed on target so we restart the tick if the user
+    // edits the duration (which bumps updatedAtEpoch → new target).
+    var now by remember(alarm.id, target) { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(alarm.id, target) {
+        while (true) {
+            val remaining = target - System.currentTimeMillis()
+            if (remaining < -COUNTDOWN_STOP_GRACE_MS) break
+            val sleep = if (remaining > 60_000L) COUNTDOWN_SLOW_TICK_MS else COUNTDOWN_FAST_TICK_MS
+            delay(sleep)
+            now = System.currentTimeMillis()
+        }
+    }
+    val remaining = target - now
+    return when {
+        remaining <= 0L -> stringResource(R.string.list_relative_fired)
+        remaining < 60_000L -> stringResource(
+            R.string.list_relative_in_sec,
+            (remaining / 1000L).toInt(),
+        )
+        remaining < 3_600_000L -> stringResource(
+            R.string.list_relative_in_min,
+            (remaining / 60_000L).toInt(),
+        )
+        else -> {
+            val totalMin = (remaining / 60_000L).toInt()
+            val hours = totalMin / 60
+            val mins = totalMin % 60
+            stringResource(R.string.list_relative_in_hr_min, hours, mins)
+        }
+    }
+}
+
+private const val COUNTDOWN_SLOW_TICK_MS = 30_000L
+private const val COUNTDOWN_FAST_TICK_MS = 1_000L
+private const val COUNTDOWN_STOP_GRACE_MS = 5_000L
 
 @Composable
 private fun daysLabel(mask: Int): String = when (mask) {

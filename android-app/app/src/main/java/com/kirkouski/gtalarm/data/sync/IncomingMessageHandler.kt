@@ -1,39 +1,66 @@
 package com.kirkouski.gtalarm.data.sync
 
+import android.content.Context
+import android.content.Intent
 import android.util.Log
 import com.kirkouski.gtalarm.data.Tombstones
 import com.kirkouski.gtalarm.data.db.AlarmDao
 import com.kirkouski.gtalarm.data.db.toDomain
 import com.kirkouski.gtalarm.data.db.toEntity
 import com.kirkouski.gtalarm.domain.Alarm
+import com.kirkouski.gtalarm.ring.AlarmRingService
 import com.kirkouski.gtalarm.scheduler.AlarmScheduler
 import com.kirkouski.gtalarm.widget.WidgetRefresher
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * Receive-side handler for peer messages on the phone. Applies the LWW +
  * tombstone rules from `docs/sync-architecture.md` §2 and §5 and writes
- * the resolved state directly to DAO/Scheduler/Tombstones/Widget — it
- * does NOT route through [com.kirkouski.gtalarm.data.AlarmRepository],
- * which would re-broadcast the change and cause a feedback loop.
+ * resolved state directly to DAO/Scheduler/Tombstones/Widget — never via
+ * AlarmRepository, which would re-broadcast and create a peer loop.
  *
- * Bound at app start to [com.kirkouski.gtalarm.wear.WearBridgeService]
- * via `setIncomingHandler`. Today's `NoOpWearBridge` never invokes it;
- * `HuaweiWearBridge` will, once vendor approval lands.
+ * For dismiss and snooze during a live ring, the handler dispatches an
+ * intent to [AlarmRingService] with [AlarmRingService.EXTRA_FROM_PEER] set
+ * so the service skips the outbound broadcast that would echo the action
+ * back to the originating peer.
  */
 @Singleton
 class IncomingMessageHandler @Inject constructor(
+    @param:ApplicationContext private val context: Context,
     private val dao: AlarmDao,
     private val tombstones: Tombstones,
     private val scheduler: AlarmScheduler,
     private val widgetRefresher: WidgetRefresher,
 ) {
 
+    // reason: branch count is dominated by the IncomingMessage sealed
+    // hierarchy (7 cases) plus the WatchLog early-return + level switch.
+    // Each branch maps to a distinct wire-format type that has to be
+    // dispatched; splitting into helpers per-type adds files without
+    // changing logic.
+    @Suppress("CyclomaticComplexMethod")
     suspend fun handle(msg: IncomingMessage) {
-        // Boundary validation. Peer messages are an external API; reject malformed
-        // stamps so they cannot poison the LWW state. Drop, don't throw — a
-        // misbehaving peer should not crash the app. Mirrors the watch handler.
+        // WatchLog is the dev-only log relay — surface to logcat under its
+        // own tag and exit. It legitimately carries `updatedAtEpoch` = ts
+        // not the LWW stamp, so it bypasses the regular epoch validation.
+        if (msg is IncomingMessage.WatchLog) {
+            when (msg.level) {
+                "E" -> Log.e(WATCH_LOG_TAG, msg.msg)
+                "W" -> Log.w(WATCH_LOG_TAG, msg.msg)
+                else -> Log.i(WATCH_LOG_TAG, msg.msg)
+            }
+            return
+        }
+        // SyncHash is intercepted by HuaweiWearBridge for the pending
+        // hash-request continuation. If it reaches the handler the
+        // request had already timed out — silently drop instead of
+        // letting it fail the updatedAtEpoch=0 validation below.
+        if (msg is IncomingMessage.SyncHash) {
+            Log.d(TAG, "received SyncHash after timeout (hash=${msg.hash}) — dropping")
+            return
+        }
         if (msg.updatedAtEpoch <= 0L) {
             Log.w(TAG, "rejecting bad updatedAtEpoch=${msg.updatedAtEpoch} type=${msg::class.simpleName}")
             return
@@ -44,8 +71,10 @@ class IncomingMessageHandler @Inject constructor(
             is IncomingMessage.AlarmToggled -> applyToggle(msg.alarmId, msg.enabled, msg.updatedAtEpoch)
             is IncomingMessage.AlarmDeleted -> applyDelete(msg.alarmId, msg.updatedAtEpoch)
             is IncomingMessage.AlarmFired -> Log.d(TAG, "peer fired alarm id=${msg.alarmId}")
-            is IncomingMessage.AlarmDismissed -> Log.d(TAG, "peer dismissed alarm id=${msg.alarmId}")
-            is IncomingMessage.AlarmSnoozed -> applySnooze(msg.alarmId, msg.rescheduleEpoch, msg.updatedAtEpoch)
+            is IncomingMessage.AlarmDismissed -> dispatchDismissFromPeer(msg.alarmId)
+            is IncomingMessage.AlarmSnoozed -> applySnooze(msg.alarmId, msg.updatedAtEpoch)
+            is IncomingMessage.WatchLog -> Unit // handled above; exhaustiveness only
+            is IncomingMessage.SyncHash -> Unit // handled above; exhaustiveness only
         }
     }
 
@@ -87,8 +116,6 @@ class IncomingMessageHandler @Inject constructor(
     }
 
     private suspend fun applyDelete(alarmId: Long, incomingEpoch: Long) {
-        // Tombstone is sticky — write unconditionally so a stale add/update
-        // arriving later is suppressed by the §2 tombstone tie-break.
         tombstones.add(alarmId, incomingEpoch)
         val local = dao.getById(alarmId)
         if (local == null) {
@@ -104,19 +131,54 @@ class IncomingMessageHandler @Inject constructor(
         widgetRefresher.refresh()
     }
 
-    private suspend fun applySnooze(alarmId: Long, rescheduleEpoch: Long, incomingEpoch: Long) {
-        // Live-ring coordination, not a state mutation — re-arms the local
-        // AlarmManager so the phone fires at the same future moment as peer.
+    private suspend fun applySnooze(alarmId: Long, incomingEpoch: Long) {
         val local = dao.getById(alarmId)?.toDomain()
         if (local == null) {
             Log.d(TAG, "ignore snooze id=$alarmId — unknown row")
             return
         }
-        Log.d(TAG, "peer snooze id=$alarmId at $rescheduleEpoch stamp=$incomingEpoch")
-        scheduler.scheduleAt(local, rescheduleEpoch)
+        // Phone owns the snooze duration — peer carries the action only.
+        val trigger = System.currentTimeMillis() + local.snoozeMinutes * 60_000L
+        Log.d(TAG, "peer snooze id=$alarmId +${local.snoozeMinutes}min trigger=$trigger stamp=$incomingEpoch")
+        dispatchSnoozeFromPeer(alarmId, trigger)
     }
 
-    private companion object {
-        const val TAG = "IncomingMsg"
+    private fun dispatchDismissFromPeer(alarmId: Long) {
+        val intent = buildDismissFromPeerIntent(context, alarmId)
+        runCatching { context.startService(intent) }.onFailure {
+            Log.w(TAG, "startService for peer dismiss id=$alarmId failed: ${it.message}")
+        }
+    }
+
+    private fun dispatchSnoozeFromPeer(alarmId: Long, rescheduleEpoch: Long) {
+        val intent = buildSnoozeFromPeerIntent(context, alarmId, rescheduleEpoch)
+        runCatching { context.startService(intent) }.onFailure {
+            Log.w(TAG, "startService for peer snooze id=$alarmId failed: ${it.message}")
+        }
+    }
+
+    companion object {
+        private const val TAG = "IncomingMsg"
+        // Separate tag so adb logcat filtering can pin just the watch's
+        // mirrored log lines (e.g. `adb logcat WatchLog:I *:S`).
+        private const val WATCH_LOG_TAG = "WatchLog"
+
+        fun buildDismissFromPeerIntent(context: Context, alarmId: Long): Intent =
+            Intent(context, AlarmRingService::class.java).apply {
+                action = AlarmRingService.ACTION_DISMISS
+                putExtra(AlarmRingService.EXTRA_ALARM_ID, alarmId)
+                putExtra(AlarmRingService.EXTRA_FROM_PEER, true)
+            }
+
+        fun buildSnoozeFromPeerIntent(
+            context: Context,
+            alarmId: Long,
+            rescheduleEpoch: Long,
+        ): Intent = Intent(context, AlarmRingService::class.java).apply {
+            action = AlarmRingService.ACTION_SNOOZE
+            putExtra(AlarmRingService.EXTRA_ALARM_ID, alarmId)
+            putExtra(AlarmRingService.EXTRA_FROM_PEER, true)
+            putExtra(AlarmRingService.EXTRA_RESCHEDULE_EPOCH, rescheduleEpoch)
+        }
     }
 }
