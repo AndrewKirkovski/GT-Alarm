@@ -22,7 +22,6 @@
     <string name="field_repeat">Повтор</string>
     <string name="field_snooze_minutes">Тривалість відкладання</string>
     <string name="field_snooze_minutes_value">%1$d хв</string>
-    <string name="save">Зберегти</string>
     <string name="delete">Видалити</string>
     <string name="cancel">Скасувати</string>
     <string name="add_alarm">Додати будильник</string>

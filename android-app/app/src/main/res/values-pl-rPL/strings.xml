@@ -22,7 +22,6 @@
     <string name="field_repeat">Powtarzanie</string>
     <string name="field_snooze_minutes">Czas drzemki</string>
     <string name="field_snooze_minutes_value">%1$d min</string>
-    <string name="save">Zapisz</string>
     <string name="delete">Usuń</string>
     <string name="cancel">Anuluj</string>
     <string name="add_alarm">Dodaj alarm</string>

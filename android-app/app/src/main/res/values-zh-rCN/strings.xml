@@ -22,7 +22,6 @@
     <string name="field_repeat">重复</string>
     <string name="field_snooze_minutes">稍后提醒时长</string>
     <string name="field_snooze_minutes_value">%1$d 分钟</string>
-    <string name="save">保存</string>
     <string name="delete">删除</string>
     <string name="cancel">取消</string>
     <string name="add_alarm">添加闹钟</string>

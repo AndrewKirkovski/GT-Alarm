@@ -19,4 +19,11 @@ object TimeFormatter {
 
     fun formatTime(context: Context, date: Date): String =
         DateFormat.getTimeFormat(context).format(date)
+
+    /**
+     * Reads the user's locale-aware 12h/24h preference from the system.
+     * Matches what [formatHourMinute] renders, so the TimePicker on the
+     * edit screen agrees with the list subtitle.
+     */
+    fun uses24HourFormat(context: Context): Boolean = DateFormat.is24HourFormat(context)
 }

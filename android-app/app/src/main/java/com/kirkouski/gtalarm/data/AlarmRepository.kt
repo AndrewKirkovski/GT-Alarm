@@ -6,17 +6,32 @@ import android.util.Log
 import com.kirkouski.gtalarm.data.db.AlarmDao
 import com.kirkouski.gtalarm.data.db.toDomain
 import com.kirkouski.gtalarm.data.db.toEntity
+import com.kirkouski.gtalarm.di.IoDispatcher
 import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.ring.AlarmNotifications
 import com.kirkouski.gtalarm.scheduler.AlarmScheduler
 import com.kirkouski.gtalarm.wear.WearBridgeService
 import com.kirkouski.gtalarm.widget.WidgetRefresher
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.plus
 import javax.inject.Inject
 import javax.inject.Singleton
 
+// reason: function count grew past 15 with the reverse-save edit model
+// (saveLocalOnly + deleteLocalOnly + pushAlarmToWatch on top of save /
+// setEnabled / setEnabledLocalOnly / delete / snooze / snoozeAt /
+// rescheduleAll / rescheduleAllOnBoot / observeAlarms / getById / getAll /
+// debug helpers). Each function maps to a distinct repository capability
+// that takes the same DAO/scheduler/wear-bridge collaborators; splitting
+// into multiple repositories would just smear the shared dependency
+// surface across more files without changing logic.
+@Suppress("TooManyFunctions")
 @Singleton
 class AlarmRepository @Inject constructor(
     private val dao: AlarmDao,
@@ -25,7 +40,14 @@ class AlarmRepository @Inject constructor(
     private val tombstones: Tombstones,
     private val widgetRefresher: WidgetRefresher,
     @param:ApplicationContext private val appContext: Context,
+    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
+    // Singleton-scoped scope for fire-and-forget watch pushes from
+    // sources whose own scope is about to be cancelled (e.g. AlarmEditViewModel
+    // flushing on onCleared). SupervisorJob so one push failure doesn't kill
+    // sibling pushes.
+    private val appScope: CoroutineScope = CoroutineScope(ioDispatcher + SupervisorJob())
+
     fun observeAlarms(): Flow<List<Alarm>> =
         dao.observeAll().map { list -> list.map { it.toDomain() } }
 
@@ -52,6 +74,68 @@ class AlarmRepository @Inject constructor(
                 "enabled=${saved.enabled} dow=${saved.daysOfWeek} stamp=$now",
         )
         return saved.id
+    }
+
+    /**
+     * Persist the alarm to local DB + scheduler + widget WITHOUT pushing to
+     * the watch. Used by the edit screen's reverse-save UX: every keystroke
+     * commits locally, but the watch only learns about it on exit (see
+     * [pushAlarmToWatch]). Keeps the watch's notification feed quiet while
+     * the user is mid-edit.
+     *
+     * For new alarms (id=0), inserts and returns the assigned id. For
+     * existing ids, upserts in place.
+     */
+    suspend fun saveLocalOnly(alarm: Alarm): Long {
+        val now = System.currentTimeMillis()
+        val isNew = alarm.id == 0L
+        val stamped = alarm.copy(updatedAtEpoch = now)
+        val newId = dao.upsert(stamped.toEntity())
+        val saved = stamped.copy(id = if (isNew) newId else stamped.id)
+        if (saved.enabled) {
+            scheduler.schedule(saved)
+        } else {
+            scheduler.cancel(saved.id)
+        }
+        refreshWidgets()
+        Log.i(
+            TAG,
+            "saveLocalOnly kind=${if (isNew) "added" else "updated"} id=${saved.id} " +
+                "enabled=${saved.enabled} dow=${saved.daysOfWeek} stamp=$now",
+        )
+        return saved.id
+    }
+
+    /**
+     * Discard an in-progress new alarm row that was created via
+     * [saveLocalOnly] but never committed (user backed out of the edit
+     * screen before completing the alarm). Skips the watch broadcast +
+     * tombstone since the watch never learned the alarm existed.
+     */
+    suspend fun deleteLocalOnly(id: Long) {
+        scheduler.cancel(id)
+        dao.deleteById(id)
+        refreshWidgets()
+        Log.i(TAG, "deleteLocalOnly id=$id")
+    }
+
+    /**
+     * Fire-and-forget broadcast of the alarm's current state to the watch.
+     * Called by AlarmEditViewModel on screen exit to flush pending changes
+     * after a series of [saveLocalOnly] writes. Uses the singleton-scoped
+     * [appScope] so it survives the caller's VM cancellation. Idempotent:
+     * if the alarm row is missing (deleted between local-save and flush),
+     * silently no-ops.
+     */
+    fun pushAlarmToWatch(id: Long) {
+        appScope.launch {
+            val alarm = dao.getById(id)?.toDomain() ?: run {
+                Log.d(TAG, "pushAlarmToWatch id=$id — row missing, skipping")
+                return@launch
+            }
+            wearBridge.sendAlarmUpdated(alarm)
+            Log.i(TAG, "pushAlarmToWatch id=$id stamp=${alarm.updatedAtEpoch}")
+        }
     }
 
     suspend fun setEnabled(id: Long, enabled: Boolean) {

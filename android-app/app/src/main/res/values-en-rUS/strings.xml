@@ -22,7 +22,6 @@
     <string name="field_repeat">Repeat</string>
     <string name="field_snooze_minutes">Snooze duration</string>
     <string name="field_snooze_minutes_value">%1$d min</string>
-    <string name="save">Save</string>
     <string name="delete">Delete</string>
     <string name="cancel">Cancel</string>
     <string name="add_alarm">Add alarm</string>

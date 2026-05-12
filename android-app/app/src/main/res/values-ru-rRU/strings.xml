@@ -22,7 +22,6 @@
     <string name="field_repeat">Повтор</string>
     <string name="field_snooze_minutes">Длительность откладывания</string>
     <string name="field_snooze_minutes_value">%1$d мин</string>
-    <string name="save">Сохранить</string>
     <string name="delete">Удалить</string>
     <string name="cancel">Отмена</string>
     <string name="add_alarm">Добавить будильник</string>

@@ -13,10 +13,12 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -25,6 +27,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class AlarmRepositoryTest {
 
     private lateinit var dao: FakeAlarmDao
@@ -47,7 +50,18 @@ class AlarmRepositoryTest {
         // relaxed mock is enough; if a test ever hits it, the NotificationManager
         // call would NPE and that's the signal to switch to a real Robolectric ctx.
         appContext = mockk(relaxed = true)
-        repo = AlarmRepository(dao, scheduler, wearBridge, tombstones, widgetRefresher, appContext)
+        // UnconfinedTestDispatcher so the repo's internal appScope.launch
+        // (pushAlarmToWatch) runs in-line under runTest, letting verify()
+        // calls observe the broadcast synchronously.
+        repo = AlarmRepository(
+            dao = dao,
+            scheduler = scheduler,
+            wearBridge = wearBridge,
+            tombstones = tombstones,
+            widgetRefresher = widgetRefresher,
+            appContext = appContext,
+            ioDispatcher = UnconfinedTestDispatcher(),
+        )
     }
 
     @Test

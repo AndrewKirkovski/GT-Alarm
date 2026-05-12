@@ -22,7 +22,6 @@
     <string name="field_repeat">Паўтор</string>
     <string name="field_snooze_minutes">Працягласць адкладвання</string>
     <string name="field_snooze_minutes_value">%1$d хв</string>
-    <string name="save">Захаваць</string>
     <string name="delete">Выдаліць</string>
     <string name="cancel">Адмяніць</string>
     <string name="add_alarm">Дадаць будзільнік</string>

@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material.icons.filled.WatchOff
 import androidx.compose.material.icons.outlined.AlarmOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
@@ -313,6 +315,12 @@ private fun BatteryOptRationaleCard(
     }
 }
 
+// reason: row composable grew past 60 lines because the swipe-to-delete
+// confirm dialog and the auto-reset-on-cancel LaunchedEffect both belong
+// in the same composable as the SwipeToDismissBox they coordinate with
+// (extracting them would require threading the dismissState through more
+// composable boundaries for no readability gain).
+@Suppress("LongMethod")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SwipeToDeleteRow(
@@ -322,11 +330,54 @@ private fun SwipeToDeleteRow(
     onDelete: () -> Unit,
 ) {
     val dismissState = rememberSwipeToDismissBoxState()
+    var showConfirm by remember { mutableStateOf(false) }
     LaunchedEffect(dismissState.currentValue) {
         if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart ||
             dismissState.currentValue == SwipeToDismissBoxValue.StartToEnd
         ) {
-            onDelete()
+            // Open confirm dialog instead of deleting immediately. The row
+            // stays visually swiped while the dialog is up; cancel snaps it
+            // back, confirm tombstones the alarm.
+            showConfirm = true
+        }
+    }
+    if (showConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                showConfirm = false
+            },
+            title = { Text(stringResource(R.string.delete_alarm)) },
+            text = {
+                val body = if (alarm.label.isNotBlank()) {
+                    stringResource(R.string.swipe_delete_confirm_body, alarm.label)
+                } else {
+                    stringResource(R.string.swipe_delete_confirm_body_unlabeled)
+                }
+                Text(body)
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showConfirm = false
+                    onDelete()
+                }) { Text(stringResource(R.string.delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showConfirm = false
+                }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
+    // When the dialog closes without a confirm (showConfirm flipped back to
+    // false while currentValue is still settled-to-EndToStart), snap the
+    // row back to its resting position. .reset() is suspend so wrap in a
+    // LaunchedEffect keyed on the dialog-shown flag.
+    LaunchedEffect(showConfirm, dismissState.currentValue) {
+        if (!showConfirm &&
+            (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart ||
+                dismissState.currentValue == SwipeToDismissBoxValue.StartToEnd)
+        ) {
+            dismissState.reset()
         }
     }
     // reason: pad the SwipeToDismissBox externally so the errorContainer

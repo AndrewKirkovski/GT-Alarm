@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Label
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Snooze
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Vibration
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,6 +39,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberTimePickerState
@@ -46,11 +48,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -58,10 +63,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.domain.DaysOfWeek
+import com.kirkouski.gtalarm.util.TimeFormatter
 import com.kirkouski.gtalarm.util.rememberLocaleOrderedDayBits
 import com.kirkouski.gtalarm.util.shortLabelResForDayBit
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.launch
 
 // reason: Compose top-level screen composables are inherently long because
 // they declare a tree of layout, state hoisting, and side-effects in one
@@ -72,7 +77,14 @@ import kotlinx.coroutines.launch
 // disabling LongMethod globally — we still want it firing on non-UI code.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-@Suppress("LongMethod")
+// reason: complexity rose past 10 because the reverse-save UX added two
+// confirm-dialog states (delete + discard-new-draft) plus a Revert action
+// that's only shown when state.isExistingAlarm && state.dirty, and the
+// title resource picks between new/existing. Each branch maps to a distinct
+// user-facing affordance (X / Revert / Delete / Discard); collapsing them
+// would just smear the conditional into the @Composable body where it'd
+// be harder to read at a glance.
+@Suppress("LongMethod", "CyclomaticComplexMethod")
 fun AlarmEditScreen(
     alarmId: Long?,
     onDone: () -> Unit,
@@ -80,14 +92,30 @@ fun AlarmEditScreen(
 ) {
     LaunchedEffect(alarmId) { vm.load(alarmId) }
     val state by vm.state.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
-    BackHandler { onDone() }
+    // Wrap onDone so every exit path (back gesture, X button, system nav)
+    // flushes the pending edits to the watch ONCE before navigating. The
+    // VM's onCleared() is a backstop for process-death paths.
+    val exit: () -> Unit = remember(onDone, vm) {
+        {
+            vm.flushPendingToWatch()
+            onDone()
+        }
+    }
+
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showDiscardConfirm by remember { mutableStateOf(false) }
+
+    BackHandler { exit() }
 
     val timeState = rememberTimePickerState(
         initialHour = state.hour,
         initialMinute = state.minute,
-        is24Hour = true,
+        // 24h vs 12h follows the device locale — matches TimeFormatter on
+        // the list screen so the user doesn't see one format here and a
+        // different one in the subtitle.
+        is24Hour = TimeFormatter.uses24HourFormat(context),
     )
 
     LaunchedEffect(timeState) {
@@ -100,31 +128,71 @@ fun AlarmEditScreen(
         vm.updateAudio(picked.uri, picked.name)
     }
 
+    if (showDeleteConfirm) {
+        DeleteConfirmDialog(
+            onConfirm = {
+                showDeleteConfirm = false
+                vm.delete()
+                onDone()
+            },
+            onDismiss = { showDeleteConfirm = false },
+        )
+    }
+    if (showDiscardConfirm) {
+        DiscardConfirmDialog(
+            onConfirm = {
+                showDiscardConfirm = false
+                vm.discardNewDraft()
+                onDone()
+            },
+            onDismiss = { showDiscardConfirm = false },
+        )
+    }
+
+    // Existing alarm has an openSnapshot in the VM -> Revert button works.
+    // New draft has no snapshot -> the destructive top-bar action becomes
+    // "discard" (delete the in-progress row) instead of "delete".
+    val isNewDraft = !state.isExistingAlarm
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    val title = if (state.id == 0L) R.string.screen_edit_title_new else R.string.screen_edit_title_edit
+                    val title = if (isNewDraft) {
+                        R.string.screen_edit_title_new
+                    } else {
+                        R.string.screen_edit_title_edit
+                    }
                     Text(stringResource(title))
                 },
                 navigationIcon = {
-                    IconButton(onClick = onDone) {
+                    IconButton(onClick = exit) {
                         Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cancel))
                     }
                 },
                 actions = {
-                    if (state.id != 0L) {
-                        IconButton(onClick = { vm.delete(); onDone() }) {
-                            Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.delete))
+                    // Revert: only meaningful for existing alarms that have
+                    // been mutated. Hidden otherwise to keep the top bar tidy.
+                    if (state.isExistingAlarm && state.dirty) {
+                        IconButton(onClick = { vm.revert() }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Undo,
+                                contentDescription = stringResource(R.string.action_revert),
+                            )
                         }
                     }
-                    IconButton(onClick = {
-                        scope.launch {
-                            vm.save()
-                            onDone()
+                    // Destructive: confirm on existing alarms (real delete),
+                    // confirm on new drafts (discard the in-progress row).
+                    // Same dialog pattern, different copy.
+                    if (state.id != 0L) {
+                        IconButton(onClick = {
+                            if (isNewDraft) showDiscardConfirm = true else showDeleteConfirm = true
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = stringResource(R.string.delete),
+                            )
                         }
-                    }) {
-                        Icon(Icons.Default.Check, contentDescription = stringResource(R.string.save))
                     }
                 },
             )
@@ -413,6 +481,44 @@ private val SNOOZE_PRESETS = listOf(
     Alarm.DEFAULT_SNOOZE_MINUTES,
     30,
 )
+
+@Composable
+private fun DeleteConfirmDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.delete_alarm)) },
+        text = { Text(stringResource(R.string.delete_alarm_confirm_body)) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.delete))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun DiscardConfirmDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.discard_draft_title)) },
+        text = { Text(stringResource(R.string.discard_draft_body)) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.discard_draft_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        },
+    )
+}
 
 @Composable
 private fun DayRow(mask: Int, onToggle: (Int) -> Unit) {
