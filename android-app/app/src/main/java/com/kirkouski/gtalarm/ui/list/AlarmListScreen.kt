@@ -18,6 +18,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material.icons.filled.WatchOff
 import androidx.compose.material.icons.outlined.AlarmOff
@@ -85,6 +87,7 @@ fun AlarmListScreen(
     onOpenExactAlarmSettings: () -> Unit,
     onOpenBatteryOptSettings: () -> Unit,
     onOpenHelp: () -> Unit,
+    onOpenSetup: () -> Unit,
     vm: AlarmListViewModel = hiltViewModel(),
 ) {
     val alarms by vm.alarms.collectAsStateWithLifecycle()
@@ -94,6 +97,12 @@ fun AlarmListScreen(
     val pairedDevice by vm.pairedDeviceInfo.collectAsStateWithLifecycle()
     val forceSyncRunning by vm.forceSyncRunning.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    // Banner visible whenever any must-have permission is denied. Lazy on
+    // every recomposition is acceptable — the audit is a handful of cheap
+    // system-service queries (no I/O).
+    val showSetupBanner = remember(alarms.size, showBatteryOptCard, canExact) {
+        com.kirkouski.gtalarm.ui.setup.hasUnresolvedSetup(context)
+    }
     LaunchedEffect(Unit) {
         vm.forceSyncEvents.collect { result ->
             val msg = forceSyncToast(context, result)
@@ -106,6 +115,12 @@ fun AlarmListScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.screen_list_title)) },
                 actions = {
+                    IconButton(onClick = onOpenSetup) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = stringResource(R.string.action_open_setup),
+                        )
+                    }
                     IconButton(onClick = onOpenHelp) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.HelpOutline,
@@ -136,6 +151,9 @@ fun AlarmListScreen(
                 forceSyncRunning = forceSyncRunning,
                 onForceSync = { vm.onForceSync() },
             )
+            if (showSetupBanner) {
+                SetupNeededBanner(onOpenSetup = onOpenSetup)
+            }
             if (showBatteryOptCard) {
                 BatteryOptRationaleCard(
                     onOpenSettings = {
@@ -277,6 +295,47 @@ private fun forceSyncToast(
     is ForceSyncResult.PeerAppMissing ->
         context.getString(R.string.force_sync_peer_app_missing, result.pingCode)
     is ForceSyncResult.Error -> context.getString(R.string.force_sync_error, result.message)
+}
+
+@Composable
+private fun SetupNeededBanner(onOpenSetup: () -> Unit) {
+    ElevatedCard(
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .fillMaxWidth()
+            .clickable { onOpenSetup() },
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(28.dp),
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 12.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.setup_banner_title),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp,
+                )
+                Text(
+                    text = stringResource(R.string.setup_banner_body),
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            OutlinedButton(onClick = onOpenSetup) {
+                Text(stringResource(R.string.setup_banner_action))
+            }
+        }
+    }
 }
 
 @Composable

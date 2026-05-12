@@ -27,6 +27,7 @@ import com.kirkouski.gtalarm.ui.edit.AlarmEditScreen
 import com.kirkouski.gtalarm.ui.help.HelpScreen
 import com.kirkouski.gtalarm.ui.list.AlarmListScreen
 import com.kirkouski.gtalarm.ui.nav.Routes
+import com.kirkouski.gtalarm.ui.setup.SetupScreen
 import com.kirkouski.gtalarm.ui.theme.GtAlarmTheme
 import com.kirkouski.gtalarm.wear.WearBridgeService
 import dagger.hilt.android.AndroidEntryPoint
@@ -63,6 +64,12 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    // reason: onCreate hosts the entire NavHost composable tree because we
+    // don't have a separate AppNavigation file yet; each composable route's
+    // wiring (onBack / onOpen* lambdas) is declared inline. Splitting into
+    // a navHost-building helper would add a file without changing logic —
+    // adding the Setup route nudged this 1 line past 60.
+    @Suppress("LongMethod")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -89,6 +96,13 @@ class MainActivity : ComponentActivity() {
                             onOpenExactAlarmSettings = { openExactAlarmSettings() },
                             onOpenBatteryOptSettings = { openBatteryOptSettings() },
                             onOpenHelp = { navController.navigate(Routes.HELP) },
+                            onOpenSetup = { navController.navigate(Routes.SETUP) },
+                        )
+                    }
+                    composable(Routes.SETUP) {
+                        SetupScreen(
+                            onBack = { navController.popBackStack() },
+                            onOpenVoiceHelp = { navController.navigate(Routes.HELP) },
                         )
                     }
                     composable(Routes.HELP) {

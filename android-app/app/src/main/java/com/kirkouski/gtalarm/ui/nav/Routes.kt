@@ -6,5 +6,6 @@ object Routes {
     const val EDIT_ARG_ID = "alarmId"
     const val EDIT_WITH_ARG = "$EDIT?$EDIT_ARG_ID={${EDIT_ARG_ID}}"
     const val HELP = "help"
+    const val SETUP = "setup"
     fun edit(id: Long?): String = if (id == null) EDIT else "$EDIT?$EDIT_ARG_ID=$id"
 }
