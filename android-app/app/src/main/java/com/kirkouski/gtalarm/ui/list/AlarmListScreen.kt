@@ -92,6 +92,7 @@ fun AlarmListScreen(
     val showBatteryOptCard by vm.showBatteryOptCard.collectAsStateWithLifecycle()
     val watchStatus by vm.watchStatus.collectAsStateWithLifecycle()
     val pairedDevice by vm.pairedDeviceInfo.collectAsStateWithLifecycle()
+    val forceSyncRunning by vm.forceSyncRunning.collectAsStateWithLifecycle()
     val context = LocalContext.current
     LaunchedEffect(Unit) {
         vm.forceSyncEvents.collect { result ->
@@ -132,6 +133,7 @@ fun AlarmListScreen(
             WatchSyncCard(
                 status = watchStatus,
                 pairedDevice = pairedDevice,
+                forceSyncRunning = forceSyncRunning,
                 onForceSync = { vm.onForceSync() },
             )
             if (showBatteryOptCard) {
@@ -197,6 +199,7 @@ fun AlarmListScreen(
 private fun WatchSyncCard(
     status: WatchSyncStatus,
     pairedDevice: PairedDeviceInfo?,
+    forceSyncRunning: Boolean,
     onForceSync: () -> Unit,
 ) {
     val bodyRes = when (status) {
@@ -250,6 +253,7 @@ private fun WatchSyncCard(
             }
             OutlinedButton(
                 onClick = onForceSync,
+                enabled = !forceSyncRunning,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 12.dp),

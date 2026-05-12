@@ -277,6 +277,73 @@ class IncomingMessageHandlerTest {
 
         verify { context.startService(any()) }
     }
+
+    // --- New field coverage: relativeMinutes + selfDestruct ---
+
+    @Test
+    fun `AlarmAdded preserves relativeMinutes and selfDestruct in DAO row`() = runTest {
+        val incoming = Alarm(
+            id = 10L,
+            label = "Timer",
+            hour = 0,
+            minute = 0,
+            daysOfWeek = 0,
+            enabled = true,
+            updatedAtEpoch = 500L,
+            relativeMinutes = 25,
+            selfDestruct = true,
+        )
+        handler.handle(IncomingMessage.AlarmAdded(10L, 500L, incoming))
+
+        val row = dao.getById(10L)
+        assertNotNull(row)
+        assertEquals(25, row!!.relativeMinutes)
+        assertTrue(row.selfDestruct)
+    }
+
+    @Test
+    fun `AlarmUpdated preserves new fields when overwriting older local row`() = runTest {
+        // Local row has the new fields at one value pair; incoming with a
+        // newer stamp flips both. The handler must persist the new pair —
+        // a bug that dropped them on the read-modify-write path would leave
+        // the row in a stale mixed state.
+        dao.upsert(AlarmEntity(
+            id = 11L, label = "x", hour = 0, minute = 0, daysOfWeek = 0,
+            enabled = true, audioUri = null, audioName = null, isVibrationOnly = false,
+            updatedAtEpoch = 100L, snoozeMinutes = 10,
+            relativeMinutes = 5, selfDestruct = false,
+        ))
+        val incoming = Alarm(
+            id = 11L, label = "x", hour = 0, minute = 0, daysOfWeek = 0,
+            enabled = true, updatedAtEpoch = 200L,
+            relativeMinutes = 60, selfDestruct = true,
+        )
+        handler.handle(IncomingMessage.AlarmUpdated(11L, 200L, incoming))
+
+        val row = dao.getById(11L)
+        assertNotNull(row)
+        assertEquals(60, row!!.relativeMinutes)
+        assertTrue(row.selfDestruct)
+    }
+
+    @Test
+    fun `AlarmAdded with relativeMinutes null persists as null (absolute alarm)`() = runTest {
+        // Symmetry with the non-null case: an absolute alarm coming from
+        // the peer must stay absolute. If the mapper coerced null to 0
+        // accidentally, the row would render as a 0-minute timer on the list.
+        val incoming = Alarm(
+            id = 12L, label = "Wake", hour = 8, minute = 0,
+            daysOfWeek = DaysOfWeek.WEEKDAYS, enabled = true,
+            updatedAtEpoch = 300L,
+            relativeMinutes = null, selfDestruct = false,
+        )
+        handler.handle(IncomingMessage.AlarmAdded(12L, 300L, incoming))
+
+        val row = dao.getById(12L)
+        assertNotNull(row)
+        assertNull(row!!.relativeMinutes)
+        assertEquals(false, row.selfDestruct)
+    }
 }
 
 private class FakeAlarmDao : AlarmDao {

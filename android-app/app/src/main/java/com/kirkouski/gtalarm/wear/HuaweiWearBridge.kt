@@ -90,10 +90,13 @@ class HuaweiWearBridge @Inject constructor(
     }
 
     // Pending sync_check round-trip. Held while forceSync's hash-precheck
-    // is awaiting the watch's response. Receiver completes it on SyncHash
-    // arrival; timeout in forceSync cancels it on the suspend side.
-    @Volatile
-    private var pendingHashRequest: CompletableDeferred<String>? = null
+    // is awaiting the watch's response. Stored as AtomicReference so the
+    // receiver's read + complete is atomic against requestRemoteHash's
+    // clear-on-finally: getAndSet(null) gives us a happens-before edge
+    // without acquiring pendingHashMutex (which would deadlock if the
+    // receiver fires inside requestRemoteHash's withLock block).
+    private val pendingHashRequest =
+        java.util.concurrent.atomic.AtomicReference<CompletableDeferred<String>?>(null)
     private val pendingHashMutex = Mutex()
 
     private val receiver: Receiver = Receiver { message ->
@@ -108,11 +111,13 @@ class HuaweiWearBridge @Inject constructor(
                 return@launch
             }
             // SyncHash is a meta-protocol response — route to the pending
-            // request continuation, NOT to the LWW-applying handler. Drop
-            // through to handler.handle only if no pending request (the
-            // handler will log + ignore it).
+            // request continuation, NOT to the LWW-applying handler.
+            // getAndSet(null) atomically claims the deferred so a
+            // concurrent timeout-finally in requestRemoteHash either sees
+            // the cleared ref (we won the race) or already cleared it (we
+            // lost — fall through to handler.handle, which logs+drops).
             if (parsed is IncomingMessage.SyncHash) {
-                val pending = pendingHashRequest
+                val pending = pendingHashRequest.getAndSet(null)
                 if (pending != null && !pending.isCompleted) {
                     pending.complete(parsed.hash)
                     Log.d(TAG, "sync-check response received hash=${parsed.hash}")
@@ -585,8 +590,7 @@ class HuaweiWearBridge @Inject constructor(
     // count-buckets) maps to a distinct user-visible outcome. Splitting into
     // helpers smears the same when-case across files without changing logic.
     @Suppress("TooGenericExceptionCaught", "ReturnCount", "CyclomaticComplexMethod")
-    override suspend fun forceSync(alarms: List<Alarm>): ForceSyncResult {
-        Log.i(TAG, "forceSync alarms=${alarms.size}")
+    override suspend fun forceSync(freshAlarms: suspend () -> List<Alarm>): ForceSyncResult {
         if (!ensurePermissionGranted()) {
             Log.w(TAG, "forceSync: not authorized")
             return ForceSyncResult.NotAuthorized
@@ -615,12 +619,15 @@ class HuaweiWearBridge @Inject constructor(
         if (!ensurePeerAppRunning(device, force = true)) {
             return ForceSyncResult.Error("Watch app didn't reach RUNNING within ${PING_WAKE_TIMEOUT_MS}ms")
         }
-        // Sync-check optimization: ask the watch for its current
-        // AlarmHash. If it matches what we'd send, skip the full push.
-        // Saves N×performSend round-trips on idempotent retries (e.g. user
-        // mashing the Force-sync button or routine re-pairing checks).
-        val localHash = AlarmHash.compute(alarms)
+        // Sync-check optimization: ask the watch for its current AlarmHash
+        // BEFORE snapshotting our alarm list. The ~2s round-trip is the
+        // TOCTOU window where the user could add/edit/delete an alarm; by
+        // re-fetching `alarms` AFTER the response, we hash the latest
+        // state and avoid skipping a needed push.
         val remoteHash = requestRemoteHash(SYNC_CHECK_TIMEOUT_MS)
+        val alarms = freshAlarms()
+        Log.i(TAG, "forceSync alarms=${alarms.size}")
+        val localHash = AlarmHash.compute(alarms)
         if (remoteHash != null && remoteHash == localHash) {
             Log.i(TAG, "forceSync: hashes match ($localHash) — skipping full push")
             return ForceSyncResult.AlreadyInSync(alarms.size)
@@ -655,11 +662,13 @@ class HuaweiWearBridge @Inject constructor(
     // null as "fall through to full push" — never user-blocking.
     //
     // The mutex serializes concurrent callers. Only one outstanding hash
-    // request lives at a time; receiver completes via the volatile
-    // `pendingHashRequest` reference set under the lock.
+    // request lives at a time. The atomic-ref pendingHashRequest gives
+    // the receiver lock-free atomic claim of the deferred via getAndSet,
+    // avoiding a mutex re-entry deadlock if the response fires while we
+    // still hold pendingHashMutex.
     private suspend fun requestRemoteHash(timeoutMs: Long): String? = pendingHashMutex.withLock {
         val deferred = CompletableDeferred<String>()
-        pendingHashRequest = deferred
+        pendingHashRequest.set(deferred)
         try {
             val envelope = JSONObject().apply { put("type", "sync_check") }
             val sent = performSend(envelope, retryOnError = false)
@@ -673,7 +682,10 @@ class HuaweiWearBridge @Inject constructor(
             }
             result
         } finally {
-            pendingHashRequest = null
+            // compareAndSet so we don't accidentally clear a deferred set
+            // by a re-entrant caller (shouldn't happen — pendingHashMutex
+            // serializes — but defense in depth against future refactors).
+            pendingHashRequest.compareAndSet(deferred, null)
         }
     }
 

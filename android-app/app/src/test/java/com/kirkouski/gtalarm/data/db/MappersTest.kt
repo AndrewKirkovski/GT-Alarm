@@ -94,4 +94,98 @@ class MappersTest {
         val alarm = Alarm()
         assertEquals(Alarm.DEFAULT_SNOOZE_MINUTES, alarm.snoozeMinutes)
     }
+
+    @Test
+    fun `domain to entity preserves relativeMinutes and selfDestruct`() {
+        val alarm = Alarm(
+            id = 21L,
+            label = "Timer",
+            hour = 0,
+            minute = 0,
+            daysOfWeek = 0,
+            enabled = true,
+            audioUri = null,
+            audioName = null,
+            isVibrationOnly = false,
+            snoozeMinutes = 5,
+            updatedAtEpoch = 1_780_000_000_000L,
+            relativeMinutes = 30,
+            selfDestruct = true,
+        )
+        val entity = alarm.toEntity()
+        assertEquals(30, entity.relativeMinutes)
+        assertEquals(true, entity.selfDestruct)
+    }
+
+    @Test
+    fun `entity to domain preserves relativeMinutes and selfDestruct`() {
+        val entity = AlarmEntity(
+            id = 22L,
+            label = "Timer",
+            hour = 0,
+            minute = 0,
+            daysOfWeek = 0,
+            enabled = true,
+            audioUri = null,
+            audioName = null,
+            isVibrationOnly = false,
+            updatedAtEpoch = 1_780_000_000_000L,
+            snoozeMinutes = 5,
+            relativeMinutes = 45,
+            selfDestruct = true,
+        )
+        val alarm = entity.toDomain()
+        assertEquals(45, alarm.relativeMinutes)
+        assertEquals(true, alarm.selfDestruct)
+    }
+
+    @Test
+    fun `round trip preserves non-null relativeMinutes and selfDestruct true`() {
+        val original = Alarm(
+            id = 23L,
+            label = "Snack",
+            hour = 0,
+            minute = 0,
+            daysOfWeek = 0,
+            enabled = true,
+            audioUri = null,
+            audioName = null,
+            isVibrationOnly = false,
+            updatedAtEpoch = 999L,
+            snoozeMinutes = 10,
+            relativeMinutes = 15,
+            selfDestruct = true,
+        )
+        val roundTripped = original.toEntity().toDomain().toEntity().toDomain()
+        assertEquals(original, roundTripped)
+        // Belt-and-braces: explicitly check the new fields survived both legs.
+        assertEquals(15, roundTripped.relativeMinutes)
+        assertEquals(true, roundTripped.selfDestruct)
+    }
+
+    @Test
+    fun `round trip preserves null relativeMinutes for absolute alarms`() {
+        // The null case has to round-trip cleanly — absolute alarms make up
+        // the bulk of the data and a mapper that mishandled null would
+        // silently break every existing alarm on the next save.
+        val original = Alarm(
+            id = 24L,
+            label = "Wake",
+            hour = 8,
+            minute = 0,
+            daysOfWeek = DaysOfWeek.WEEKDAYS,
+            enabled = true,
+            audioUri = "content://media/audio/1",
+            audioName = "Birds",
+            isVibrationOnly = false,
+            updatedAtEpoch = 12345L,
+            snoozeMinutes = 10,
+            relativeMinutes = null,
+            selfDestruct = false,
+        )
+        val roundTripped = original.toEntity().toDomain().toEntity().toDomain()
+        assertEquals(original, roundTripped)
+        assertEquals(null, roundTripped.relativeMinutes)
+        assertEquals(false, roundTripped.selfDestruct)
+    }
 }

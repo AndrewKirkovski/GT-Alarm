@@ -290,6 +290,7 @@ class MigrationTest {
         migrationHelper.writableDatabase.use { db ->
             db.query("PRAGMA table_info('alarms')").use { c ->
                 val nameIdx = c.getColumnIndex("name")
+                val typeIdx = c.getColumnIndex("type")
                 val notNullIdx = c.getColumnIndex("notnull")
                 val dfltIdx = c.getColumnIndex("dflt_value")
                 var sawRelative = false
@@ -298,6 +299,16 @@ class MigrationTest {
                     when (c.getString(nameIdx)) {
                         "relativeMinutes" -> {
                             sawRelative = true
+                            // Explicit column-type assertion: an accidental
+                            // TEXT (e.g. typo'd `INT` → schema parsed as a
+                            // string-affinity column) would pass the nullable
+                            // check and the isNull check below — getInt would
+                            // crash at runtime on a real non-null integer.
+                            assertEquals(
+                                "relativeMinutes must be INTEGER",
+                                "INTEGER",
+                                c.getString(typeIdx),
+                            )
                             assertEquals(
                                 "relativeMinutes must be nullable",
                                 0,
@@ -306,6 +317,13 @@ class MigrationTest {
                         }
                         "selfDestruct" -> {
                             sawSelfDestruct = true
+                            // INTEGER column with NOT NULL DEFAULT 0 — Room
+                            // serializes Kotlin Boolean as INTEGER (0/1).
+                            assertEquals(
+                                "selfDestruct must be INTEGER",
+                                "INTEGER",
+                                c.getString(typeIdx),
+                            )
                             assertEquals(
                                 "selfDestruct must be NOT NULL",
                                 1,
@@ -328,6 +346,33 @@ class MigrationTest {
                 assertEquals("Pre-relative", c.getString(0))
                 assertTrue("relativeMinutes should be NULL for upgraded rows", c.isNull(1))
                 assertEquals(0, c.getInt(2))
+            }
+
+            // Round-trip a non-null integer relativeMinutes through the
+            // migrated schema. If the migration accidentally created the
+            // column as TEXT (Room parses int affinity wrong), getInt would
+            // return 0 for a row containing the string "15" — this catches
+            // that even though the PRAGMA-type check above also covers it.
+            db.execSQL(
+                "INSERT INTO alarms (label, hour, minute, daysOfWeek, enabled, audioUri, " +
+                    "audioName, isVibrationOnly, updatedAtEpoch, snoozeMinutes, " +
+                    "relativeMinutes, selfDestruct) VALUES " +
+                    "('Timer', 0, 0, 0, 1, NULL, NULL, 0, 1, 10, 15, 1)",
+            )
+            db.query(
+                "SELECT relativeMinutes, selfDestruct FROM alarms WHERE label = 'Timer'",
+            ).use { c ->
+                assertTrue(c.moveToNext())
+                assertEquals(
+                    "relativeMinutes round-trip as integer must be 15",
+                    15,
+                    c.getInt(0),
+                )
+                assertEquals(
+                    "selfDestruct round-trip must be 1",
+                    1,
+                    c.getInt(1),
+                )
             }
         }
 

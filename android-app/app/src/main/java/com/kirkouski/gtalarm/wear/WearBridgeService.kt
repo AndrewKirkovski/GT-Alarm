@@ -55,9 +55,16 @@ interface WearBridgeService {
 
     /**
      * User-initiated "Force sync" button. Pings the peer Lite Wearable app
-     * (which auto-launches it on Lite), then dispatches `alarm_added`
-     * envelopes for every alarm in [alarms]. Returns one of the
-     * [ForceSyncResult] cases for UI display.
+     * (which auto-launches it on Lite), runs an optional hash precheck
+     * round-trip, then dispatches `alarm_added` envelopes for the alarms
+     * returned by [freshAlarms].
+     *
+     * `freshAlarms` is a **suspending function**, not a snapshot list, so
+     * the bridge can call it AFTER the hash precheck completes — closing
+     * the TOCTOU window where the user adds an alarm during the ~2s
+     * sync_check round-trip and the precheck matches a stale snapshot.
+     *
+     * Returns one of the [ForceSyncResult] cases for UI display.
      */
-    suspend fun forceSync(alarms: List<Alarm>): ForceSyncResult
+    suspend fun forceSync(freshAlarms: suspend () -> List<Alarm>): ForceSyncResult
 }

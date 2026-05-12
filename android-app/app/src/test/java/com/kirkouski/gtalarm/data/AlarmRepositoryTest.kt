@@ -89,6 +89,59 @@ class AlarmRepositoryTest {
     }
 
     @Test
+    fun `save preserves relativeMinutes and selfDestruct in persisted row`() = runTest {
+        val draft = Alarm(
+            id = 0L, label = "Timer", hour = 0, minute = 0, daysOfWeek = 0, enabled = true,
+            relativeMinutes = 30, selfDestruct = true,
+        )
+        val newId = repo.save(draft)
+        val persisted = dao.getById(newId)
+        assertNotNull(persisted)
+        assertEquals(30, persisted!!.relativeMinutes)
+        assertTrue("save must preserve selfDestruct=true on one-shot timer", persisted.selfDestruct)
+    }
+
+    @Test
+    fun `saveLocalOnly persists fields but does NOT broadcast to watch`() = runTest {
+        val draft = Alarm(id = 0L, label = "Local", hour = 7, minute = 0, daysOfWeek = 0, enabled = true)
+        val newId = repo.saveLocalOnly(draft)
+        assertNotNull(dao.getById(newId))
+        verify(exactly = 0) { wearBridge.sendAlarmAdded(any()) }
+        verify(exactly = 0) { wearBridge.sendAlarmUpdated(any()) }
+        coVerify { widgetRefresher.refresh() }
+    }
+
+    @Test
+    fun `pushAlarmToWatch broadcasts the current DAO state via sendAlarmUpdated`() = runTest {
+        // Pre-load a row via the local-only path so the broadcast path has
+        // something to pick up.
+        val newId = repo.saveLocalOnly(Alarm(label = "x", hour = 0, minute = 0, daysOfWeek = 0, enabled = true))
+        repo.pushAlarmToWatch(newId)
+        // UnconfinedTestDispatcher runs the appScope.launch in-line so the
+        // verify can observe the broadcast immediately.
+        verify { wearBridge.sendAlarmUpdated(match { it.id == newId }) }
+    }
+
+    @Test
+    fun `pushAlarmToWatch for a missing id silently no-ops`() = runTest {
+        // Edit-screen race: user edited an alarm, then deleted it on the
+        // list before the flush ran. The push should drop instead of
+        // crashing or broadcasting a stale snapshot.
+        repo.pushAlarmToWatch(99_999L)
+        verify(exactly = 0) { wearBridge.sendAlarmUpdated(any()) }
+    }
+
+    @Test
+    fun `deleteLocalOnly removes row without writing tombstone or broadcasting`() = runTest {
+        val newId = repo.saveLocalOnly(Alarm(label = "draft", hour = 0, minute = 0, daysOfWeek = 0, enabled = true))
+        repo.deleteLocalOnly(newId)
+        assertNull(dao.getById(newId))
+        verify(exactly = 0) { wearBridge.sendAlarmDeleted(any(), any()) }
+        // No tombstone — the alarm was never broadcast to begin with.
+        coVerify(exactly = 0) { tombstones.add(any(), any(), any()) }
+    }
+
+    @Test
     fun `save on existing alarm broadcasts updated, not added`() = runTest {
         // Pre-seed an existing row.
         dao.upsert(AlarmEntity(id = 5L, label = "Old", hour = 7, minute = 0, daysOfWeek = 0, enabled = true,

@@ -410,48 +410,66 @@ class WearJsonCodecTest {
     }
 
     @Test
-    fun `parseAlarm drops relativeMinutes when daysOfWeek is non-zero (illegal combo)`() {
+    fun `parseAlarm rejects relativeMinutes when daysOfWeek is non-zero (illegal combo)`() {
+        // Reject-not-coerce: silent coercion would let the phone overwrite
+        // the watch's intended state on the next push. Drop the envelope
+        // and let the peer re-send in a valid shape.
         val alarm = JSONObject().apply {
             put("id", 5L); put("hour", 7); put("minute", 0); put("enabled", true)
             put("daysOfWeek", 0b0011111); put("relativeMinutes", 15)
         }
         val msg = WearJsonCodec.parseIncoming(JSONObject().apply {
             put("type", "alarm_added"); put("alarmId", 5L); put("updatedAtEpoch", 1L); put("alarm", alarm)
-        }) as IncomingMessage.AlarmAdded
-        assertNull(msg.alarm.relativeMinutes)
+        })
+        assertNull("illegal combo must be rejected", msg)
     }
 
     @Test
-    fun `parseAlarm drops out-of-range relativeMinutes`() {
+    fun `parseAlarm rejects out-of-range relativeMinutes`() {
         val tooHigh = JSONObject().apply {
             put("id", 5L); put("hour", 0); put("minute", 0); put("enabled", true)
             put("daysOfWeek", 0); put("relativeMinutes", 9999)
         }
-        val highMsg = WearJsonCodec.parseIncoming(JSONObject().apply {
-            put("type", "alarm_added"); put("alarmId", 5L); put("updatedAtEpoch", 1L); put("alarm", tooHigh)
-        }) as IncomingMessage.AlarmAdded
-        assertNull(highMsg.alarm.relativeMinutes)
+        assertNull(
+            "relativeMinutes above MAX must be rejected",
+            WearJsonCodec.parseIncoming(JSONObject().apply {
+                put("type", "alarm_added"); put("alarmId", 5L); put("updatedAtEpoch", 1L); put("alarm", tooHigh)
+            }),
+        )
 
         val zero = JSONObject().apply {
             put("id", 5L); put("hour", 0); put("minute", 0); put("enabled", true)
             put("daysOfWeek", 0); put("relativeMinutes", 0)
         }
-        val zeroMsg = WearJsonCodec.parseIncoming(JSONObject().apply {
-            put("type", "alarm_added"); put("alarmId", 5L); put("updatedAtEpoch", 1L); put("alarm", zero)
-        }) as IncomingMessage.AlarmAdded
-        assertNull(zeroMsg.alarm.relativeMinutes)
+        assertNull(
+            "relativeMinutes below MIN must be rejected",
+            WearJsonCodec.parseIncoming(JSONObject().apply {
+                put("type", "alarm_added"); put("alarmId", 5L); put("updatedAtEpoch", 1L); put("alarm", zero)
+            }),
+        )
+
+        val negative = JSONObject().apply {
+            put("id", 5L); put("hour", 0); put("minute", 0); put("enabled", true)
+            put("daysOfWeek", 0); put("relativeMinutes", -1)
+        }
+        assertNull(
+            "negative relativeMinutes must be rejected",
+            WearJsonCodec.parseIncoming(JSONObject().apply {
+                put("type", "alarm_added"); put("alarmId", 5L); put("updatedAtEpoch", 1L); put("alarm", negative)
+            }),
+        )
     }
 
     @Test
-    fun `parseAlarm coerces selfDestruct=true with daysOfWeek!=0 to false (illegal combo)`() {
+    fun `parseAlarm rejects selfDestruct=true with daysOfWeek!=0 (illegal combo)`() {
         val alarm = JSONObject().apply {
             put("id", 5L); put("hour", 7); put("minute", 0); put("enabled", true)
             put("daysOfWeek", 0b0011111); put("selfDestruct", true)
         }
         val msg = WearJsonCodec.parseIncoming(JSONObject().apply {
             put("type", "alarm_added"); put("alarmId", 5L); put("updatedAtEpoch", 1L); put("alarm", alarm)
-        }) as IncomingMessage.AlarmAdded
-        assertEquals(false, msg.alarm.selfDestruct)
+        })
+        assertNull("selfDestruct+recurring must be rejected", msg)
     }
 
     @Test

@@ -57,9 +57,31 @@ class AlarmListViewModel @Inject constructor(
     /** One-shot events for showing the Force-sync result as a Snackbar/Toast. */
     val forceSyncEvents: SharedFlow<ForceSyncResult> = _forceSyncEvents.asSharedFlow()
 
+    // Backed by a Mutex so consecutive taps of "Force sync" serialize
+    // instead of racing N parallel coroutines through the bridge. The
+    // Mutex is non-reentrant; isLocked check on the UI side would also
+    // disable the button, but serialization here is the source of truth.
+    private val forceSyncMutex = kotlinx.coroutines.sync.Mutex()
+    private val _forceSyncRunning = MutableStateFlow(false)
+    val forceSyncRunning: StateFlow<Boolean> = _forceSyncRunning.asStateFlow()
+
     fun onForceSync() = viewModelScope.launch {
-        val result = wearBridge.forceSync(alarms.value)
-        _forceSyncEvents.tryEmit(result)
+        if (!forceSyncMutex.tryLock()) {
+            // Another sync is already in flight — skip silently so a fast
+            // double-tap doesn't queue two pushes back-to-back.
+            return@launch
+        }
+        try {
+            _forceSyncRunning.value = true
+            // Pass a fresh-snapshot lambda so the bridge re-reads the
+            // alarm list AFTER its sync_check round-trip, closing the
+            // TOCTOU window where the user mutates the list mid-sync.
+            val result = wearBridge.forceSync { repository.getAll() }
+            _forceSyncEvents.tryEmit(result)
+        } finally {
+            _forceSyncRunning.value = false
+            forceSyncMutex.unlock()
+        }
     }
 
     private val _showBatteryOptCard = MutableStateFlow(computeShowBatteryOptCard())
