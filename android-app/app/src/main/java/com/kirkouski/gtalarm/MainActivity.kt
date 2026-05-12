@@ -27,7 +27,6 @@ import com.kirkouski.gtalarm.ui.edit.AlarmEditScreen
 import com.kirkouski.gtalarm.ui.help.HelpScreen
 import com.kirkouski.gtalarm.ui.list.AlarmListScreen
 import com.kirkouski.gtalarm.ui.nav.Routes
-import com.kirkouski.gtalarm.ui.setup.SetupScreen
 import com.kirkouski.gtalarm.ui.theme.GtAlarmTheme
 import com.kirkouski.gtalarm.wear.WearBridgeService
 import dagger.hilt.android.AndroidEntryPoint
@@ -96,13 +95,6 @@ class MainActivity : ComponentActivity() {
                             onOpenExactAlarmSettings = { openExactAlarmSettings() },
                             onOpenBatteryOptSettings = { openBatteryOptSettings() },
                             onOpenHelp = { navController.navigate(Routes.HELP) },
-                            onOpenSetup = { navController.navigate(Routes.SETUP) },
-                        )
-                    }
-                    composable(Routes.SETUP) {
-                        SetupScreen(
-                            onBack = { navController.popBackStack() },
-                            onOpenVoiceHelp = { navController.navigate(Routes.HELP) },
                         )
                     }
                     composable(Routes.HELP) {

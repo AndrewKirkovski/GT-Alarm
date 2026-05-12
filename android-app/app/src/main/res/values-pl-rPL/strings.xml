@@ -65,22 +65,9 @@
     <string name="help_status_disambiguator">Zainstalowano wiele aplikacji alarmu. Następnym razem, gdy powiesz „Hey Google, set an alarm”, Android pokaże okno wyboru — wybierz GT Alarm i naciśnij Zawsze.</string>
     <string name="help_status_other">Obecnie domyślną aplikacją jest %1$s. Aby przełączyć, użyj instrukcji dla swojej marki telefonu poniżej.</string>
     <string name="help_status_none">Na tym urządzeniu nie zarejestrowano żadnej aplikacji alarmu. Spróbuj zainstalować GT Alarm ponownie.</string>
-    <string name="help_for_your_device">DLA TWOJEGO URZĄDZENIA</string>
     <string name="help_open_default_apps">Otwórz „Aplikacje domyślne” w Ustawieniach</string>
     <string name="help_reset_hint">Jeśli inna aplikacja została ustawiona jako domyślna przez pomyłkę: Ustawienia → Aplikacje → ta aplikacja → Otwórz domyślnie → Wyczyść.</string>
     <string name="help_pair_watch_title">Autoryzacja zegarka Huawei</string>
     <string name="help_pair_watch_body">Połącz sparowany wcześniej zegarek Huawei Sports Watch / GT, aby alarmy dzwoniły na nadgarstku. Wymaga aplikacji Huawei Health i zegarka już sparowanego przez nią. Na urządzeniach bez Huawei Health nic się nie stanie.</string>
     <string name="help_pair_watch_button">Autoryzuj dostęp do zegarka</string>
-    <string name="help_section_pixel_title">Google Pixel / czysty Android</string>
-    <string name="help_section_pixel_body">Pixel jest dostarczany z aplikacją Google Clock, która obsługuje głosowe polecenia alarmu. Gdy pierwszy raz powiesz „Hey Google, set an alarm”, Android może pokazać okno wyboru, jeśli obie aplikacje pasują — wybierz GT Alarm i naciśnij Zawsze. Aby później zmienić, otwórz Ustawienia → Aplikacje → Google Clock → Otwórz domyślnie → Wyczyść, a następnie ponownie wywołaj głosem i wybierz GT Alarm.</string>
-    <string name="help_section_samsung_title">Samsung Galaxy (One UI)</string>
-    <string name="help_section_samsung_body">Telefony Galaxy mają preinstalowany Samsung Clock. One UI nie udostępnia ustawienia „domyślna aplikacja alarmu” — zamiast tego Asystent Google pokaże okno wyboru, gdy pierwszy raz wywoła „set alarm” i obie aplikacje pasują. Wybierz GT Alarm + Zawsze. Bixby może nie obsługiwać innych aplikacji zegara. Upewnij się, że GT Alarm jest na liście wyłączeń optymalizacji baterii (karta na liście alarmów prowadzi do tego ustawienia) — głęboki sen One UI może w przeciwnym razie opóźniać alarmy.</string>
-    <string name="help_section_xiaomi_title">Xiaomi / Redmi / POCO (HyperOS / MIUI)</string>
-    <string name="help_section_xiaomi_body">MIUI Clock jest systemową aplikacją domyślną. Alarmy ustawiane głosowo przez Asystenta Google wywołają okno wyboru za pierwszym razem — wybierz GT Alarm + Zawsze. Pamiętaj, że aplikacje innych firm mogą nie pokazywać ikony alarmu na pasku stanu (ograniczenie HyperOS). Odwiedź też kartę baterii GT Alarm; ograniczenia MIUI na autostart i działanie w tle są agresywne i mogą blokować alarmy.</string>
-    <string name="help_section_oneplus_title">OnePlus (OxygenOS)</string>
-    <string name="help_section_oneplus_body">OxygenOS używa domyślnie OnePlus Clock. Pierwsze „Hey Google, set an alarm” powinno pokazać okno wyboru — wybierz GT Alarm + Zawsze. Odwiedź kartę optymalizacji baterii na liście alarmów; głęboki sen OxygenOS może opóźniać alarmy bez wyłączenia GT Alarm z optymalizacji.</string>
-    <string name="help_section_huawei_title">Huawei / Honor</string>
-    <string name="help_section_huawei_body">Telefony Huawei bez Google Mobile Services (większość modeli od 2020) nie uruchamiają Asystenta Google — ustawianie głosem przez intencję GT Alarm nie zadziała. Asystenci natywni (Celia, Bixby) zazwyczaj nie obsługują aplikacji alarmu innych firm. Jeśli masz Huawei z GMS (starsze modele), użyj instrukcji dla Pixel / czystego Android.</string>
-    <string name="help_section_other_title">Inne urządzenia Android</string>
-    <string name="help_section_other_body">Większość telefonów Android domyślnie używa systemowego Clock. Gdy Asystent Google wywołuje „set an alarm”, system pokazuje okno wyboru, jeśli wiele aplikacji może to obsłużyć — wybierz GT Alarm i naciśnij Zawsze. System zapamiętuje wybór dla każdej intencji.</string>
 </resources>

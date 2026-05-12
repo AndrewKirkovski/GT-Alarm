@@ -65,22 +65,9 @@
     <string name="help_status_disambiguator">Встановлено кілька програм будильника. Наступного разу, коли ви скажете «Hey Google, set an alarm», Android покаже діалог вибору — оберіть GT Alarm і натисніть «Завжди».</string>
     <string name="help_status_other">%1$s — поточна програма за замовчуванням. Використайте інструкцію для марки вашого телефона нижче, щоб перемкнути.</string>
     <string name="help_status_none">На цьому пристрої не зареєстровано жодної програми будильника. Спробуйте перевстановити GT Alarm.</string>
-    <string name="help_for_your_device">ДЛЯ ВАШОГО ПРИСТРОЮ</string>
     <string name="help_open_default_apps">Відкрити «Програми за замовчуванням» у налаштуваннях</string>
     <string name="help_reset_hint">Якщо інша програма помилково встановлена як за замовчуванням: Налаштування → Програми → ця програма → Відкривати за замовчуванням → Очистити.</string>
     <string name="help_pair_watch_title">Авторизація годинника Huawei</string>
     <string name="help_pair_watch_body">Підключіть уже сполучений годинник Huawei Sports Watch / GT, щоб будильники дзвонили на зап\'ясті. Потрібна програма Huawei Health і годинник, уже сполучений через неї. На пристроях без Huawei Health нічого не станеться.</string>
     <string name="help_pair_watch_button">Авторизувати доступ до годинника</string>
-    <string name="help_section_pixel_title">Google Pixel / стоковий Android</string>
-    <string name="help_section_pixel_body">На Pixel голосові команди будильників обробляє програма Google Clock. Коли ви вперше скажете «Hey Google, set an alarm», Android може показати діалог вибору, якщо обидві програми підходять — оберіть GT Alarm і натисніть «Завжди». Щоб поміняти пізніше, відкрийте Налаштування → Програми → Google Clock → Відкривати за замовчуванням → Очистити, потім знову викличте голосом і оберіть GT Alarm.</string>
-    <string name="help_section_samsung_title">Samsung Galaxy (One UI)</string>
-    <string name="help_section_samsung_body">Телефони Galaxy постачаються з попередньо встановленим Samsung Clock. One UI не показує налаштування «програма будильника за замовчуванням» — натомість Google Асистент покаже діалог вибору, коли вперше спрацює «set alarm» і обидві програми підходять. Оберіть GT Alarm + «Завжди». Bixby може не підтримувати сторонні програми будильника. Переконайтесь, що GT Alarm у списку виключень з оптимізації батареї — інакше глибокий сон One UI може затримувати будильники.</string>
-    <string name="help_section_xiaomi_title">Xiaomi / Redmi / POCO (HyperOS / MIUI)</string>
-    <string name="help_section_xiaomi_body">MIUI Clock — системна програма за замовчуванням. Голосові будильники через Google Асистента вперше викличуть діалог вибору — оберіть GT Alarm + «Завжди». Зверніть увагу, що сторонні програми будильника можуть не показувати значок будильника у статус-барі (обмеження HyperOS). Також відвідайте картку батареї GT Alarm; обмеження MIUI на автозапуск і фон агресивні та можуть блокувати будильники.</string>
-    <string name="help_section_oneplus_title">OnePlus (OxygenOS)</string>
-    <string name="help_section_oneplus_body">OxygenOS за замовчуванням використовує OnePlus Clock. Перше «Hey Google, set an alarm» повинно показати діалог вибору — оберіть GT Alarm + «Завжди». Відвідайте картку оптимізації батареї у списку будильників; глибокий сон OxygenOS може затримувати будильники без виключення GT Alarm.</string>
-    <string name="help_section_huawei_title">Huawei / Honor</string>
-    <string name="help_section_huawei_body">На телефонах Huawei без Google Mobile Services (більшість моделей з 2020) Google Асистент не працює — голосове встановлення через GT Alarm недоступне. Власні асистенти (Celia, Bixby) зазвичай не підтримують сторонні програми будильника. Якщо у вас Huawei з GMS (старі моделі), користуйтесь інструкцією для Pixel / стокового Android.</string>
-    <string name="help_section_other_title">Інші пристрої Android</string>
-    <string name="help_section_other_body">Більшість телефонів Android за замовчуванням використовує системне Clock. Коли Google Асистент викликає «set an alarm», система показує діалог вибору, якщо кілька програм можуть обробити — оберіть GT Alarm і натисніть «Завжди». Система запам\'ятовує вибір для кожного наміру.</string>
 </resources>

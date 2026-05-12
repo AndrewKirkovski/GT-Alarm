@@ -98,7 +98,6 @@
     <string name="help_status_disambiguator">Multiple alarm apps are installed. The next time you say \"Hey Google, set an alarm\", Android will show a chooser — pick GT Alarm and tap Always.</string>
     <string name="help_status_other">%1$s is currently the default. Use the steps for your phone brand below to switch.</string>
     <string name="help_status_none">No alarm app is registered on this device. Try reinstalling GT Alarm.</string>
-    <string name="help_for_your_device">FOR YOUR DEVICE</string>
     <string name="help_open_default_apps">Open Default apps in Settings</string>
     <string name="help_reset_hint">If a different app got set as default by mistake: Settings → Apps → that app → Open by default → Clear defaults.</string>
 
@@ -128,49 +127,34 @@
     <string name="force_sync_peer_app_missing" translatable="false">Watch app not installed or not launched yet (ping=%1$d)</string>
     <string name="force_sync_error" translatable="false">Force sync failed: %1$s</string>
 
-    <string name="help_section_pixel_title">Google Pixel / stock Android</string>
-    <string name="help_section_pixel_body">Pixel ships with the Google Clock app handling alarm voice commands. The first time you say \"Hey Google, set an alarm\", Android may show a chooser if both apps qualify — pick GT Alarm and tap Always. To swap later, open Settings → Apps → Google Clock → Open by default → Clear defaults, then voice-trigger again and pick GT Alarm.</string>
+    <!-- ===== Setup checklist + OEM tips (Help screen, merged 2026-05-12). =====
+         tools:ignore="MissingTranslation" while copy is still iterating. -->
 
-    <string name="help_section_samsung_title">Samsung Galaxy (One UI)</string>
-    <string name="help_section_samsung_body">Galaxy phones come pre-installed with Samsung Clock. One UI doesn\'t expose a \"default alarm app\" setting — instead, Google Assistant will show a chooser the first time it fires \"set alarm\" and both apps qualify. Pick GT Alarm + tap Always. Bixby may not honor third-party clocks. Make sure GT Alarm is on the battery-optimization exempt list (the card on the alarm list links to that setting) — One UI deep-sleep can otherwise delay alarms.</string>
+    <!-- Section header texts. -->
+    <string tools:ignore="MissingTranslation" name="help_section_reliability">Reliability checklist</string>
+    <string tools:ignore="MissingTranslation" name="help_section_reliability_intro">For alarms to ring while your phone is locked, all of the items below need to be green. Tap Fix on anything that isn\'t.</string>
+    <string tools:ignore="MissingTranslation" name="help_section_brand_tips">Phone-brand tips</string>
+    <string tools:ignore="MissingTranslation" name="help_section_brand_tips_intro">Some manufacturers add their own background-killers and voice quirks on top of Android. The reliability checks above cover the universal toggles; the steps below are the per-brand bits.</string>
+    <string tools:ignore="MissingTranslation" name="help_subsection_keep_awake">Keep the app awake</string>
+    <string tools:ignore="MissingTranslation" name="help_subsection_voice">Voice (Hey Google)</string>
 
-    <string name="help_section_xiaomi_title">Xiaomi / Redmi / POCO (HyperOS / MIUI)</string>
-    <string name="help_section_xiaomi_body">MIUI Clock is the system default. Voice-set alarms via Google Assistant will trigger a chooser the first time — pick GT Alarm + Always. Note that third-party alarm apps may not show the alarm-clock icon in the status bar (a HyperOS limitation). Also visit GT Alarm\'s battery card; MIUI\'s autostart and background limits are aggressive and can suppress alarms otherwise.</string>
-
-    <string name="help_section_oneplus_title">OnePlus (OxygenOS)</string>
-    <string name="help_section_oneplus_body">OxygenOS uses the OnePlus Clock by default. The first \"Hey Google, set an alarm\" should show a chooser — pick GT Alarm + tap Always. Visit the battery optimization card on the alarm list; OxygenOS deep-sleep can delay alarms unless GT Alarm is exempted.</string>
-
-    <string name="help_section_huawei_title">Huawei / Honor</string>
-    <string name="help_section_huawei_body">Huawei phones without Google Mobile Services (most models since 2020) don\'t run Google Assistant — voice-set won\'t work via the GT Alarm intent. Native assistants (Celia, Bixby) typically don\'t honor third-party alarm apps. If you have a GMS-installed Huawei (older models), follow the Pixel / stock Android steps.</string>
-
-    <string name="help_section_other_title">Other Android devices</string>
-    <string name="help_section_other_body">Most Android phones use the system Clock app by default. When Google Assistant fires \"set an alarm\", the system shows a chooser if multiple apps can handle it — pick GT Alarm and tap Always. The system remembers the choice per-intent.</string>
-
-    <!-- Setup Status screen (reliability checklist + per-brand OEM tips).
-         tools:ignore="MissingTranslation" on each entry: translations
-         deferred to a follow-up pass while the copy is still iterating
-         (lockscreen-wake debugging is the immediate priority). -->
-    <string tools:ignore="MissingTranslation" name="screen_setup_title">Setup status</string>
-    <string tools:ignore="MissingTranslation" name="setup_intro">For alarms to ring reliably while your phone is locked, these permissions must be granted. Tap Fix on any item that\'s not green.</string>
-    <string tools:ignore="MissingTranslation" name="setup_fix">Fix</string>
+    <!-- Home-screen banner that auto-shows when any reliability check is red. -->
     <string tools:ignore="MissingTranslation" name="setup_banner_title">Setup needed</string>
-    <string tools:ignore="MissingTranslation" name="setup_banner_body">One or more permissions are missing. Alarms may not ring or wake the screen until they\'re granted.</string>
-    <string tools:ignore="MissingTranslation" name="setup_banner_action">Open setup</string>
-    <string tools:ignore="MissingTranslation" name="action_open_setup">Setup</string>
+    <string tools:ignore="MissingTranslation" name="setup_banner_body">One or more required permissions are missing. Alarms may not ring or wake the screen until they\'re granted.</string>
+    <string tools:ignore="MissingTranslation" name="setup_banner_action">Open</string>
+    <string tools:ignore="MissingTranslation" name="setup_fix">Fix</string>
 
-    <!-- Permission rows. -->
+    <!-- Permission rows. Each is short — one purpose, one consequence. -->
     <string tools:ignore="MissingTranslation" name="setup_perm_notifications_title">Notifications</string>
-    <string tools:ignore="MissingTranslation" name="setup_perm_notifications_body">Required to show the ringing notification and to start the alarm in the foreground. Without it, the alarm cannot ring.</string>
+    <string tools:ignore="MissingTranslation" name="setup_perm_notifications_body">Required to post the ringing notification and run the alarm in the foreground. Without this the alarm cannot ring.</string>
     <string tools:ignore="MissingTranslation" name="setup_perm_exact_alarm_title">Alarms &amp; reminders</string>
-    <string tools:ignore="MissingTranslation" name="setup_perm_exact_alarm_body">Lets the app schedule an alarm at the exact minute you set, even in battery-saver mode. Denied by default on Android 14.</string>
+    <string tools:ignore="MissingTranslation" name="setup_perm_exact_alarm_body">Lets the app fire alarms at the exact minute you set, even in battery-saver mode. Denied by default on Android 14.</string>
     <string tools:ignore="MissingTranslation" name="setup_perm_fsi_title">Full-screen alarm</string>
-    <string tools:ignore="MissingTranslation" name="setup_perm_fsi_body">Lets the alarm take over the lock screen and wake the display. Sideloaded apps lose this auto-grant on Android 14 — if your phone screen doesn\'t wake when alarms fire, this is almost certainly the cause.</string>
+    <string tools:ignore="MissingTranslation" name="setup_perm_fsi_body">Lets the alarm take over the lock screen and wake the display. Sideloaded apps lose this auto-grant on Android 14 — if your phone screen does not wake when alarms fire, this is almost certainly the cause.</string>
     <string tools:ignore="MissingTranslation" name="setup_perm_battery_title">Battery: Unrestricted</string>
-    <string tools:ignore="MissingTranslation" name="setup_perm_battery_body">Optional but recommended. Without it, the phone may delay alarm delivery after several idle days. Alarms set via setAlarmClock() are Doze-exempt either way, so daily users rarely notice — leave at default if you prefer.</string>
+    <string tools:ignore="MissingTranslation" name="setup_perm_battery_body">Optional but recommended. Without it the phone may delay alarms after several idle days. Daily users rarely notice — alarms scheduled via setAlarmClock() are Doze-exempt regardless.</string>
 
-    <!-- OEM tips card. -->
-    <string tools:ignore="MissingTranslation" name="setup_oem_card_title">Phone-brand tips</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_card_intro">Some manufacturers add their own background limits on top of Android. The fixes above cover the standard ones; the steps below are what we can\'t check programmatically.</string>
+    <!-- Brand dropdown labels. -->
     <string tools:ignore="MissingTranslation" name="setup_oem_label_pixel">Google Pixel / stock Android</string>
     <string tools:ignore="MissingTranslation" name="setup_oem_label_samsung">Samsung Galaxy (One UI)</string>
     <string tools:ignore="MissingTranslation" name="setup_oem_label_xiaomi">Xiaomi / Redmi / POCO</string>
@@ -179,15 +163,28 @@
     <string tools:ignore="MissingTranslation" name="setup_oem_label_other">Other Android</string>
     <string tools:ignore="MissingTranslation" name="setup_oem_label_detected">%1$s (your phone)</string>
 
-    <string tools:ignore="MissingTranslation" name="setup_oem_tips_pixel">Stock Android has no extra OEM kill. If alarms still misbehave, double-check Settings → Notifications → Do not disturb → Allowed during DND → Alarms and sounds is ON, and Settings → Apps → GT Alarm → Open by default → make this the default alarm app.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_tips_samsung">Samsung One UI puts unused apps to sleep aggressively. Open Settings → Battery → Background usage limits → Never sleeping apps → + → add GT Alarm. Verify GT Alarm is NOT under Sleeping or Deep sleeping apps. Then Settings → Battery → ⋮ → Automation → Auto-optimize daily OFF. For the paired Huawei watch, also add Huawei Health to Never sleeping apps. Finally Settings → Notifications → Do not disturb → Allowed during DND → Alarms and sounds ON.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_tips_xiaomi">MIUI / HyperOS has the most aggressive background kill. Open Settings → Apps → Manage apps → GT Alarm → Autostart ON, Battery saver → No restrictions, and Other permissions → Display pop-up windows while running in the background ON. Lock the app in the recents drawer (pull down the card → padlock icon) so MIUI doesn\'t kill it.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_tips_oneplus">OxygenOS deep-sleep can defer alarms. Open Settings → Battery → Battery optimization → GT Alarm → Don\'t optimize, and Settings → Apps → GT Alarm → Battery usage → Allow background activity ON. If your model has Advanced Optimization, exclude GT Alarm there too.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_tips_huawei">Open Phone Manager → Protected apps → enable GT Alarm. Then Settings → Battery → Launch → GT Alarm → switch off Manage automatically and turn ON all three sub-toggles (Auto-launch, Secondary launch, Run in background). On EMUI 9+ this is the main fix.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_tips_other">If your phone is a Chinese brand (vivo, OPPO, Realme, Meizu), look for a Phone Manager or Security app and find a Protected apps / Autostart / Background app list. Add GT Alarm there. On other brands stock-Android settings should be enough.</string>
+    <!-- ===== Per-brand bullet-formatted tips ===== -->
+    <!-- Each tip body uses "  •  " (NBSP + bullet + NBSP) at line starts so
+         Compose Text wraps each bullet line correctly. Separated by \n\n for
+         paragraph spacing. KEEP-AWAKE and VOICE sections are emitted as two
+         strings each so the HelpScreen renders them with subsection
+         headers between them. -->
 
-    <!-- Setup screen → voice-help passthrough card. -->
-    <string tools:ignore="MissingTranslation" name="setup_voice_card_title">Voice alarms (Google Assistant)</string>
-    <string tools:ignore="MissingTranslation" name="setup_voice_card_body">Separate concern: when you say \"Hey Google, set an alarm\", which app handles it. Tap below for the per-brand steps.</string>
-    <string tools:ignore="MissingTranslation" name="setup_open_voice_help">Open voice setup</string>
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_pixel">Stock Android has no extra OEM kill on top of standard Doze. If alarms still misbehave, check Settings → Notifications → Do not disturb → Allowed during DND → Alarms and sounds is ON.</string>
+    <string tools:ignore="MissingTranslation" name="setup_oem_voice_pixel">Pixel ships with Google Clock as the default alarm app.\n\n  •  Say \"Hey Google, set an alarm\". Android may show a chooser if both apps qualify — pick GT Alarm and tap Always.\n  •  To swap later: Settings → Apps → Google Clock → Open by default → Clear defaults. Voice-trigger again and pick GT Alarm.</string>
+
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_samsung">One UI puts unused apps to sleep aggressively. Walk through each item — at least one of them is usually the culprit.\n\n  •  Settings → Battery → Background usage limits → Never sleeping apps → + → add GT Alarm.\n  •  Confirm GT Alarm is NOT under Sleeping apps OR Deep sleeping apps in that screen.\n  •  Settings → Battery → ⋮ (top right) → Automation → Auto-optimize daily → OFF.\n  •  Settings → Battery → More battery settings → Adaptive battery → OFF.\n  •  For the paired Huawei watch, also add Huawei Health to Never sleeping apps.\n  •  Settings → Notifications → Do not disturb → Allowed during DND → Alarms and sounds → ON.</string>
+    <string tools:ignore="MissingTranslation" name="setup_oem_voice_samsung">One UI does not expose a single \"default alarm app\" setting. Instead:\n\n  •  Say \"Hey Google, set an alarm\". The first time Google Assistant fires it, Android shows a chooser if both apps qualify — pick GT Alarm and tap Always.\n  •  Bixby may not honor third-party clocks. Stick with Google Assistant for voice.</string>
+
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_xiaomi">MIUI / HyperOS has the most aggressive background kill on the market. Every step matters.\n\n  •  Settings → Apps → Manage apps → GT Alarm → Autostart → ON.\n  •  Same screen → Battery saver → No restrictions.\n  •  Same screen → Other permissions → Display pop-up windows while running in the background → ON.\n  •  Lock the app in the recents drawer (pull down the card → padlock icon) so MIUI does not reap it.</string>
+    <string tools:ignore="MissingTranslation" name="setup_oem_voice_xiaomi">MIUI Clock is the system default.\n\n  •  Voice alarms via Google Assistant trigger a chooser the first time — pick GT Alarm + Always.\n  •  Third-party alarms may not show the alarm-clock icon in the status bar. This is a HyperOS limitation; the alarm still fires.</string>
+
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_oneplus">OxygenOS deep-sleep can defer alarms by hours unless GT Alarm is exempted.\n\n  •  Settings → Battery → Battery optimization → GT Alarm → Don\'t optimize.\n  •  Settings → Apps → GT Alarm → Battery usage → Allow background activity → ON.\n  •  If your model has Advanced Optimization, exclude GT Alarm there too.</string>
+    <string tools:ignore="MissingTranslation" name="setup_oem_voice_oneplus">OxygenOS uses OnePlus Clock by default.\n\n  •  First \"Hey Google, set an alarm\" should show a chooser — pick GT Alarm + tap Always.</string>
+
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_huawei">EMUI / HarmonyOS NEXT requires explicit protection.\n\n  •  Phone Manager → Protected apps → enable GT Alarm.\n  •  Settings → Battery → Launch → GT Alarm → turn OFF \"Manage automatically\" then turn ON all three sub-toggles (Auto-launch, Secondary launch, Run in background).</string>
+    <string tools:ignore="MissingTranslation" name="setup_oem_voice_huawei">Huawei phones without Google Mobile Services (most models since 2020) don\'t run Google Assistant, so voice-set isn\'t available via the GT Alarm intent. Native assistants (Celia, Bixby) typically don\'t honor third-party alarm apps.\n\nIf you have an older Huawei with GMS, follow the Pixel / stock Android steps.</string>
+
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_other">If your phone is a Chinese brand (vivo, OPPO, Realme, Meizu) look for a Phone Manager or Security app and find a Protected apps / Autostart / Background app list. Add GT Alarm there.\n\nOn other brands the universal reliability checklist above is usually enough.</string>
+    <string tools:ignore="MissingTranslation" name="setup_oem_voice_other">Most Android phones use the system Clock app by default.\n\n  •  When Google Assistant fires \"set an alarm\", the system shows a chooser if multiple apps qualify — pick GT Alarm and tap Always. The system remembers the choice per-intent.</string>
 </resources>

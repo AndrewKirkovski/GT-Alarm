@@ -65,22 +65,9 @@
     <string name="help_status_disambiguator">Усталявана некалькі прыкладанняў будзільніка. Калі вы наступны раз скажаце «Hey Google, set an alarm», Android пакажа дыялог выбару — абярыце GT Alarm і націсніце «Заўсёды».</string>
     <string name="help_status_other">%1$s — бягучае прыкладанне па змаўчанні. Выкарыстайце інструкцыю для свайго брэнда тэлефона ніжэй, каб пераключыць.</string>
     <string name="help_status_none">На гэтай прыладзе не зарэгістравана ніводнае прыкладанне будзільніка. Паспрабуйце пераўсталяваць GT Alarm.</string>
-    <string name="help_for_your_device">ДЛЯ ВАШАЙ ПРЫЛАДЫ</string>
     <string name="help_open_default_apps">Адкрыць «Прыкладанні па змаўчанні» ў наладах</string>
     <string name="help_reset_hint">Калі па памылцы па змаўчанні было ўсталявана іншае прыкладанне: Налады → Прыкладанні → тое прыкладанне → Адкрываць па змаўчанні → Ачысціць.</string>
     <string name="help_pair_watch_title">Аўтарызацыя гадзінніка Huawei</string>
     <string name="help_pair_watch_body">Падключыце ўжо спараваны гадзіннік Huawei Sports Watch / GT, каб будзільнікі звінелі на запясці. Патрабуецца прыкладанне Huawei Health і гадзіннік, ужо спараваны праз яго. На прыладах без Huawei Health нічога не адбываецца.</string>
     <string name="help_pair_watch_button">Аўтарызаваць доступ да гадзінніка</string>
-    <string name="help_section_pixel_title">Google Pixel / стокавы Android</string>
-    <string name="help_section_pixel_body">На Pixel галасавыя каманды для будзільнікаў апрацоўвае прыкладанне Google Clock. Калі вы першы раз скажаце «Hey Google, set an alarm», Android можа паказаць дыялог выбару, калі абодва прыкладанні падыходзяць — абярыце GT Alarm і націсніце «Заўсёды». Каб пасля памяняць, адкрыйце Налады → Прыкладанні → Google Clock → Адкрываць па змаўчанні → Ачысціць, пасля чаго зноў выклічце голасам і абярыце GT Alarm.</string>
-    <string name="help_section_samsung_title">Samsung Galaxy (One UI)</string>
-    <string name="help_section_samsung_body">Тэлефоны Galaxy ідуць з прадусталяваным Samsung Clock. One UI не паказвае налады «прыкладанне будзільніка па змаўчанні» — замест гэтага Google Assistant пакажа дыялог выбару, калі першы раз спрацуе «set alarm» і абодва прыкладанні падыходзяць. Абярыце GT Alarm + «Заўсёды». Bixby можа не падтрымліваць іншыя гадзіннікі. Пераканайцеся, што GT Alarm у спісе выключэнняў з аптымізацыі батарэі (картка на спісе будзільнікаў вядзе да гэтай налады) — інакш глыбокі сон One UI можа затрымліваць будзільнікі.</string>
-    <string name="help_section_xiaomi_title">Xiaomi / Redmi / POCO (HyperOS / MIUI)</string>
-    <string name="help_section_xiaomi_body">MIUI Clock — сістэмны па змаўчанні. Галасавыя будзільнікі праз Google Assistant першы раз выклічуць дыялог выбару — абярыце GT Alarm + «Заўсёды». Звярніце ўвагу, што іншыя прыкладанні будзільнікаў могуць не паказваць значок будзільніка ў стане-бары (абмежаванне HyperOS). Таксама наведайце картку батарэі GT Alarm; абмежаванні MIUI на аўтазапуск і фон агрэсіўныя і могуць блакаваць будзільнікі.</string>
-    <string name="help_section_oneplus_title">OnePlus (OxygenOS)</string>
-    <string name="help_section_oneplus_body">OxygenOS па змаўчанні выкарыстоўвае OnePlus Clock. Першы «Hey Google, set an alarm» павінен паказаць дыялог выбару — абярыце GT Alarm + «Заўсёды». Наведайце картку аптымізацыі батарэі ў спісе будзільнікаў; глыбокі сон OxygenOS можа затрымліваць будзільнікі без выключэння GT Alarm.</string>
-    <string name="help_section_huawei_title">Huawei / Honor</string>
-    <string name="help_section_huawei_body">На тэлефонах Huawei без Google Mobile Services (большасць мадэляў з 2020) Google Assistant не працуе — галасавая ўстаноўка праз GT Alarm недаступная. Уласныя памочнікі (Celia, Bixby) звычайна не падтрымліваюць іншыя прыкладанні будзільнікаў. Калі ў вас Huawei з GMS (старыя мадэлі), карыстайцеся інструкцыяй для Pixel / стокавага Android.</string>
-    <string name="help_section_other_title">Іншыя прылады Android</string>
-    <string name="help_section_other_body">Большасць тэлефонаў Android выкарыстоўвае сістэмнае Clock па змаўчанні. Калі Google Assistant выклікае «set an alarm», сістэма паказвае дыялог выбару, калі некалькі прыкладанняў могуць апрацаваць — абярыце GT Alarm і націсніце «Заўсёды». Сістэма запамінае выбар для кожнага намеру.</string>
 </resources>

@@ -18,7 +18,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material.icons.filled.WatchOff
@@ -87,7 +86,6 @@ fun AlarmListScreen(
     onOpenExactAlarmSettings: () -> Unit,
     onOpenBatteryOptSettings: () -> Unit,
     onOpenHelp: () -> Unit,
-    onOpenSetup: () -> Unit,
     vm: AlarmListViewModel = hiltViewModel(),
 ) {
     val alarms by vm.alarms.collectAsStateWithLifecycle()
@@ -97,11 +95,12 @@ fun AlarmListScreen(
     val pairedDevice by vm.pairedDeviceInfo.collectAsStateWithLifecycle()
     val forceSyncRunning by vm.forceSyncRunning.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    // Banner visible whenever any must-have permission is denied. Lazy on
-    // every recomposition is acceptable — the audit is a handful of cheap
-    // system-service queries (no I/O).
+    // Banner visible whenever any required permission is denied. The audit
+    // is a handful of cheap system-service queries (no I/O), so re-running
+    // on each list recomposition is fine; remember + the canExact/battery
+    // keys mostly keep it from churning.
     val showSetupBanner = remember(alarms.size, showBatteryOptCard, canExact) {
-        com.kirkouski.gtalarm.ui.setup.hasUnresolvedSetup(context)
+        com.kirkouski.gtalarm.ui.help.hasUnresolvedSetup(context)
     }
     LaunchedEffect(Unit) {
         vm.forceSyncEvents.collect { result ->
@@ -115,12 +114,6 @@ fun AlarmListScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.screen_list_title)) },
                 actions = {
-                    IconButton(onClick = onOpenSetup) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = stringResource(R.string.action_open_setup),
-                        )
-                    }
                     IconButton(onClick = onOpenHelp) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.HelpOutline,
@@ -152,7 +145,7 @@ fun AlarmListScreen(
                 onForceSync = { vm.onForceSync() },
             )
             if (showSetupBanner) {
-                SetupNeededBanner(onOpenSetup = onOpenSetup)
+                SetupNeededBanner(onOpenSetup = onOpenHelp)
             }
             if (showBatteryOptCard) {
                 BatteryOptRationaleCard(

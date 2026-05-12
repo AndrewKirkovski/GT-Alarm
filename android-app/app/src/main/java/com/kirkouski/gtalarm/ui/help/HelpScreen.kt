@@ -1,5 +1,15 @@
+// reason: HelpScreen is the central UI for both reliability setup AND voice
+// help. 16 top-level helpers = the screen itself + 6 small composables (status
+// dot, permission row, status banner, action card, debug card, brand tips
+// card, section header) + 4 brand-to-resource lookups + 2 deep-link helpers
+// + hasUnresolvedSetup. Splitting into multiple files would hide the linear
+// dependency on PermissionAudit + DeviceBrand enums for no reuse — every
+// helper is referenced exactly once, from inside the screen.
+@file:Suppress("TooManyFunctions")
+
 package com.kirkouski.gtalarm.ui.help
 
+import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
@@ -12,11 +22,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -26,6 +42,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,25 +53,38 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.voice.DefaultAlarmDetector
 import com.kirkouski.gtalarm.voice.DeviceBrand
 import com.kirkouski.gtalarm.voice.DeviceBrandDetector
 
+/**
+ * Unified Help screen. Replaces the previous split between Voice-setup help
+ * and the Setup Status screen — both lived under separate top-bar icons and
+ * carried overlapping content, which felt like two pages for one concern.
+ *
+ * Sections in display order:
+ *   1. Voice-default status banner (existing DefaultAlarmDetector readout).
+ *   2. Reliability checklist — programmatic permission audit, each row with
+ *      a Fix button that deep-links to the matching Settings page.
+ *   3. Phone-brand tips — dropdown defaults to detected brand, two subsections
+ *      ("Keep awake" + "Voice") per brand.
+ *   4. Pair watch card.
+ *   5. Debug card (test alarm + fire-now).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+// reason: HelpScreen is a single linear Scaffold + Column of fixed cards.
+// Each subsection (StatusBanner, ReliabilityCard, BrandCard, etc.) is already
+// factored out. The remaining top-level layout is referenced exactly once
+// and splitting it would just push state-routing across more files.
 @Suppress("LongMethod")
-// reason: this composable is a single linear Scaffold + Column of fixed,
-// non-reordered cards. Per-brand cards already factored into BrandCard().
-// Splitting the remaining 30-line top-level layout adds a wrapper file
-// without enabling reuse — the whole tree is referenced exactly once.
 fun HelpScreen(
     onBack: () -> Unit,
     onPairWatch: () -> Unit,
@@ -63,19 +93,20 @@ fun HelpScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var status by remember { mutableStateOf(DefaultAlarmDetector.detect(context)) }
+    var voiceStatus by remember { mutableStateOf(DefaultAlarmDetector.detect(context)) }
+    var permissionChecks by remember { mutableStateOf(PermissionAudit.audit(context)) }
     DisposableEffect(lifecycleOwner) {
-        // Refresh on resume so the user sees the new state after coming back
-        // from system settings (where they may have changed the default).
+        // Refresh both audits on resume so flips made in system Settings show
+        // up the moment the user returns from a Fix deep-link.
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                status = DefaultAlarmDetector.detect(context)
+                voiceStatus = DefaultAlarmDetector.detect(context)
+                permissionChecks = PermissionAudit.audit(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    val brand = remember { DeviceBrandDetector.current() }
 
     Scaffold(
         topBar = {
@@ -97,7 +128,34 @@ fun HelpScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            StatusBanner(status)
+            // ----- Reliability section -----
+            SectionHeader(
+                titleRes = R.string.help_section_reliability,
+                bodyRes = R.string.help_section_reliability_intro,
+            )
+            permissionChecks.forEach { check ->
+                PermissionRow(
+                    check = check,
+                    onFix = {
+                        val intent = PermissionAudit.intentFor(context, check.item)
+                        startActivitySafely(context, intent)
+                    },
+                )
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+            // ----- Brand tips section -----
+            SectionHeader(
+                titleRes = R.string.help_section_brand_tips,
+                bodyRes = R.string.help_section_brand_tips_intro,
+            )
+            BrandTipsCard()
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+            // ----- Voice-default status + intro (existing concern) -----
+            VoiceStatusBanner(voiceStatus)
             Text(
                 text = stringResource(R.string.help_intro),
                 style = MaterialTheme.typography.bodyMedium,
@@ -108,90 +166,74 @@ fun HelpScreen(
             ) {
                 Text(stringResource(R.string.help_open_default_apps))
             }
-            BrandCard(
-                isCurrent = brand == DeviceBrand.PIXEL,
-                titleRes = R.string.help_section_pixel_title,
-                bodyRes = R.string.help_section_pixel_body,
-            )
-            BrandCard(
-                isCurrent = brand == DeviceBrand.SAMSUNG,
-                titleRes = R.string.help_section_samsung_title,
-                bodyRes = R.string.help_section_samsung_body,
-            )
-            BrandCard(
-                isCurrent = brand == DeviceBrand.XIAOMI,
-                titleRes = R.string.help_section_xiaomi_title,
-                bodyRes = R.string.help_section_xiaomi_body,
-            )
-            BrandCard(
-                isCurrent = brand == DeviceBrand.ONEPLUS,
-                titleRes = R.string.help_section_oneplus_title,
-                bodyRes = R.string.help_section_oneplus_body,
-            )
-            BrandCard(
-                isCurrent = brand == DeviceBrand.HUAWEI,
-                titleRes = R.string.help_section_huawei_title,
-                bodyRes = R.string.help_section_huawei_body,
-            )
-            BrandCard(
-                isCurrent = brand == DeviceBrand.OTHER,
-                titleRes = R.string.help_section_other_title,
-                bodyRes = R.string.help_section_other_body,
-            )
             Text(
                 text = stringResource(R.string.help_reset_hint),
                 style = MaterialTheme.typography.bodySmall,
             )
-            OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = stringResource(R.string.help_pair_watch_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = stringResource(R.string.help_pair_watch_body),
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                    OutlinedButton(
-                        onClick = onPairWatch,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
-                    ) {
-                        Text(stringResource(R.string.help_pair_watch_button))
-                    }
-                }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+            // ----- Pair watch card -----
+            ActionCard(
+                titleRes = R.string.help_pair_watch_title,
+                bodyRes = R.string.help_pair_watch_body,
+                buttonLabelRes = R.string.help_pair_watch_button,
+                onClick = onPairWatch,
+            )
+
+            // ----- Debug card (English-only / translatable=false) -----
+            DebugCard(onScheduleTestAlarm, onFireAlarmNow)
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(titleRes: Int, bodyRes: Int) {
+    Column {
+        Text(
+            text = stringResource(titleRes),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = stringResource(bodyRes),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun PermissionRow(
+    check: PermissionAudit.Check,
+    onFix: () -> Unit,
+) {
+    val granted = check.status == PermissionAudit.Status.GRANTED
+    val skipped = check.status == PermissionAudit.Status.NOT_APPLICABLE
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StatusDot(granted = granted, skipped = skipped)
+                Text(
+                    text = stringResource(check.item.titleRes()),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 12.dp),
+                )
             }
-            OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = stringResource(R.string.help_debug_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = stringResource(R.string.help_debug_body),
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                    OutlinedButton(
-                        onClick = onScheduleTestAlarm,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
-                    ) {
-                        Text(stringResource(R.string.help_debug_test_alarm_button))
-                    }
-                    OutlinedButton(
-                        onClick = onFireAlarmNow,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                    ) {
-                        Text(stringResource(R.string.help_debug_fire_now_button))
-                    }
+            Text(
+                text = stringResource(check.item.bodyRes()),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            if (!granted && !skipped) {
+                FilledTonalButton(
+                    onClick = onFix,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                ) {
+                    Text(stringResource(R.string.setup_fix))
                 }
             }
         }
@@ -199,7 +241,88 @@ fun HelpScreen(
 }
 
 @Composable
-private fun StatusBanner(status: DefaultAlarmDetector.DefaultStatus) {
+private fun StatusDot(granted: Boolean, skipped: Boolean) {
+    val (icon, tint) = when {
+        skipped -> Icons.Default.RadioButtonUnchecked to MaterialTheme.colorScheme.outline
+        granted -> Icons.Default.CheckCircle to Color(0xFF2E7D32)
+        else -> Icons.Default.Warning to MaterialTheme.colorScheme.error
+    }
+    Icon(
+        imageVector = icon,
+        contentDescription = null,
+        tint = tint,
+        modifier = Modifier.size(24.dp),
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BrandTipsCard() {
+    val detected = remember { DeviceBrandDetector.current() }
+    var selected by remember { mutableStateOf(detected) }
+    var expanded by remember { mutableStateOf(false) }
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            OutlinedButton(
+                onClick = { expanded = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = stringResource(selected.labelRes()),
+                    modifier = Modifier.padding(end = 8.dp),
+                )
+                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                DeviceBrand.entries.forEach { brand ->
+                    DropdownMenuItem(
+                        text = {
+                            val label = if (brand == detected) {
+                                stringResource(R.string.setup_oem_label_detected, stringResource(brand.labelRes()))
+                            } else {
+                                stringResource(brand.labelRes())
+                            }
+                            Text(label)
+                        },
+                        onClick = {
+                            selected = brand
+                            expanded = false
+                        },
+                    )
+                }
+            }
+
+            // Keep-awake subsection
+            Text(
+                text = stringResource(R.string.help_subsection_keep_awake),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            Text(
+                text = stringResource(selected.keepAwakeTipsRes()),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+
+            // Voice subsection
+            Text(
+                text = stringResource(R.string.help_subsection_voice),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            Text(
+                text = stringResource(selected.voiceTipsRes()),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun VoiceStatusBanner(status: DefaultAlarmDetector.DefaultStatus) {
     val primary = MaterialTheme.colorScheme.primary
     val error = MaterialTheme.colorScheme.error
     val spec = when (status) {
@@ -237,42 +360,146 @@ private data class BannerSpec(
 )
 
 @Composable
-private fun BrandCard(isCurrent: Boolean, titleRes: Int, bodyRes: Int) {
+private fun ActionCard(
+    titleRes: Int,
+    bodyRes: Int,
+    buttonLabelRes: Int,
+    onClick: () -> Unit,
+) {
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
-            if (isCurrent) {
-                Text(
-                    text = stringResource(R.string.help_for_your_device),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
             Text(
                 text = stringResource(titleRes),
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = if (isCurrent) 4.dp else 0.dp),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
             )
             Text(
                 text = stringResource(bodyRes),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 4.dp),
             )
+            OutlinedButton(
+                onClick = onClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+            ) {
+                Text(stringResource(buttonLabelRes))
+            }
         }
     }
 }
 
-private fun openDefaultAppsSettings(context: android.content.Context) {
+@Composable
+private fun DebugCard(
+    onScheduleTestAlarm: () -> Unit,
+    onFireAlarmNow: () -> Unit,
+) {
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = stringResource(R.string.help_debug_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = stringResource(R.string.help_debug_body),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            OutlinedButton(
+                onClick = onScheduleTestAlarm,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+            ) {
+                Text(stringResource(R.string.help_debug_test_alarm_button))
+            }
+            OutlinedButton(
+                onClick = onFireAlarmNow,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+            ) {
+                Text(stringResource(R.string.help_debug_fire_now_button))
+            }
+        }
+    }
+}
+
+private fun openDefaultAppsSettings(context: Context) {
     val intent = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
     runCatching { context.startActivity(intent) }
         .onFailure {
-            // Fall back to general Settings; some OEMs don't ship this action.
             val fallback = Intent(Settings.ACTION_SETTINGS).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             runCatching { context.startActivity(fallback) }
         }
 }
+
+private fun startActivitySafely(context: Context, intent: Intent) {
+    runCatching { context.startActivity(intent) }
+        .onFailure {
+            // OEM customization sometimes removes specific Settings actions.
+            // Fall back to the per-app details page, which always exists.
+            val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = "package:${context.packageName}".toUri()
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            runCatching { context.startActivity(fallback) }
+        }
+}
+
+// ---- Brand <-> resource lookup helpers ----
+
+private fun DeviceBrand.labelRes(): Int = when (this) {
+    DeviceBrand.PIXEL -> R.string.setup_oem_label_pixel
+    DeviceBrand.SAMSUNG -> R.string.setup_oem_label_samsung
+    DeviceBrand.XIAOMI -> R.string.setup_oem_label_xiaomi
+    DeviceBrand.ONEPLUS -> R.string.setup_oem_label_oneplus
+    DeviceBrand.HUAWEI -> R.string.setup_oem_label_huawei
+    DeviceBrand.OTHER -> R.string.setup_oem_label_other
+}
+
+private fun DeviceBrand.keepAwakeTipsRes(): Int = when (this) {
+    DeviceBrand.PIXEL -> R.string.setup_oem_keep_pixel
+    DeviceBrand.SAMSUNG -> R.string.setup_oem_keep_samsung
+    DeviceBrand.XIAOMI -> R.string.setup_oem_keep_xiaomi
+    DeviceBrand.ONEPLUS -> R.string.setup_oem_keep_oneplus
+    DeviceBrand.HUAWEI -> R.string.setup_oem_keep_huawei
+    DeviceBrand.OTHER -> R.string.setup_oem_keep_other
+}
+
+private fun DeviceBrand.voiceTipsRes(): Int = when (this) {
+    DeviceBrand.PIXEL -> R.string.setup_oem_voice_pixel
+    DeviceBrand.SAMSUNG -> R.string.setup_oem_voice_samsung
+    DeviceBrand.XIAOMI -> R.string.setup_oem_voice_xiaomi
+    DeviceBrand.ONEPLUS -> R.string.setup_oem_voice_oneplus
+    DeviceBrand.HUAWEI -> R.string.setup_oem_voice_huawei
+    DeviceBrand.OTHER -> R.string.setup_oem_voice_other
+}
+
+private fun PermissionAudit.Item.titleRes(): Int = when (this) {
+    PermissionAudit.Item.POST_NOTIFICATIONS -> R.string.setup_perm_notifications_title
+    PermissionAudit.Item.EXACT_ALARM -> R.string.setup_perm_exact_alarm_title
+    PermissionAudit.Item.FULL_SCREEN_INTENT -> R.string.setup_perm_fsi_title
+    PermissionAudit.Item.BATTERY_UNRESTRICTED -> R.string.setup_perm_battery_title
+}
+
+private fun PermissionAudit.Item.bodyRes(): Int = when (this) {
+    PermissionAudit.Item.POST_NOTIFICATIONS -> R.string.setup_perm_notifications_body
+    PermissionAudit.Item.EXACT_ALARM -> R.string.setup_perm_exact_alarm_body
+    PermissionAudit.Item.FULL_SCREEN_INTENT -> R.string.setup_perm_fsi_body
+    PermissionAudit.Item.BATTERY_UNRESTRICTED -> R.string.setup_perm_battery_body
+}
+
+/**
+ * Returns true if any must-have permission is denied. Used by the home screen
+ * to decide whether to show the "Setup needed" banner. Kept in this file
+ * (alongside the audit consumer) instead of in SetupScreen (now deleted).
+ */
+fun hasUnresolvedSetup(context: Context): Boolean =
+    PermissionAudit.audit(context).any { it.status == PermissionAudit.Status.DENIED }
