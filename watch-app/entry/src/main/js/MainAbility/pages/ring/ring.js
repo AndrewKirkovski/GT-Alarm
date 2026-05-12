@@ -6,6 +6,12 @@ import Logger from '../../common/logger.js';
 
 var VIBRATE_INTERVAL_MS = 1500;
 var DOW_NONE = 0;
+// Re-attempt the alarm-row lookup once after this delay if it wasn't found
+// on first try. The alarm_fired envelope and the alarm_added envelope come
+// over the same P2P channel but can be processed out of order if the watch
+// app cold-started just before the fire (registration race). One retry
+// covers the gap without needing a full polling loop.
+var ROW_RETRY_MS = 1500;
 
 function pad2(n) {
     return (n < 10 ? '0' : '') + n;
@@ -48,7 +54,7 @@ export default {
         var self = this;
         var idNum = Number(this.alarmId);
         if (!isFinite(idNum) || idNum <= 0) return;
-        AlarmStore.getAll(function (items) {
+        function applyRow(items) {
             for (var i = 0; i < items.length; i++) {
                 if (items[i].id === idNum) {
                     self.label = items[i].label || '';
@@ -60,10 +66,24 @@ export default {
                     if (typeof raw === 'number' && isFinite(raw) && raw >= 1 && raw <= 60) {
                         self.labelSnooze = self.$t('strings.reminder_action_snooze') + ' ' + raw + 'm';
                     }
-                    return;
+                    return true;
                 }
             }
-            Logger.i('ring.onInit no local alarm for id=' + idNum + ' — plain Snooze label, phone picks duration');
+            return false;
+        }
+        AlarmStore.getAll(function (items) {
+            if (applyRow(items)) return;
+            Logger.i('ring.onInit no local alarm for id=' + idNum + ' — retrying in ' + ROW_RETRY_MS + 'ms');
+            // One-shot retry: if the alarm_fired envelope outraced the
+            // alarm_added that would have populated this row, give the
+            // receive-side handler a moment to land it.
+            setTimeout(function () {
+                AlarmStore.getAll(function (items2) {
+                    if (!applyRow(items2)) {
+                        Logger.i('ring.onInit retry still missing id=' + idNum + ' — phone picks duration');
+                    }
+                });
+            }, ROW_RETRY_MS);
         });
     },
 

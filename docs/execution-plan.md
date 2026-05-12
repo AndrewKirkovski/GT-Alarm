@@ -190,6 +190,25 @@ Sub-phases (in order):
 
 This phase is intentionally out of execution scope for the current session (no hardware available). Documented here for completeness so the AC ✅ flips happen with proper verification, not via wishful thinking.
 
+### Phase 5a — Code-only landed (DONE 2026-04-26 → 2026-05-12)
+
+Code shipped for cross-device LWW + receive-side scaffold + relative alarms + self-destruct + force-sync hash precheck + reverse-save edit UX. End-to-end device verification still gated on Wear Engine AGConnect approval (Phase 5 sub-phase 3).
+
+Tasks landed:
+- LWW + tombstones (phone + watch ports)
+- Receive-side `IncomingMessageHandler` on both sides
+- Relative-alarm + self-destruct domain model, schema v3→v4 migration, edit UI, scheduling, boot recovery
+- Wire format extended for `relativeMinutes` + `selfDestruct`; codec rejects (not coerces) illegal combinations
+- Watch storage migrated to `@system.file` (memory: `litewearable_storage_limits.md`)
+- Watch ring page + index page + alarmStore + tombstones + lwwResolver (LiteWearable rewrite, replacing `watch-app.old/`)
+- Force-sync hash precheck: `AlarmHash` (Kotlin + JS), `sync_check` / `sync_hash` envelopes, TOCTOU-safe re-snapshot, atomic-claim pending request
+- Edit-screen reverse-save UX: every keystroke writes to DB locally, single batched watch push on exit, Revert button restores open-time snapshot, delete + discard confirm dialogs
+- Test coverage: golden hash vectors, migration TYPE assertion + integer round-trip, mapper round-trips for new fields, receive-side handler new-field paths, repository save/local-only/push/discard paths
+
+What ✅ verifies (when hardware lands):
+- All Phase 5a 🟡 entries flip to ✅ as the corresponding live-device tests pass.
+- AC items in `docs/acceptance-criteria.md` under "Relative alarms", "Self-destruct", "Alarm management" → reverse-save, "Force-sync hash precheck" track that flip.
+
 ---
 
 ## Phase ordering rationale

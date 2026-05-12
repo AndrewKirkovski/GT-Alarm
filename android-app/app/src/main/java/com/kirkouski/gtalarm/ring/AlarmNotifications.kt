@@ -8,12 +8,15 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.util.TimeFormatter
 
 object AlarmNotifications {
+    private const val TAG = "AlarmNotifications"
     const val CHANNEL_ID = "alarm_ringing"
     const val NOTIFICATION_ID = 42
 
@@ -116,6 +119,26 @@ object AlarmNotifications {
         dismissIntent: PendingIntent,
         snoozeIntent: PendingIntent,
     ): Notification {
+        // Android 14+ (API 34) requires USE_FULL_SCREEN_INTENT to actually
+        // wake the screen via the full-screen intent path. Alarm apps with
+        // the SET_ALARM intent filter typically get it auto-granted, but
+        // user revocation or device customizations (Samsung One UI ROM
+        // policies) can leave us without it. We still call setFullScreenIntent
+        // — the system silently degrades to a heads-up which is the
+        // documented fallback. The AlarmActivity start in AlarmRingService
+        // is the primary screen-wake path either way; this log just makes
+        // the degradation visible in logcat.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val nm = context.getSystemService(NotificationManager::class.java)
+            if (nm != null && !nm.canUseFullScreenIntent()) {
+                Log.w(
+                    TAG,
+                    "USE_FULL_SCREEN_INTENT not granted — alarm notification will " +
+                        "render as heads-up only (AlarmActivity is still the primary " +
+                        "lockscreen-wake path)",
+                )
+            }
+        }
         val title = alarm.label.ifBlank { context.getString(R.string.alarm_notification_title) }
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)

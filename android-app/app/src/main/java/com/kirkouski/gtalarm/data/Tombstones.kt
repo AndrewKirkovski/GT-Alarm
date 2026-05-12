@@ -31,6 +31,15 @@ class Tombstones @Inject constructor(
         context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
     }
 
+    // Synchronizes the read-modify-write triplet against concurrent callers.
+    // SharedPreferences is its own write-side serialized but read+write here
+    // is NOT atomic: two `add` coroutines could each readRaw, both compute
+    // pruneAndAdd from the same baseline, and the later write would clobber
+    // the earlier one — losing a tombstone and letting a peer resurrect a
+    // deleted alarm. The intrinsic lock is fine because all ops are short
+    // (small JSON, in-memory transforms).
+    private val lock = Any()
+
     fun add(id: Long, updatedAtEpoch: Long, now: Long = System.currentTimeMillis()) {
         // Defensive: a stamp <= 0 would auto-prune on the next read (cutoff is
         // now - 7d, so 0 < cutoff for any wall-clock now > epoch+7d), silently
@@ -38,18 +47,21 @@ class Tombstones @Inject constructor(
         // so any future receiver path that mistakenly forwards a 0-stamp
         // delete from the watch fails fast at this boundary.
         require(updatedAtEpoch > 0L) { "Tombstones.add: updatedAtEpoch must be > 0 (got $updatedAtEpoch)" }
-        val entries = pruneAndAdd(readRaw(), Entry(id, updatedAtEpoch), now)
-        write(entries)
+        synchronized(lock) {
+            val entries = pruneAndAdd(readRaw(), Entry(id, updatedAtEpoch), now)
+            write(entries)
+        }
     }
 
-    fun all(now: Long = System.currentTimeMillis()): List<Entry> {
-        val pruned = readPruned(now)
-        if (pruned.size != readRaw().size) write(pruned)
-        return pruned
+    fun all(now: Long = System.currentTimeMillis()): List<Entry> = synchronized(lock) {
+        val raw = readRaw()
+        val pruned = prune(raw, now)
+        if (pruned.size != raw.size) write(pruned)
+        pruned
     }
 
     fun isTombstoned(id: Long, incomingEpoch: Long, now: Long = System.currentTimeMillis()): Boolean =
-        isTombstoned(readPruned(now), id, incomingEpoch)
+        synchronized(lock) { isTombstoned(readPruned(now), id, incomingEpoch) }
 
     private fun readPruned(now: Long): List<Entry> = prune(readRaw(), now)
 

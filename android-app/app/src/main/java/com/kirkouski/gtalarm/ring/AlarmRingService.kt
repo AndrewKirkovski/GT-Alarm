@@ -216,30 +216,38 @@ class AlarmRingService : Service() {
     private fun handleDismiss(alarmId: Long, fromPeer: Boolean) {
         Log.d(TAG, "dismiss id=$alarmId fromPeer=$fromPeer")
         if (!fromPeer) wearBridge.sendAlarmDismissed(alarmId)
-        if (alarmId >= 0) {
-            serviceScope.launch {
-                val alarm = repository.getById(alarmId)
-                when (dismissAction(alarm)) {
-                    DismissAction.KEEP -> Unit
-                    DismissAction.DISABLE -> {
-                        if (fromPeer) {
-                            repository.setEnabledLocalOnly(alarmId, false)
-                        } else {
-                            repository.setEnabled(alarmId, false)
-                        }
-                    }
-                    DismissAction.DELETE -> {
-                        // Tombstone + propagation via repository.delete().
-                        // Idempotent on the peer if it also originated this
-                        // dismiss (the alarm_dismissed envelope already told
-                        // the watch it's done; the alarm_deleted that delete()
-                        // sends back is a redundant-but-harmless cleanup).
-                        repository.delete(alarmId)
+        if (alarmId < 0) {
+            stopForegroundAndSelf()
+            return
+        }
+        // AWAIT the dismiss action before stopping. Earlier the
+        // stopForegroundAndSelf() fired in parallel with the launch,
+        // so a DELETE (self-destruct) coroutine could be cancelled
+        // mid-execution if the OS reaped the service — leaving a stale
+        // DB row + missing tombstone. Mirror handleSnooze's pattern:
+        // do the work first, then stop.
+        serviceScope.launch {
+            val alarm = repository.getById(alarmId)
+            when (dismissAction(alarm)) {
+                DismissAction.KEEP -> Unit
+                DismissAction.DISABLE -> {
+                    if (fromPeer) {
+                        repository.setEnabledLocalOnly(alarmId, false)
+                    } else {
+                        repository.setEnabled(alarmId, false)
                     }
                 }
+                DismissAction.DELETE -> {
+                    // Tombstone + propagation via repository.delete().
+                    // Idempotent on the peer if it also originated this
+                    // dismiss (the alarm_dismissed envelope already told
+                    // the watch it's done; the alarm_deleted that delete()
+                    // sends back is a redundant-but-harmless cleanup).
+                    repository.delete(alarmId)
+                }
             }
+            stopForegroundAndSelf()
         }
-        stopForegroundAndSelf()
     }
 
     private fun handleSnooze(alarmId: Long, fromPeer: Boolean, rescheduleEpochFromPeer: Long) {

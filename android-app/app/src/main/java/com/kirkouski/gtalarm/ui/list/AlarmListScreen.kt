@@ -477,15 +477,23 @@ private fun subtitleLine(alarm: Alarm): String {
 //   > 60 s remaining: refresh every 30 s
 //   ≤ 60 s remaining: refresh every 1 s (so user sees seconds counting down
 //                     on the final approach)
-// Stops ticking 5 s past fire time — by then the alarm has rung and the row
-// will be deleted by the self-destruct path (or moved off-screen).
+// Stops ticking 5 s past fire time, OR immediately if the alarm is disabled
+// (toggle off should freeze the displayed countdown — we use the last
+// computed value without further ticking).
 @Composable
 private fun rememberRelativeCountdownText(alarm: Alarm): String {
     val target = alarm.computedFireEpoch()
-    // mutableLongStateOf keyed on target so we restart the tick if the user
-    // edits the duration (which bumps updatedAtEpoch → new target).
-    var now by remember(alarm.id, target) { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(alarm.id, target) {
+    val enabled = alarm.enabled
+    // mutableLongStateOf keyed on target+enabled so we restart the tick if
+    // the user edits the duration (which bumps updatedAtEpoch → new target)
+    // or toggles the enabled state. When enabled flips false, the new
+    // LaunchedEffect body short-circuits the loop and the displayed value
+    // freezes at the last tick.
+    var now by remember(alarm.id, target, enabled) {
+        mutableLongStateOf(System.currentTimeMillis())
+    }
+    LaunchedEffect(alarm.id, target, enabled) {
+        if (!enabled) return@LaunchedEffect
         while (true) {
             val remaining = target - System.currentTimeMillis()
             if (remaining < -COUNTDOWN_STOP_GRACE_MS) break

@@ -35,31 +35,16 @@ class AlarmAudioPlayer(private val context: Context) {
         Log.i(TAG, "audio source=${if (parsedUserUri != null) "user" else "default"} uri=$playbackUri")
 
         try {
-            val mp = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
-                setDataSource(context, playbackUri)
-                isLooping = true
-                setOnErrorListener { _, what, extra ->
-                    Log.w(TAG, "MediaPlayer error what=$what extra=$extra")
-                    true
-                }
-                prepare()
-                start()
-            }
+            val mp = buildPlayer(playbackUri, onPrepared = { it.start() }, onError = { tryFallback() })
             mediaPlayer = mp
         } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
-            // reason: MediaPlayer.{setDataSource, prepare} can throw IOException,
+            // reason: MediaPlayer.setDataSource can throw IOException,
             // IllegalArgumentException, IllegalStateException, SecurityException,
             // and an undocumented set of native errors (NPE through JNI on certain
             // ROMs). For the alarm-ring path we MUST not let any of these crash the
             // foreground service — otherwise the alarm goes silent. Catch-all is the
             // intent: log + fall back to system default.
-            Log.w(TAG, "failed to play $playbackUri: ${t.message}")
+            Log.w(TAG, "failed to set up $playbackUri: ${t.message}")
             tryFallback()
         }
     }
@@ -67,18 +52,11 @@ class AlarmAudioPlayer(private val context: Context) {
     private fun tryFallback() {
         val fallback = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM) ?: return
         try {
-            val mp = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
-                setDataSource(context, fallback)
-                isLooping = true
-                prepare()
-                start()
-            }
+            val mp = buildPlayer(
+                fallback,
+                onPrepared = { it.start() },
+                onError = { Log.e(TAG, "fallback playback failed in prepareAsync") },
+            )
             mediaPlayer = mp
         } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
             // reason: same as the primary catch above — alarm path must never
@@ -87,6 +65,37 @@ class AlarmAudioPlayer(private val context: Context) {
             // silently rather than crashing the foreground service.
             Log.e(TAG, "fallback playback also failed: ${t.message}")
         }
+    }
+
+    /**
+     * Build a MediaPlayer configured for alarm playback. Uses [prepareAsync]
+     * so the main thread isn't blocked while a slow content:// URI is
+     * resolved (custom ringtones on cloud-backed media storage can take
+     * 100ms+, enough to ANR a foreground-service start). `onPrepared` fires
+     * when the player is ready to start; `onError` fires on
+     * setOnErrorListener — both invoked on the binder thread but post to
+     * the main thread internally via MediaPlayer.
+     */
+    private fun buildPlayer(
+        uri: android.net.Uri,
+        onPrepared: (MediaPlayer) -> Unit,
+        onError: () -> Unit,
+    ): MediaPlayer = MediaPlayer().apply {
+        setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+        )
+        setDataSource(context, uri)
+        isLooping = true
+        setOnErrorListener { _, what, extra ->
+            Log.w(TAG, "MediaPlayer error what=$what extra=$extra")
+            onError()
+            true
+        }
+        setOnPreparedListener(onPrepared)
+        prepareAsync()
     }
 
     private fun startVibration() {
@@ -110,10 +119,18 @@ class AlarmAudioPlayer(private val context: Context) {
     }
 
     fun stop() {
-        runCatching { mediaPlayer?.stop() }
-        runCatching { mediaPlayer?.release() }
+        // Log release failures: a hung MediaPlayer that fails to release
+        // is a real leak (native audio session stays open + may interfere
+        // with the next alarm). Silent runCatching was hiding diagnostics
+        // about exactly which ROMs/codecs fail here.
+        mediaPlayer?.let { mp ->
+            runCatching { mp.stop() }.onFailure { Log.w(TAG, "mp.stop() failed: ${it.message}") }
+            runCatching { mp.release() }.onFailure { Log.w(TAG, "mp.release() failed: ${it.message}") }
+        }
         mediaPlayer = null
-        runCatching { vibrator?.cancel() }
+        vibrator?.let { v ->
+            runCatching { v.cancel() }.onFailure { Log.w(TAG, "vibrator.cancel() failed: ${it.message}") }
+        }
         vibrator = null
     }
 

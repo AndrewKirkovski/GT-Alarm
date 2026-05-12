@@ -45,8 +45,23 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var wearBridge: WearBridgeService
     @Inject lateinit var alarmRepository: AlarmRepository
 
+    // Tracks the user's POST_NOTIFICATIONS choice. We don't gate any
+    // functionality on it (alarms still ring without notifications via
+    // the AlarmActivity full-screen path), but logging the denial makes
+    // a "my alarms don't show in the notification shade" support thread
+    // resolvable from logcat alone.
     private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* ignored */ }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                Log.i(TAG, "POST_NOTIFICATIONS granted")
+            } else {
+                Log.w(
+                    TAG,
+                    "POST_NOTIFICATIONS denied — alarms will still ring via " +
+                        "AlarmActivity but no heads-up / shade entry will appear",
+                )
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

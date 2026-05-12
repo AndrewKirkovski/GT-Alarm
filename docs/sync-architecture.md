@@ -43,7 +43,9 @@ Companion document to `docs/acceptance-criteria.md`. This is the design-of-recor
 
 ## 2. Wire format
 
-JSON over P2P. Every message is a single line, single object, no nesting:
+JSON over P2P. Every message is a single line, single object, no nesting.
+
+**LWW-carrying messages** (the 7 types that participate in last-write-wins conflict resolution):
 
 ```json
 {
@@ -65,6 +67,23 @@ JSON over P2P. Every message is a single line, single object, no nesting:
 | `rescheduleEpoch` | number  | **phone→watch `alarm_snoozed` only** — wall-clock epoch ms of next ring; the watch direction OMITS this field (phone owns per-alarm duration) |
 | `enabled`         | boolean | `alarm_toggled` only                                          |
 | `alarm`           | object  | `alarm_added` / `alarm_updated` only — full record (see §5.1) |
+
+**Meta-protocol messages** (NOT routed through the LWW handler — handled directly by the wear bridges):
+
+```json
+// phone → watch: ask watch to compute and report its alarm-set hash
+{ "type": "sync_check" }
+
+// watch → phone: response to sync_check
+{ "type": "sync_hash", "hash": "<8-char lowercase hex>" }
+
+// watch → phone: dev-only log relay (carries no alarmId)
+{ "type": "watch_log", "level": "I" | "W" | "E", "msg": "<string>", "ts": <number> }
+```
+
+`sync_check` / `sync_hash` implement the force-sync precheck (§6). Phone sends `sync_check`, watch replies `sync_hash` with the result of `AlarmHash.compute(localAlarms)`. If the phone's local hash matches, it skips the per-alarm `alarm_added` push and surfaces `ForceSyncResult.AlreadyInSync`. Hash format is locked to 8 lowercase hex chars; receivers reject anything else.
+
+`watch_log` is opt-in diagnostic; the receiver (phone) writes it to `adb logcat` under the `WatchLog` tag and exits — never reaches the LWW handler. It legitimately carries `updatedAtEpoch = ts` (not the LWW stamp).
 
 ### 2.1 Payload-size budget
 
@@ -95,8 +114,17 @@ The `alarm` envelope (sent with `alarm_added` / `alarm_updated`) carries:
 | `isVibrationOnly` | boolean | no (default `false`) | — |
 | `snoozeMinutes` | number | no (default `10`) | **clamped to 1–60 on receive** |
 | `updatedAtEpoch` | number | yes | non-negative |
+| `relativeMinutes` | number\|null | no (default `null` = absolute alarm) | **rejected if outside 1–1440 OR if `daysOfWeek != 0`** |
+| `selfDestruct` | boolean | no (default `false`) | **rejected if `true` AND `daysOfWeek != 0`** |
 
 The receive-side parser on the phone (`WearJsonCodec`) clamps `snoozeMinutes` into `[Alarm.MIN_SNOOZE_MINUTES, Alarm.MAX_SNOOZE_MINUTES]` so a malformed peer can't push out-of-range values into the DB. The watch's `AlarmStore` stores whatever arrives; the watch's ring page applies the same range check before using the value for snooze scheduling.
+
+**Reject-not-coerce** for the v4 fields (`relativeMinutes`, `selfDestruct`): when the peer sends an illegal combination (out-of-range minutes, or either field paired with `daysOfWeek != 0`), `parseAlarm` returns `null` and logs the rejection. Earlier versions silently coerced — that caused permanent divergence because the phone would re-broadcast the coerced state and overwrite the watch's intended value with both sides agreeing on the wrong outcome. Reject means the envelope is dropped and the peer's next push is expected to arrive in a valid shape.
+
+**Field invariants** (enforced by `Alarm.kt`'s init block and mirrored on the watch's `incomingHandler.js`):
+- `relativeMinutes != null` ⇒ `daysOfWeek == 0` (relative alarms are one-shot only).
+- `selfDestruct == true` ⇒ `daysOfWeek == 0` (recurring + self-destruct is meaningless).
+- `relativeMinutes ∈ [1, 1440]` when non-null (1 min to 24 h).
 
 Implementation requirements before real P2P is enabled:
 - Reject or trim outbound `alarm.label` to the product limit before building the bridge envelope.
@@ -302,6 +330,45 @@ When the watch is out of Bluetooth range or paged-out at fire time, the user onl
 
 ### 5.6 — Resolved 2026-04-27: GT 6 is LiteWearable, not full NEXT
 Empirically confirmed via failed install + Huawei Developer Forum moderator quote on identical case. See `gt6_hardware_constraints.md`. The legacy `watch-app.old/` (NEXT-targeted, will not install on GT 6) is kept in-tree as a porting reference for Phase 0b; new code lives in `watch-app/`.
+
+### 5.7 — Force-sync hash precheck (Phase 5b)
+
+When the user taps **Force sync** on the WatchSyncCard, the phone could naively push every alarm via `alarm_added`. That's N P2P round-trips for an idempotent operation when the watch is usually already in sync. The precheck cuts that to zero pushes on the common path.
+
+**Wire flow** (phone-driven):
+
+```
+phone:  ping until 202 (per §2.3)
+phone:  { "type": "sync_check" }                     ──►  watch
+watch:  alarms = AlarmStore.getAll()
+watch:  hash = AlarmHash.compute(alarms)
+watch:  { "type": "sync_hash", "hash": "<8-hex>" }   ──►  phone
+phone:  alarms = repository.getAll()    // re-snapshot AFTER response (TOCTOU)
+phone:  localHash = AlarmHash.compute(alarms)
+phone:  if remoteHash == localHash → ForceSyncResult.AlreadyInSync(n)
+phone:  else                       → full alarm_added push as before
+```
+
+The phone re-fetches its own alarm list **after** receiving the watch's response so the local hash reflects the latest DB state, not a snapshot taken before the ~2s round-trip. This closes the TOCTOU race where the user adds an alarm mid-sync and `remoteHash` accidentally matches a stale `localHash`.
+
+**Hash algorithm** — `AlarmHash.kt` on phone, `alarmHash.js` on watch. Byte-equivalent implementations:
+
+1. Sort alarms by `id` ascending.
+2. For each alarm, render a single canonical line:
+   ```
+   id|label|hour|minute|daysOfWeek|enabled|audioUri|isVibrationOnly|snoozeMinutes|updatedAtEpoch|relativeMinutes|selfDestruct\n
+   ```
+   - Booleans: `1` / `0`.
+   - Null `audioUri` and null `relativeMinutes`: empty string between the pipes.
+3. Concatenate all lines into a single string (newline after every line, including the last).
+4. Apply Java `String.hashCode()` over UTF-16 code units. On JS this is `((h << 5) - h + s.charCodeAt(i)) | 0` iterated.
+5. Convert signed 32-bit result to unsigned, render as lowercase hex, left-pad with zeros to 8 chars.
+
+Empty list → `"00000000"` (both sides). Tests in `AlarmHashTest.kt` pin canonical strings + reference hex values for cross-impl verification.
+
+If `sync_check` send fails or no `sync_hash` reply arrives within `SYNC_CHECK_TIMEOUT_MS` (2 s), the phone falls through to a full push — never user-blocking, just slightly less efficient.
+
+`sync_hash` payloads that fail the `^[0-9a-f]{8}$` validation are dropped on the phone side (corrupted or spoofed watch).
 
 ---
 

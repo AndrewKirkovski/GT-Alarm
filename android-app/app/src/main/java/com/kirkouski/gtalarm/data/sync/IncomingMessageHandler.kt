@@ -144,16 +144,35 @@ class IncomingMessageHandler @Inject constructor(
     }
 
     private fun dispatchDismissFromPeer(alarmId: Long) {
-        val intent = buildDismissFromPeerIntent(context, alarmId)
-        runCatching { context.startService(intent) }.onFailure {
-            Log.w(TAG, "startService for peer dismiss id=$alarmId failed: ${it.message}")
-        }
+        dispatchToRingService(buildDismissFromPeerIntent(context, alarmId), "peer dismiss id=$alarmId")
     }
 
     private fun dispatchSnoozeFromPeer(alarmId: Long, rescheduleEpoch: Long) {
-        val intent = buildSnoozeFromPeerIntent(context, alarmId, rescheduleEpoch)
-        runCatching { context.startService(intent) }.onFailure {
-            Log.w(TAG, "startService for peer snooze id=$alarmId failed: ${it.message}")
+        dispatchToRingService(
+            buildSnoozeFromPeerIntent(context, alarmId, rescheduleEpoch),
+            "peer snooze id=$alarmId",
+        )
+    }
+
+    /**
+     * Best-effort fire of a service intent. On Android 12+ (API 31),
+     * starting a FOREGROUND service from the background throws
+     * ForegroundServiceStartNotAllowedException — which would happen here
+     * if the peer's dismiss/snooze arrives while the phone app is fully
+     * in the background AND the ring service is no longer running. We
+     * catch and log; the watch's local UI already handled the action so
+     * the user sees no regression, just no phone-side propagation.
+     */
+    private fun dispatchToRingService(intent: Intent, label: String) {
+        @Suppress("TooGenericExceptionCaught")
+        try {
+            context.startService(intent)
+        } catch (e: RuntimeException) {
+            // RuntimeException is the documented superclass of
+            // ForegroundServiceStartNotAllowedException (API 31+). On
+            // older Androids the same intent could throw IllegalStateException
+            // for similar background-launch restrictions.
+            Log.w(TAG, "startService for $label failed: ${e::class.simpleName}: ${e.message}")
         }
     }
 

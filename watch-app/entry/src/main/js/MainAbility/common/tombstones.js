@@ -8,8 +8,14 @@ import Logger from './logger.js';
 var KEY = 'gt_tombstones';
 var MAX = 256;
 var RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+// Re-probe @system.storage every STORAGE_RETRY_MS ms after a failure so a
+// transient glitch doesn't permanently sink us into memory-only mode (which
+// would lose all tombstones across watch app restarts and let the phone
+// resurrect deleted alarms).
+var STORAGE_RETRY_MS = 60 * 1000;
 var memoryCache = null;
 var storageWorking = true;
+var storageDownAt = 0;
 
 function isValid(t) {
     return (
@@ -23,8 +29,30 @@ function isValid(t) {
     );
 }
 
+function shouldRetryStorage() {
+    if (storageWorking) return true;
+    return (Date.now() - storageDownAt) >= STORAGE_RETRY_MS;
+}
+
+function markStorageHealthy() {
+    if (!storageWorking) {
+        Logger.i('tombstones.storage recovered');
+    }
+    storageWorking = true;
+    storageDownAt = 0;
+}
+
+function markStorageDown() {
+    storageWorking = false;
+    storageDownAt = Date.now();
+}
+
 function readRaw(callback) {
-    if (memoryCache !== null && !storageWorking) {
+    // If storage is in a known-bad state AND we're inside the retry
+    // backoff window, serve the in-memory copy without hitting storage.
+    // After the backoff elapses we'll try storage again so a transient
+    // failure doesn't permanently demote us to memory-only mode.
+    if (memoryCache !== null && !shouldRetryStorage()) {
         callback(memoryCache.slice());
         return;
     }
@@ -32,6 +60,7 @@ function readRaw(callback) {
         key: KEY,
         default: '[]',
         success: function (data) {
+            markStorageHealthy();
             var parsed;
             try {
                 parsed = JSON.parse(data);
@@ -54,7 +83,7 @@ function readRaw(callback) {
         },
         fail: function (data, code) {
             Logger.err('tombstones.readRaw storage code=' + code, data);
-            storageWorking = false;
+            markStorageDown();
             if (memoryCache === null) memoryCache = [];
             callback(memoryCache.slice());
         },
@@ -63,7 +92,9 @@ function readRaw(callback) {
 
 function writeRaw(items, callback) {
     memoryCache = items.slice();
-    if (!storageWorking) {
+    // Even when storage is in a known-bad state, attempt a write after the
+    // retry backoff has elapsed — that's how we detect recovery.
+    if (!shouldRetryStorage()) {
         if (callback) callback(true);
         return;
     }
@@ -71,11 +102,12 @@ function writeRaw(items, callback) {
         key: KEY,
         value: JSON.stringify(items),
         success: function () {
+            markStorageHealthy();
             if (callback) callback(true);
         },
         fail: function (data, code) {
             Logger.err('tombstones.writeRaw storage code=' + code, data);
-            storageWorking = false;
+            markStorageDown();
             if (callback) callback(true);
         },
     });

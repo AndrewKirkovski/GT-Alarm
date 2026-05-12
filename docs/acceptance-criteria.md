@@ -88,11 +88,25 @@ Do not implement against memory of how an API used to work. APIs change.
 ### Alarm management
 - 🟡 Create alarm: time, label, days-of-week, audio URI, vibration-only flag, snooze duration — `AlarmEditScreen`
 - 🟡 Edit any field — `AlarmEditViewModel.load`
+- 🟡 Edit-screen reverse-save model: every field mutation writes to DB immediately via `AlarmRepository.saveLocalOnly` (no watch broadcast); top-bar Revert restores the open-time snapshot; exit triggers a single batched `pushAlarmToWatch` for all touched rows. **Why:** keeps the watch's P2P feed quiet during a multi-second edit instead of N redundant pushes per keystroke. Phone stays the source of truth — a process kill mid-edit just leaves the watch one sync behind; the force-sync hash precheck catches it. (Phase 5b post-review rework, 2026-05-12.)
+- 🟡 Confirmation dialog on destructive actions: edit-screen Delete (existing alarm), edit-screen Discard (new draft), list swipe-to-delete. Swipe cancel resets `SwipeToDismissBoxState` so the row snaps back. (Phase 5b post-review rework.)
 - 🟡 Swipe-to-delete on list row — `SwipeToDismissBox` wired in `AlarmListScreen.SwipeToDeleteRow` (Phase 3b.3, 2026-04-25)
 - 🟡 Toggle enable / disable — `Switch` in `AlarmListScreen`
 - 🟡 Persist across process kill + reboot — Room v2 (Phase 4 LWW migration) + `BootReceiver`
 - 🟡 List shows next firing time as relative + absolute — `subtitleLine(alarm)` in `AlarmListScreen.kt` renders `<days_label> · <relative_hint>` for enabled alarms (e.g. "Mon Wed Fri · in 14 hr"). `util/RelativeTime.formatUntil` delegates to `DateUtils.getRelativeTimeSpanString` with `FORMAT_ABBREV_RELATIVE` for one-component output that fits the row width. Trigger time recomputed on alarm change via `remember(alarm)`. (Phase 3 #4, 2026-04-26.)
 - 🟡 One-off alarm flips `enabled = false` after firing — `AlarmRingService.handleDismiss` flips via `repository.setEnabled(id, false)` when `daysOfWeek == 0`. Verified by `AlarmRingServiceTest.shouldAutoDisableOnDismiss` (Phase 3b.1, 2026-04-25).
+
+### Relative ("in N min") alarms — Phase 5b MVP
+- 🟡 New alarm-type toggle on `AlarmEditScreen` (At time / In…): RELATIVE mode is one-shot only — `daysOfWeek` forced to `0`. Mode toggle hidden when editing an existing alarm (switching type is a create+delete operation per spec).
+- 🟡 `Alarm.relativeMinutes`: nullable Int, range `[Alarm.MIN_RELATIVE_MINUTES, Alarm.MAX_RELATIVE_MINUTES]` = `[1, 1440]` (1 min to 24 h). Domain invariant: non-null `relativeMinutes` requires `daysOfWeek == 0`; enforced by `Alarm.kt` init block, defensively coerced in the edit-screen save path, and **rejected** (not coerced) by `WearJsonCodec.parseAlarm` on receive.
+- 🟡 Computed fire time: `Alarm.computedFireEpoch() = updatedAtEpoch + relativeMinutes * 60_000L`. Re-toggling the alarm off→on bumps `updatedAtEpoch` which re-anchors the timer (countdown restarts).
+- 🟡 Live countdown on list row: `rememberRelativeCountdownText` ticks every 30 s when remaining > 60 s, every 1 s when ≤ 60 s, stops 5 s past fire OR immediately when the alarm is toggled off.
+- 🟡 Boot recovery: `AlarmRepository.rescheduleAllOnBoot` distinguishes "missed during current uptime" (re-arm normally — AlarmManager fires immediately) from "missed during downtime" (post a passive notification + delete the row). Clock-rollback guard: `bootCompleteAt = (now - SystemClock.elapsedRealtime()).coerceAtMost(now)` so a wall-clock-backwards correction can't classify still-future alarms as missed.
+
+### Self-destruct (Delete after firing) — Phase 5b MVP
+- 🟡 `Alarm.selfDestruct`: boolean. Default `true` for one-shots (RELATIVE always; ABSOLUTE with `daysOfWeek == 0`) unless the user explicitly toggles. Default `false` for recurring (UI hides the toggle). Domain invariant: `selfDestruct == true` requires `daysOfWeek == 0`; enforced in `Alarm.kt`, edit screen save path, and **rejected** by `WearJsonCodec.parseAlarm`.
+- 🟡 Dismiss-action mapping in `AlarmRingService.dismissAction`: `selfDestruct == true` → `DELETE` (row removed via `repository.delete` + tombstone propagated); `selfDestruct == false` + one-shot → `DISABLE` (existing behavior); recurring → `KEEP`. Dismiss coroutine awaits the DELETE before `stopForegroundAndSelf()` to prevent service-reap from leaving stale rows.
+- 🟡 Migration v3→v4 adds `relativeMinutes INTEGER` (nullable) + `selfDestruct INTEGER NOT NULL DEFAULT 0` to the `alarms` table. `MigrationTest` asserts PRAGMA column TYPE (not just nullability) and round-trips a non-null integer value to catch accidental TEXT affinity.
 
 ### Scheduling
 - ✅ Fires at exact wall-clock time, ignoring Doze — `AlarmManager.setAlarmClock(AlarmClockInfo, PI)`. Verified on Pixel 3 API 33 AVD 2026-04-30: `dumpsys alarm` shows the saved alarm registered as `RTC_WAKEUP` with `exactAllowReason=policy_permission` and listed under "Next wake from idle" (Doze whitelist confirmed).
@@ -209,6 +223,14 @@ Do not implement against memory of how an API used to work. APIs change.
 - ❌ `import wearengine from "@system.wearengine"` works on Lite — architecturally confirmed via Chinese-language research. Owner: Andrei Kirkouski. End-to-end runtime test gated on Phase 5b AGConnect Wear Engine approval.
 - ❌ Pairing metadata in `config.json`: `metaData.customizeData.supportLists = "<phone-pkg>:<sha256-no-colons>"` — required for Wear Engine on Lite to accept the phone-side counterpart
 - ❌ End-to-end smoke test: phone sends `alarm_fired`, watch ring page renders within 500 ms
+
+### Force-sync hash precheck (Phase 5b)
+- 🟡 `AlarmHash.kt` + `alarmHash.js` produce byte-equivalent 8-char hex hashes from a canonical pipe-delimited render of the alarm list, sorted by id. Empty list → `"00000000"`. Java `String.hashCode()` (Kotlin) mirrored as `((h<<5)-h+c)|0` (JS). Test coverage in `AlarmHashTest.kt` pins canonical strings + reference vectors.
+- 🟡 `WearBridgeService.forceSync(suspend () -> List<Alarm>)` rounds-trips `sync_check` → `sync_hash` before pushing. Phone re-snapshots its own alarm list **after** receiving the watch's response so a TOCTOU race (user adds an alarm during the ~2s window) doesn't accidentally match a stale local hash.
+- 🟡 `ForceSyncResult.AlreadyInSync(n)` returned when remote hash matches; UI shows a distinct toast string. On `sync_check` timeout / send failure, falls through to a full push (never user-blocking).
+- 🟡 `WearJsonCodec.parseIncoming` validates `sync_hash` payload against `^[0-9a-f]{8}$` — corrupt/spoofed hashes dropped.
+- 🟡 `HuaweiWearBridge.pendingHashRequest` is an `AtomicReference<CompletableDeferred<String>?>`; receiver claims via `getAndSet(null)` for atomic timeout/response races.
+- 🟡 Force-sync UI in-flight protection: `AlarmListViewModel.forceSyncMutex.tryLock` drops mashed taps; `forceSyncRunning` StateFlow disables the WatchSyncCard button while a sync is active.
 
 ### Known scope deltas vs the legacy NEXT app
 - **Watch no longer schedules.** No `reminderAgentManager` (doesn't exist on Lite). Phone is sole scheduler. Watch reacts to `alarm_fired` pings.

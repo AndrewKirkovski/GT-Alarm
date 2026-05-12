@@ -208,7 +208,15 @@ class AlarmRepository @Inject constructor(
     //     missed reminder.
     suspend fun rescheduleAllOnBoot() {
         val now = System.currentTimeMillis()
-        val bootCompleteAt = now - SystemClock.elapsedRealtime()
+        // bootCompleteAt = wall-clock - elapsed-realtime-since-boot. Normally
+        // monotonic and < now. If the user rolled the wall clock BACKWARDS
+        // since boot (NTP correction, manual change), bootCompleteAt would
+        // land in the future and we'd misclassify EVERY relative alarm
+        // (including ones that haven't fired yet) as "missed during downtime"
+        // and delete them. Clamp to now to fail safe — at worst we treat a
+        // legitimately-missed relative alarm as if it can still fire and
+        // AlarmManager fires it immediately.
+        val bootCompleteAt = (now - SystemClock.elapsedRealtime()).coerceAtMost(now)
         val alarms = getAll().filter { it.enabled }
         val missed = mutableListOf<Alarm>()
         val keep = mutableListOf<Alarm>()
