@@ -9,8 +9,8 @@ import com.kirkouski.gtalarm.scheduler.AlarmScheduler
 import com.kirkouski.gtalarm.wear.WearBridgeService
 import com.kirkouski.gtalarm.widget.WidgetRefresher
 import android.content.Context
+import io.mockk.coEvery
 import io.mockk.coVerify
-import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -35,6 +35,7 @@ class AlarmRepositoryTest {
     private lateinit var wearBridge: WearBridgeService
     private lateinit var tombstones: Tombstones
     private lateinit var widgetRefresher: WidgetRefresher
+    private lateinit var settingsStore: SettingsStore
     private lateinit var appContext: Context
     private lateinit var repo: AlarmRepository
 
@@ -45,6 +46,11 @@ class AlarmRepositoryTest {
         wearBridge = mockk(relaxed = true)
         tombstones = mockk(relaxed = true)
         widgetRefresher = mockk(relaxed = true)
+        // Default-ringtone settings are queried on save() for new alarms;
+        // return an empty SettingsState so the existing tests keep their
+        // null-audio-URI semantics. Per-test overrides where needed.
+        settingsStore = mockk(relaxed = true)
+        coEvery { settingsStore.snapshot() } returns SettingsState()
         // Context is only used by rescheduleAllOnBoot() for the missed
         // notification — these unit tests don't exercise that path. A
         // relaxed mock is enough; if a test ever hits it, the NotificationManager
@@ -59,6 +65,7 @@ class AlarmRepositoryTest {
             wearBridge = wearBridge,
             tombstones = tombstones,
             widgetRefresher = widgetRefresher,
+            settingsStore = settingsStore,
             appContext = appContext,
             ioDispatcher = UnconfinedTestDispatcher(),
         )
@@ -248,6 +255,71 @@ class AlarmRepositoryTest {
             assertEquals(5L, first[0].updatedAtEpoch)
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    @Test
+    fun `save applies default-absolute ringtone from settings for new alarm with no URI`() = runTest {
+        coEvery { settingsStore.snapshot() } returns SettingsState(
+            defaultAbsoluteRingtoneUri = "content://abs-default",
+            defaultAbsoluteRingtoneName = "Cabin",
+        )
+        val draft = Alarm(id = 0L, label = "Wake", hour = 7, minute = 0, daysOfWeek = 0, enabled = true)
+
+        val newId = repo.save(draft)
+
+        val persisted = dao.getById(newId)
+        assertEquals("content://abs-default", persisted!!.audioUri)
+        assertEquals("Cabin", persisted.audioName)
+    }
+
+    @Test
+    fun `save uses default-relative ringtone for new relative alarm`() = runTest {
+        coEvery { settingsStore.snapshot() } returns SettingsState(
+            defaultRelativeRingtoneUri = "content://rel-default",
+            defaultRelativeRingtoneName = "Chime",
+        )
+        val draft = Alarm(
+            id = 0L, hour = 0, minute = 0, daysOfWeek = 0, enabled = true,
+            relativeMinutes = 10,
+        )
+
+        val newId = repo.save(draft)
+
+        val persisted = dao.getById(newId)
+        assertEquals("content://rel-default", persisted!!.audioUri)
+    }
+
+    @Test
+    fun `save respects explicit audio URI over settings default`() = runTest {
+        coEvery { settingsStore.snapshot() } returns SettingsState(
+            defaultAbsoluteRingtoneUri = "content://settings-default",
+        )
+        val draft = Alarm(
+            id = 0L, label = "Explicit", hour = 7, minute = 0, daysOfWeek = 0, enabled = true,
+            audioUri = "content://user-chose-this",
+        )
+
+        val newId = repo.save(draft)
+
+        assertEquals("content://user-chose-this", dao.getById(newId)!!.audioUri)
+    }
+
+    @Test
+    fun `save on existing alarm does not pull settings default`() = runTest {
+        // Edit on an existing row keeps its own audio choice (including null = system default).
+        coEvery { settingsStore.snapshot() } returns SettingsState(
+            defaultAbsoluteRingtoneUri = "content://settings-default",
+        )
+        dao.upsert(
+            AlarmEntity(
+                id = 3L, label = "Old", hour = 7, minute = 0, daysOfWeek = 0, enabled = true,
+                audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L,
+            ),
+        )
+
+        repo.save(Alarm(id = 3L, label = "Renamed", hour = 7, minute = 0, daysOfWeek = 0, enabled = true))
+
+        assertNull(dao.getById(3L)!!.audioUri)
     }
 
     @Test

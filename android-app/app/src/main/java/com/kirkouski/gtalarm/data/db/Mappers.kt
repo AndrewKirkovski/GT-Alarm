@@ -17,6 +17,8 @@ fun AlarmEntity.toDomain(): Alarm = Alarm(
     relativeMinutes = relativeMinutes,
     selfDestruct = selfDestruct,
     snoozedUntilEpoch = snoozedUntilEpoch,
+    backgroundImageUri = backgroundImageUri,
+    watchBackgroundImageUri = watchBackgroundImageUri,
 )
 
 fun Alarm.toEntity(): AlarmEntity = AlarmEntity(
@@ -34,4 +36,6 @@ fun Alarm.toEntity(): AlarmEntity = AlarmEntity(
     relativeMinutes = relativeMinutes,
     selfDestruct = selfDestruct,
     snoozedUntilEpoch = snoozedUntilEpoch,
+    backgroundImageUri = backgroundImageUri,
+    watchBackgroundImageUri = watchBackgroundImageUri,
 )

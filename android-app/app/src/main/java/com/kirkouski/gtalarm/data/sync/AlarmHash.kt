@@ -15,13 +15,19 @@ import com.kirkouski.gtalarm.domain.Alarm
  *
  * **Canonical form:** alarms sorted by id ascending, each rendered as a
  * pipe-delimited line `id|label|hour|minute|daysOfWeek|enabled|audioUri|
- * isVibrationOnly|snoozeMinutes|updatedAtEpoch|relativeMinutes|selfDestruct`
- * with `\n` separator. Booleans render as `1`/`0`; null audioUri / null
- * relativeMinutes render as empty string between the surrounding pipes.
+ * isVibrationOnly|snoozeMinutes|updatedAtEpoch|relativeMinutes|selfDestruct|
+ * backgroundImageUri|watchBackgroundImageUri` with `\n` separator. Booleans
+ * render as `1`/`0`; null audioUri / null relativeMinutes / null
+ * backgroundImageUri / null watchBackgroundImageUri render as empty
+ * string between the surrounding pipes.
  *
  * Match the JS implementation in `watch-app/.../common/alarmHash.js` BYTE
  * FOR BYTE — any divergence makes the hash compare always-fail and the
- * check becomes useless overhead.
+ * check becomes useless overhead. Note: the watch side currently treats
+ * the watchBackgroundImageUri slot as empty (it has no copy of the
+ * phone-side URI); reconciliation is via file-transfer of the BGRA `.bin`,
+ * not via this string. The slot is in the canonical form so both sides
+ * agree on the field count + ordering once the watch JS adopts it.
  */
 object AlarmHash {
     fun compute(alarms: List<Alarm>): String {
@@ -43,7 +49,9 @@ object AlarmHash {
                 .append(a.snoozeMinutes).append('|')
                 .append(a.updatedAtEpoch).append('|')
                 .append(a.relativeMinutes?.toString().orEmpty()).append('|')
-                .append(if (a.selfDestruct) '1' else '0')
+                .append(if (a.selfDestruct) '1' else '0').append('|')
+                .append(a.backgroundImageUri.orEmpty()).append('|')
+                .append(a.watchBackgroundImageUri.orEmpty())
                 .append('\n')
         }
         return sb.toString()

@@ -30,4 +30,14 @@ data class AlarmEntity(
     // Schema v5: snoozed-until epoch. Non-null while snoozed; cleared on
     // fire/edit/disable so the list always reflects the actual next ring.
     val snoozedUntilEpoch: Long? = null,
+    // Schema v6: per-alarm background image URI (content://...). null means
+    // "fall back to the default from SettingsStore". Pre-release schema
+    // bump uses destructive migration (no installs to preserve).
+    val backgroundImageUri: String? = null,
+    // Schema v7: per-alarm watch-side background image URI (file:// to a
+    // cached cropped PNG at WATCH_BG_NATIVE_PX). Null means "no watch
+    // background". Companion BGRA .bin is uploaded over P2P file-transfer
+    // — that path is content-addressed off this URI, so persisting the
+    // URI alone is enough. Pre-release: destructive migration.
+    val watchBackgroundImageUri: String? = null,
 )

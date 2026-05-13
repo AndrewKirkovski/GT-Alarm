@@ -7,6 +7,7 @@ import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -38,9 +40,12 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.data.AlarmRepository
+import com.kirkouski.gtalarm.data.SettingsStore
 import com.kirkouski.gtalarm.domain.Alarm
+import com.kirkouski.gtalarm.ui.edit.rememberBackgroundBitmap
 import com.kirkouski.gtalarm.util.TimeFormatter
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -48,6 +53,7 @@ import javax.inject.Inject
 class AlarmActivity : ComponentActivity() {
 
     @Inject lateinit var repository: AlarmRepository
+    @Inject lateinit var settingsStore: SettingsStore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,11 +84,22 @@ class AlarmActivity : ComponentActivity() {
 
         setContent {
             var alarm by remember { mutableStateOf<Alarm?>(null) }
+            var defaultBgUri by remember { mutableStateOf<String?>(null) }
             LaunchedEffect(alarmId) {
                 alarm = repository.getById(alarmId)
+                // One-shot read of the SettingsStore default. The ring screen
+                // is a moment-in-time view — re-collecting the Flow would
+                // make the bg image flicker if the user opens settings on
+                // another device mid-ring, which is the wrong UX.
+                defaultBgUri = settingsStore.defaultPhoneBackgroundUri.first()
             }
+            // Per-alarm URI wins over the user-default. Null on both means
+            // "render the existing black background" — preserves legacy
+            // behavior for users who haven't picked an image.
+            val effectiveBgUri = alarm?.backgroundImageUri ?: defaultBgUri
             AlarmRingScreen(
                 alarm = alarm,
+                backgroundImageUri = effectiveBgUri,
                 onDismiss = { sendAction(AlarmRingService.ACTION_DISMISS, alarmId) },
                 onSnooze = { sendAction(AlarmRingService.ACTION_SNOOZE, alarmId) },
             )
@@ -129,6 +146,15 @@ class AlarmActivity : ComponentActivity() {
     }
 }
 
+// Dimming overlay alpha — 0.45 was chosen empirically so a bright lock-screen
+// wallpaper still reads as "your image" while the white 96sp time stays
+// legible. Lower values washed out under bright photos; higher made the
+// photo unrecognizable. Declared above its usage in [AlarmRingScreen] so
+// the kotlinc compile-debug path resolves it (kotlinc 2.3.21 has been
+// observed dropping forward references to file-level private consts that
+// live below the function under some module-cache configurations).
+private const val DIM_OVERLAY_ALPHA = 0.45f
+
 // reason: single linear Box + Column with conditional time/label/button block;
 // splitting into header/buttons composables would add state-routing
 // boilerplate for one-call-site widgets.
@@ -136,6 +162,7 @@ class AlarmActivity : ComponentActivity() {
 @Composable
 private fun AlarmRingScreen(
     alarm: Alarm?,
+    backgroundImageUri: String?,
     onDismiss: () -> Unit,
     onSnooze: () -> Unit,
 ) {
@@ -145,6 +172,29 @@ private fun AlarmRingScreen(
             .background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
+        // Full-screen background image with a fixed dimming overlay so the
+        // big white time text stays readable on any photo. Cover mode only
+        // (ContentScale.Crop) — the spec calls out no fit/contain options
+        // because the ring screen is always full-bleed and aspect-mismatched
+        // letterboxing would expose the black void behind the image.
+        val bitmapState = rememberBackgroundBitmap(backgroundImageUri)
+        val bg = bitmapState.value
+        if (backgroundImageUri != null && bg != null) {
+            Image(
+                bitmap = bg,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            // Dimming overlay. 0.45 alpha is the spec value — heavy enough
+            // for white text on bright photos, light enough that the bg
+            // is still recognizable as "your image", not just a tinted void.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = DIM_OVERLAY_ALPHA)),
+            )
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()

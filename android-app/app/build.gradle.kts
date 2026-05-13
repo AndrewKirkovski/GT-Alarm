@@ -252,6 +252,8 @@ dependencies {
     implementation(libs.glance.appwidget)
     implementation(libs.glance.material3)
 
+    implementation(libs.androidx.datastore.preferences)
+
     // Huawei Wear Engine SDK — phone-side P2P transport to Sports Watch / Lite
     // Wearable. Resolved against the Huawei Maven repo declared in
     // settings.gradle.kts dependencyResolutionManagement.

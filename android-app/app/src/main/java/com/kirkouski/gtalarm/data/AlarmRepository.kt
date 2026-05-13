@@ -31,7 +31,11 @@ import javax.inject.Singleton
 // that takes the same DAO/scheduler/wear-bridge collaborators; splitting
 // into multiple repositories would just smear the shared dependency
 // surface across more files without changing logic.
-@Suppress("TooManyFunctions")
+@Suppress("TooManyFunctions", "LongParameterList")
+// reason: LongParameterList — 8 collaborators. Each is a distinct system
+// surface the repository spans (DAO, scheduler, wear bridge, tombstones,
+// widget refresher, settings, context, dispatcher). Splitting would just
+// smear the same DI graph across more files without removing parameters.
 @Singleton
 class AlarmRepository @Inject constructor(
     private val dao: AlarmDao,
@@ -39,6 +43,7 @@ class AlarmRepository @Inject constructor(
     private val wearBridge: WearBridgeService,
     private val tombstones: Tombstones,
     private val widgetRefresher: WidgetRefresher,
+    private val settingsStore: SettingsStore,
     @param:ApplicationContext private val appContext: Context,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
@@ -60,7 +65,9 @@ class AlarmRepository @Inject constructor(
         val isNew = alarm.id == 0L
         // An edit invalidates any active snooze — the user is reconfiguring,
         // so the previously-deferred fire time no longer makes sense.
-        val stamped = alarm.copy(updatedAtEpoch = now, snoozedUntilEpoch = null)
+        // Resolve default ringtone from Settings for new alarms with no URI.
+        val resolved = applyDefaultRingtoneIfNeeded(alarm, isNew)
+        val stamped = resolved.copy(updatedAtEpoch = now, snoozedUntilEpoch = null)
         val newId = dao.upsert(stamped.toEntity())
         val saved = stamped.copy(id = if (isNew) newId else stamped.id)
         if (saved.enabled) {
@@ -92,7 +99,11 @@ class AlarmRepository @Inject constructor(
         val now = System.currentTimeMillis()
         val isNew = alarm.id == 0L
         // Snooze invalidated on edit — see save() for rationale.
-        val stamped = alarm.copy(updatedAtEpoch = now, snoozedUntilEpoch = null)
+        // Pre-apply settings-derived default ringtone for brand-new draft rows
+        // that haven't picked an audio URI yet. Existing alarms keep their
+        // own audio (including explicit null = system default).
+        val resolved = applyDefaultRingtoneIfNeeded(alarm, isNew)
+        val stamped = resolved.copy(updatedAtEpoch = now, snoozedUntilEpoch = null)
         val newId = dao.upsert(stamped.toEntity())
         val saved = stamped.copy(id = if (isNew) newId else stamped.id)
         // INTENTIONALLY does NOT call scheduler.schedule / scheduler.cancel.
@@ -351,6 +362,28 @@ class AlarmRepository @Inject constructor(
     }
 
     private suspend fun refreshWidgets() = widgetRefresher.refresh()
+
+    /**
+     * For a brand-new alarm (`isNew && audioUri == null`) consult
+     * [SettingsStore] for the user's chosen default ringtone — the relative-
+     * vs-absolute distinction picks the right slot. If neither slot has a
+     * user-set default, the alarm keeps its null URI which downstream
+     * (AlarmAudioPlayer) treats as RingtoneManager.TYPE_ALARM.
+     *
+     * Edits to an existing alarm (`!isNew`) and explicit user choices on a
+     * new alarm (`audioUri != null`) flow through unchanged — we never
+     * silently overwrite a deliberate selection.
+     */
+    private suspend fun applyDefaultRingtoneIfNeeded(alarm: Alarm, isNew: Boolean): Alarm {
+        if (!isNew || alarm.audioUri != null) return alarm
+        val s = settingsStore.snapshot()
+        val (uri, name) = if (alarm.isRelative) {
+            s.defaultRelativeRingtoneUri to s.defaultRelativeRingtoneName
+        } else {
+            s.defaultAbsoluteRingtoneUri to s.defaultAbsoluteRingtoneName
+        }
+        return if (uri == null) alarm else alarm.copy(audioUri = uri, audioName = name)
+    }
 
     private companion object {
         const val TAG = "AlarmRepo"

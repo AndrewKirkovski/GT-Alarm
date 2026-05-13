@@ -3,13 +3,17 @@ package com.kirkouski.gtalarm.ui.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kirkouski.gtalarm.data.AlarmRepository
+import com.kirkouski.gtalarm.data.SettingsState
+import com.kirkouski.gtalarm.data.SettingsStore
 import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.domain.DaysOfWeek
 import com.kirkouski.gtalarm.ring.EditingAlarmRegistry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -26,6 +30,15 @@ data class AlarmEditUiState(
     val audioUri: String? = null,
     val audioName: String? = null,
     val isVibrationOnly: Boolean = false,
+    // Per-alarm phone-side background image URI. null = fall back to the
+    // SettingsStore default (which itself may be null = legacy black bg).
+    val backgroundImageUri: String? = null,
+    // Per-alarm watch-side background image URI. file:// to a cached
+    // 466 × 466 cropped PNG (WatchBackgroundEncoder.WATCH_BG_NATIVE_PX).
+    // null = "no watch background — use watch's default ring UI".
+    // Companion BGRA `.bin` is uploaded over P2P file-transfer at the
+    // next forceSync / flushPendingToWatch — see WatchBackgroundUploader.
+    val watchBackgroundImageUri: String? = null,
     val snoozeMinutes: Int = Alarm.DEFAULT_SNOOZE_MINUTES,
     val mode: AlarmMode = AlarmMode.ABSOLUTE,
     val relativeMinutes: Int = 15,
@@ -72,10 +85,17 @@ data class AlarmEditUiState(
 @HiltViewModel
 class AlarmEditViewModel @Inject constructor(
     private val repository: AlarmRepository,
+    settingsStore: SettingsStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AlarmEditUiState())
     val state: StateFlow<AlarmEditUiState> = _state.asStateFlow()
+
+    /** Effective user-settings snapshot. Drives 12h/24h on the TimePicker
+     *  and first-day-of-week ordering on the DayRow. */
+    val settings: StateFlow<SettingsState> = settingsStore.state.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(STATE_TIMEOUT_MS), SettingsState(),
+    )
 
     // Snapshot of the alarm as it existed when the screen opened. null for
     // a new draft. Used by [revert] to undo all in-session edits.
@@ -124,6 +144,14 @@ class AlarmEditViewModel @Inject constructor(
 
     fun updateAudio(uri: String?, name: String?) = applyLocal {
         it.copy(audioUri = uri, audioName = name)
+    }
+
+    fun updateBackgroundImage(uri: String?) = applyLocal {
+        it.copy(backgroundImageUri = uri)
+    }
+
+    fun updateWatchBackgroundImage(uri: String?) = applyLocal {
+        it.copy(watchBackgroundImageUri = uri)
     }
 
     fun toggleVibrationOnly() = applyLocal { it.copy(isVibrationOnly = !it.isVibrationOnly) }
@@ -299,6 +327,8 @@ class AlarmEditViewModel @Inject constructor(
             snoozeMinutes = s.snoozeMinutes.coerceIn(Alarm.MIN_SNOOZE_MINUTES, Alarm.MAX_SNOOZE_MINUTES),
             relativeMinutes = relativeMinutes,
             selfDestruct = selfDestruct,
+            backgroundImageUri = s.backgroundImageUri,
+            watchBackgroundImageUri = s.watchBackgroundImageUri,
         )
     }
 
@@ -312,6 +342,8 @@ class AlarmEditViewModel @Inject constructor(
         audioUri = alarm.audioUri,
         audioName = alarm.audioName,
         isVibrationOnly = alarm.isVibrationOnly,
+        backgroundImageUri = alarm.backgroundImageUri,
+        watchBackgroundImageUri = alarm.watchBackgroundImageUri,
         snoozeMinutes = alarm.snoozeMinutes,
         mode = if (alarm.isRelative) AlarmMode.RELATIVE else AlarmMode.ABSOLUTE,
         relativeMinutes = alarm.relativeMinutes ?: DEFAULT_RELATIVE_MINUTES,
@@ -325,5 +357,6 @@ class AlarmEditViewModel @Inject constructor(
 
     private companion object {
         const val DEFAULT_RELATIVE_MINUTES = 15
+        const val STATE_TIMEOUT_MS = 5_000L
     }
 }

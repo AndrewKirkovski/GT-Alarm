@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material.icons.filled.WatchOff
@@ -63,7 +64,7 @@ import com.kirkouski.gtalarm.domain.DaysOfWeek
 import com.kirkouski.gtalarm.domain.NextTriggerCalculator
 import com.kirkouski.gtalarm.util.RelativeTime
 import com.kirkouski.gtalarm.util.TimeFormatter
-import com.kirkouski.gtalarm.util.rememberLocaleOrderedDayBits
+import com.kirkouski.gtalarm.util.rememberOrderedDayBits
 import com.kirkouski.gtalarm.util.shortLabelResForDayBit
 import com.kirkouski.gtalarm.wear.ForceSyncResult
 import com.kirkouski.gtalarm.wear.PairedDeviceInfo
@@ -86,6 +87,7 @@ fun AlarmListScreen(
     onOpenExactAlarmSettings: () -> Unit,
     onOpenBatteryOptSettings: () -> Unit,
     onOpenHelp: () -> Unit,
+    onOpenSettings: () -> Unit,
     vm: AlarmListViewModel = hiltViewModel(),
 ) {
     val alarms by vm.alarms.collectAsStateWithLifecycle()
@@ -94,6 +96,7 @@ fun AlarmListScreen(
     val watchStatus by vm.watchStatus.collectAsStateWithLifecycle()
     val pairedDevice by vm.pairedDeviceInfo.collectAsStateWithLifecycle()
     val forceSyncRunning by vm.forceSyncRunning.collectAsStateWithLifecycle()
+    val settings by vm.settings.collectAsStateWithLifecycle()
     val context = LocalContext.current
     // Banner visible whenever any required permission is denied. The audit
     // is a handful of cheap system-service queries (no I/O), so re-running
@@ -114,6 +117,12 @@ fun AlarmListScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.screen_list_title)) },
                 actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = stringResource(R.string.action_open_settings),
+                        )
+                    }
                     IconButton(onClick = onOpenHelp) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.HelpOutline,
@@ -190,6 +199,7 @@ fun AlarmListScreen(
                     items(alarms, key = { it.id }) { alarm ->
                         SwipeToDeleteRow(
                             alarm = alarm,
+                            settings = settings,
                             onToggle = { enabled -> vm.onToggle(alarm.id, enabled) },
                             onClick = { onEdit(alarm.id) },
                             onDelete = { vm.onDelete(alarm.id) },
@@ -380,6 +390,7 @@ private fun BatteryOptRationaleCard(
 @Composable
 private fun SwipeToDeleteRow(
     alarm: Alarm,
+    settings: com.kirkouski.gtalarm.data.SettingsState,
     onToggle: (Boolean) -> Unit,
     onClick: () -> Unit,
     onDelete: () -> Unit,
@@ -459,13 +470,14 @@ private fun SwipeToDeleteRow(
             }
         },
     ) {
-        AlarmRow(alarm = alarm, onToggle = onToggle, onClick = onClick)
+        AlarmRow(alarm = alarm, settings = settings, onToggle = onToggle, onClick = onClick)
     }
 }
 
 @Composable
 private fun AlarmRow(
     alarm: Alarm,
+    settings: com.kirkouski.gtalarm.data.SettingsState,
     onToggle: (Boolean) -> Unit,
     onClick: () -> Unit,
 ) {
@@ -477,6 +489,28 @@ private fun AlarmRow(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Per-alarm background thumbnail at the leading edge. Only renders
+            // when the alarm has its own URI set (we don't load the user's
+            // default for every row — that's a recompose-per-row I/O storm on
+            // a long list). 24dp circular crop matches the row's vertical
+            // rhythm and keeps the thumbnail out of the way of the time text.
+            val bgUri = alarm.backgroundImageUri
+            if (bgUri != null) {
+                val bitmapState = com.kirkouski.gtalarm.ui.edit.rememberBackgroundBitmap(bgUri)
+                val bm = bitmapState.value
+                if (bm != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = bm,
+                        contentDescription = null,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .padding(end = 0.dp),
+                    )
+                    Spacer(Modifier.size(12.dp))
+                }
+            }
             val ctx = LocalContext.current
             Column(modifier = Modifier.weight(1f)) {
                 if (alarm.isRelative) {
@@ -493,7 +527,12 @@ private fun AlarmRow(
                     )
                 } else {
                     Text(
-                        text = TimeFormatter.formatHourMinute(ctx, alarm.hour, alarm.minute),
+                        text = TimeFormatter.formatHourMinute(
+                            ctx,
+                            alarm.hour,
+                            alarm.minute,
+                            overrideUse24Hour = settings.use24Hour,
+                        ),
                         fontSize = 32.sp,
                         fontWeight = FontWeight.Light,
                     )
@@ -502,7 +541,7 @@ private fun AlarmRow(
                     Text(alarm.label, fontSize = 14.sp)
                 }
                 Text(
-                    text = subtitleLine(alarm),
+                    text = subtitleLine(alarm, settings.firstDayOfWeek),
                     fontSize = 12.sp,
                 )
             }
@@ -512,8 +551,8 @@ private fun AlarmRow(
 }
 
 @Composable
-private fun subtitleLine(alarm: Alarm): String {
-    val days = daysLabel(alarm.daysOfWeek)
+private fun subtitleLine(alarm: Alarm, firstDayOverride: Int?): String {
+    val days = daysLabel(alarm.daysOfWeek, firstDayOverride)
     if (!alarm.enabled) return days
     // For relative alarms the prominent text already shows the live countdown;
     // subtitle reduces to a hint that the timer resets on toggle. For absolute
@@ -578,12 +617,12 @@ private const val COUNTDOWN_FAST_TICK_MS = 1_000L
 private const val COUNTDOWN_STOP_GRACE_MS = 5_000L
 
 @Composable
-private fun daysLabel(mask: Int): String = when (mask) {
+private fun daysLabel(mask: Int, firstDayOverride: Int?): String = when (mask) {
     DaysOfWeek.NONE -> stringResource(R.string.repeats_once)
     DaysOfWeek.ALL -> stringResource(R.string.repeats_every_day)
     DaysOfWeek.WEEKDAYS -> stringResource(R.string.repeats_weekdays)
     DaysOfWeek.WEEKENDS -> stringResource(R.string.repeats_weekends)
-    else -> rememberLocaleOrderedDayBits()
+    else -> rememberOrderedDayBits(firstDayOverride)
         .mapNotNull { bit ->
             if (DaysOfWeek.contains(mask, bit)) stringResource(shortLabelResForDayBit(bit)) else null
         }

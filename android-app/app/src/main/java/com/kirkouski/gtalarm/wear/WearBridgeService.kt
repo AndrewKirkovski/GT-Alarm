@@ -67,6 +67,29 @@ interface WearBridgeService {
         timeoutMs: Long,
     ): Boolean
 
+    /**
+     * Upload a per-alarm watch-side background image to the paired watch.
+     * The file MUST be a BGRA `.bin` produced by [com.kirkouski.gtalarm.wear.WatchBackgroundEncoder]
+     * — the watch's `<image>` element does not decode PNG/JPEG (see
+     * memory:litewearable_images_and_files).
+     *
+     * Uses the Wear Engine file-transfer path (`Message.Builder.setPayload(File)`).
+     * The watch's MainAbility writes the blob into its internal sandbox at
+     * a filename addressed by [alarmId] (e.g. `bg_<alarmId>.bin`).
+     *
+     * Returns true iff the watch ACKed delivery (207 = COMM_SUCCESS).
+     * Caller may treat false as transient — retry on the next sync /
+     * flushPendingToWatch / forceSync.
+     */
+    suspend fun uploadWatchBackground(alarmId: Long, binFile: java.io.File): Boolean
+
+    /**
+     * Tell the watch to drop the per-alarm background bin associated
+     * with [alarmId]. Sent on user "Clear" / alarm deletion so the watch
+     * doesn't accumulate orphaned `bg_*.bin` files.
+     */
+    fun sendWatchBackgroundCleared(alarmId: Long)
+
     /** Receive-side seam. Pass `null` to detach. */
     fun setIncomingHandler(handler: IncomingMessageHandler?)
 

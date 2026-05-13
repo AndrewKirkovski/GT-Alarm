@@ -41,7 +41,14 @@ import javax.inject.Singleton
 // the WearBridgeService interface plus the 5 connection-lifecycle helpers.
 // Splitting into two files would smear the same surface across a new ctor
 // boundary for no readability gain.
-@Suppress("TooManyFunctions")
+@Suppress("TooManyFunctions", "LargeClass")
+// reason: LargeClass — bridge class spans the full Wear Engine surface (auth
+// + ping + send + receive + file transfer + status flow + 12 helpers). Each
+// is tied to the others by shared connection state (mDevice, mClient,
+// connection mutex). Splitting would require duplicating that state across
+// classes; the natural seam (file transfer in its own collaborator) is
+// already partial via WatchBackgroundEncoder. Revisit when receive-side
+// state grows further.
 @Singleton
 class HuaweiWearBridge @Inject constructor(
     @param:ApplicationContext private val context: Context,
@@ -332,6 +339,69 @@ class HuaweiWearBridge @Inject constructor(
             Log.w(TAG, "sendAlarmSnoozedAwaiting timed out id=$alarmId after ${timeoutMs}ms")
             false
         }
+    }
+
+    // File-transfer path for the per-alarm watch background. Differs from
+    // the normal data-Message path in two ways:
+    //   1. Builder.setPayload(File) (not byte[]) — Wear Engine routes this
+    //      to the watch's file-receive handler instead of the byte-msg
+    //      Receiver.
+    //   2. Builder.setDescription("bg_<alarmId>.bin") — the watch reads
+    //      the description to know what file name to save under. Per
+    //      memory:wear_engine_lite_facts §setdesc-fix, setDescription
+    //      takes a String (setPayload(String) was a known footgun).
+    @Suppress("ReturnCount", "TooGenericExceptionCaught")
+    // reason: ReturnCount — 5 returns reflect 5 distinct early-out states
+    //   (file missing, file empty, no device, peer not running, send result),
+    //   each with its own diagnostic log. A result-variable rewrite would
+    //   need a sentinel value and double-deep nesting for no readability win.
+    // reason: TooGenericExceptionCaught — the Wear Engine sendOnce throws
+    //   RemoteException / IllegalStateException / SecurityException under
+    //   the RuntimeException umbrella across vendor-skin variants; catching
+    //   narrower would let real failures unwind into the AppScope and lose
+    //   the invalidateAndMarkError() side-effect.
+    override suspend fun uploadWatchBackground(alarmId: Long, binFile: java.io.File): Boolean {
+        if (!binFile.exists()) {
+            Log.w(TAG, "uploadWatchBackground id=$alarmId: file missing at ${binFile.absolutePath}")
+            return false
+        }
+        if (binFile.length() == 0L) {
+            Log.w(TAG, "uploadWatchBackground id=$alarmId: file empty")
+            return false
+        }
+        val device = ensurePairedDevice() ?: return false
+        if (!ensurePeerAppRunning(device)) {
+            Log.w(TAG, "uploadWatchBackground id=$alarmId: peer not running")
+            return false
+        }
+        val msg = Message.Builder()
+            .setPayload(binFile)
+            .setDescription("bg_$alarmId.bin")
+            .build()
+        val ok = try {
+            sendOnce(device, msg)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "uploadWatchBackground id=$alarmId threw: ${e.message}", e)
+            invalidateAndMarkError()
+            false
+        }
+        if (ok) {
+            Log.i(TAG, "uploadWatchBackground id=$alarmId delivered (${binFile.length()}B)")
+        } else {
+            Log.w(TAG, "uploadWatchBackground id=$alarmId NOT delivered")
+            invalidateAndMarkError()
+        }
+        return ok
+    }
+
+    override fun sendWatchBackgroundCleared(alarmId: Long) {
+        val now = System.currentTimeMillis()
+        if (!validateStamp("sendWatchBackgroundCleared", now)) return
+        sendJson(JSONObject().apply {
+            put("type", "watch_bg_cleared")
+            put("alarmId", alarmId)
+            put("updatedAtEpoch", now)
+        })
     }
 
     override fun setIncomingHandler(handler: IncomingMessageHandler?) {
@@ -688,6 +758,12 @@ class HuaweiWearBridge @Inject constructor(
             // alarm as plain one-shot ("Once" label) which is the v1
             // behavior — correct degradation.
             put("selfDestruct", alarm.selfDestruct)
+            // backgroundImageUri: only serialized when set, mirroring
+            // relativeMinutes. Old watch builds without the field render
+            // the default ring screen (background-less) — correct
+            // degradation. The watch currently ignores it; future watch
+            // builds may consume it for a custom ring backdrop.
+            alarm.backgroundImageUri?.let { put("backgroundImageUri", it) }
         }
         return JSONObject().apply {
             put("type", type)

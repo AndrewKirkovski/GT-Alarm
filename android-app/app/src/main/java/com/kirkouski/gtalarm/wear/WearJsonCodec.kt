@@ -154,6 +154,11 @@ internal object WearJsonCodec {
             updatedAtEpoch = j.optLong("updatedAtEpoch", 0L),
             relativeMinutes = relativeMinutes,
             selfDestruct = selfDestruct,
+            // Per-alarm background image URI. Peer (watch) does not currently
+            // consume this — it's preserved for hash equality + future use.
+            // Empty string on the wire is treated as null so an absent /
+            // explicit-no-bg peer payload doesn't bind a useless string.
+            backgroundImageUri = j.optString("backgroundImageUri", "").takeIf { it.isNotEmpty() },
         )
     }
 

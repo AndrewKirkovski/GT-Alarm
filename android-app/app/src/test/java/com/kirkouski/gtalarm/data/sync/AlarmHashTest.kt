@@ -57,12 +57,13 @@ class AlarmHashTest {
             updatedAtEpoch = 1000L,
             relativeMinutes = null,
             selfDestruct = false,
+            backgroundImageUri = null,
         )
         // Canonical line shape per AlarmHash.kt §canonicalize:
         //   id|label|hour|minute|daysOfWeek|enabled|audioUri|
         //   isVibrationOnly|snoozeMinutes|updatedAtEpoch|
-        //   relativeMinutes|selfDestruct\n
-        val expectedCanonical = "1||7|0|0|1||0|10|1000||0\n"
+        //   relativeMinutes|selfDestruct|backgroundImageUri|watchBackgroundImageUri\n
+        val expectedCanonical = "1||7|0|0|1||0|10|1000||0||\n"
         val expectedHex = expectedCanonical.hashCode().toUInt().toString(16).padStart(8, '0')
         assertEquals(expectedHex, AlarmHash.compute(listOf(alarm)))
     }
@@ -86,7 +87,7 @@ class AlarmHashTest {
         )
         // audioName is NOT serialized (phone-local display only).
         val expectedCanonical =
-            "42|Утро ☕|6|30|${DaysOfWeek.WEEKDAYS}|1|content://media/external/audio/media/123|0|5|1700000000000||0\n"
+            "42|Утро ☕|6|30|${DaysOfWeek.WEEKDAYS}|1|content://media/external/audio/media/123|0|5|1700000000000||0||\n"
         val expectedHex = expectedCanonical.hashCode().toUInt().toString(16).padStart(8, '0')
         assertEquals(expectedHex, AlarmHash.compute(listOf(alarm)))
     }
@@ -98,9 +99,29 @@ class AlarmHashTest {
             audioUri = null, audioName = null, isVibrationOnly = false, snoozeMinutes = 10,
             updatedAtEpoch = 200L, relativeMinutes = 15, selfDestruct = true,
         )
-        val expectedCanonical = "7|Stand|0|0|0|1||0|10|200|15|1\n"
+        val expectedCanonical = "7|Stand|0|0|0|1||0|10|200|15|1||\n"
         val expectedHex = expectedCanonical.hashCode().toUInt().toString(16).padStart(8, '0')
         assertEquals(expectedHex, AlarmHash.compute(listOf(withRelative)))
+    }
+
+    @Test
+    fun `backgroundImageUri is part of the hash (null vs set yields different hashes)`() {
+        val base = Alarm(
+            id = 7L, label = "Wake", hour = 7, minute = 0, daysOfWeek = 0, enabled = true,
+            audioUri = null, audioName = null, isVibrationOnly = false, snoozeMinutes = 10,
+            updatedAtEpoch = 200L, relativeMinutes = null, selfDestruct = false,
+            backgroundImageUri = null,
+        )
+        val withBg = base.copy(backgroundImageUri = "content://media/external/images/media/42")
+        val a = AlarmHash.compute(listOf(base))
+        val b = AlarmHash.compute(listOf(withBg))
+        assert(a != b) { "hashes must differ for null vs set backgroundImageUri; both got '$a'" }
+        // Pinned canonical for the set case so a divergent watch impl would
+        // fail on the same fixture.
+        val expectedCanonical =
+            "7|Wake|7|0|0|1||0|10|200||0|content://media/external/images/media/42|\n"
+        val expectedHex = expectedCanonical.hashCode().toUInt().toString(16).padStart(8, '0')
+        assertEquals(expectedHex, b)
     }
 
     @Test
@@ -157,7 +178,9 @@ class AlarmHashTest {
         )
         // The "||" around audioUri and relativeMinutes is the smoking gun:
         // any other rendering would shift the canonical string and break.
-        val expectedCanonical = "3||9|0|0|1||0|10|500||0\n"
+        // The two trailing empty slots represent backgroundImageUri +
+        // watchBackgroundImageUri respectively.
+        val expectedCanonical = "3||9|0|0|1||0|10|500||0||\n"
         val expectedHex = expectedCanonical.hashCode().toUInt().toString(16).padStart(8, '0')
         assertEquals(expectedHex, AlarmHash.compute(listOf(alarm)))
     }
@@ -175,8 +198,8 @@ class AlarmHashTest {
      */
     @Test
     fun `pin reference vectors for JS-side parity`() {
-        val minimal = "1||7|0|0|1||0|10|1000||0\n"
-        val relative = "7|Stand|0|0|0|1||0|10|200|15|1\n"
+        val minimal = "1||7|0|0|1||0|10|1000||0||\n"
+        val relative = "7|Stand|0|0|0|1||0|10|200|15|1||\n"
         // Print to stdout when this test runs so the watch-side dev can
         // copy-paste the current expected hex without re-computing.
         val minimalHex = minimal.hashCode().toUInt().toString(16).padStart(8, '0')

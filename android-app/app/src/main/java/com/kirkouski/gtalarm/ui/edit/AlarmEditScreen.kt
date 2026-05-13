@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
@@ -34,6 +35,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.Image as FoundationImage
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -58,6 +60,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -67,7 +70,7 @@ import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.domain.DaysOfWeek
 import com.kirkouski.gtalarm.util.TimeFormatter
-import com.kirkouski.gtalarm.util.rememberLocaleOrderedDayBits
+import com.kirkouski.gtalarm.util.rememberOrderedDayBits
 import com.kirkouski.gtalarm.util.shortLabelResForDayBit
 import kotlinx.coroutines.flow.distinctUntilChanged
 
@@ -95,6 +98,7 @@ fun AlarmEditScreen(
 ) {
     LaunchedEffect(alarmId) { vm.load(alarmId) }
     val state by vm.state.collectAsStateWithLifecycle()
+    val settings by vm.settings.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // Wrap onDone so every exit path (back gesture, X button, system nav)
@@ -115,10 +119,11 @@ fun AlarmEditScreen(
     val timeState = rememberTimePickerState(
         initialHour = state.hour,
         initialMinute = state.minute,
-        // 24h vs 12h follows the device locale — matches TimeFormatter on
-        // the list screen so the user doesn't see one format here and a
-        // different one in the subtitle.
-        is24Hour = TimeFormatter.uses24HourFormat(context),
+        // 24h vs 12h: explicit Settings override wins; otherwise follows the
+        // device locale (matches TimeFormatter on the list screen so the
+        // user doesn't see one format here and a different one in the
+        // subtitle).
+        is24Hour = TimeFormatter.resolveUses24HourFormat(context, settings.use24Hour),
     )
 
     LaunchedEffect(timeState) {
@@ -133,6 +138,9 @@ fun AlarmEditScreen(
         // user from hearing the old tone after picking a new one.
         audioPreview.stop()
         vm.updateAudio(picked.uri, picked.name)
+    }
+    val pickBackgroundImage = rememberBackgroundImagePicker { uri ->
+        vm.updateBackgroundImage(uri)
     }
 
     if (showDeleteConfirm) {
@@ -259,6 +267,7 @@ fun AlarmEditScreen(
                 }
                 DayRow(
                     mask = state.daysOfWeek,
+                    firstDayOverride = settings.firstDayOfWeek,
                     onToggle = vm::toggleDay,
                 )
             } else {
@@ -312,6 +321,12 @@ fun AlarmEditScreen(
                     Text(stringResource(R.string.field_audio_pick))
                 }
             }
+
+            BackgroundImageRow(
+                uri = state.backgroundImageUri,
+                onPick = pickBackgroundImage,
+                onClear = { vm.updateBackgroundImage(null) },
+            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -557,8 +572,8 @@ private fun DiscardConfirmDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun DayRow(mask: Int, onToggle: (Int) -> Unit) {
-    val orderedBits = rememberLocaleOrderedDayBits()
+private fun DayRow(mask: Int, firstDayOverride: Int?, onToggle: (Int) -> Unit) {
+    val orderedBits = rememberOrderedDayBits(firstDayOverride)
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -577,6 +592,63 @@ private fun DayRow(mask: Int, onToggle: (Int) -> Unit) {
             ) {
                 Text(text = stringResource(shortLabelResForDayBit(bit)), color = fg)
             }
+        }
+    }
+}
+
+@Composable
+private fun BackgroundImageRow(
+    uri: String?,
+    onPick: () -> Unit,
+    onClear: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Default.Image,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(end = 12.dp),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(stringResource(R.string.field_background_image))
+            // Show a small thumbnail preview when a URI is bound. The
+            // bitmap loader is shared with the AlarmActivity full-screen
+            // background, so the decode cost is paid once per edit-session
+            // recomposition and stays cheap (single small inputstream).
+            val bitmapState = rememberBackgroundBitmap(uri)
+            val bm = bitmapState.value
+            if (uri != null && bm != null) {
+                FoundationImage(
+                    bitmap = bm,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .size(48.dp)
+                        .clip(MaterialTheme.shapes.small),
+                )
+            } else {
+                Text(
+                    text = stringResource(R.string.field_background_image_none),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+        if (uri != null) {
+            // Clear restores "use default" (null in the alarm row → fall
+            // back to SettingsStore.defaultPhoneBackgroundUri).
+            IconButton(onClick = onClear) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = stringResource(R.string.field_background_image_clear),
+                )
+            }
+        }
+        OutlinedButton(onClick = onPick) {
+            Text(stringResource(R.string.field_background_image_pick))
         }
     }
 }

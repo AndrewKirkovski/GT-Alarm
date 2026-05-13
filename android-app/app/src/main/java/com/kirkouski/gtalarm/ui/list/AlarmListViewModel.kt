@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kirkouski.gtalarm.data.AlarmRepository
 import com.kirkouski.gtalarm.data.OnboardingState
+import com.kirkouski.gtalarm.data.SettingsState
+import com.kirkouski.gtalarm.data.SettingsStore
 import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.scheduler.AlarmScheduler
 import com.kirkouski.gtalarm.wear.ForceSyncResult
@@ -37,10 +39,20 @@ class AlarmListViewModel @Inject constructor(
     private val scheduler: AlarmScheduler,
     private val onboarding: OnboardingState,
     private val wearBridge: WearBridgeService,
+    settingsStore: SettingsStore,
 ) : ViewModel() {
 
     val alarms: StateFlow<List<Alarm>> = repository.observeAlarms()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Effective user preferences (24h flag + first-day-of-week). Drives the
+     * list subtitle's time format and the week-day rendering order. Null
+     * fields = follow system locale.
+     */
+    val settings: StateFlow<SettingsState> = settingsStore.state.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsState(),
+    )
 
     /**
      * Re-exposes the bridge's connection state to the list screen. The Hilt-

@@ -33,6 +33,28 @@ data class Alarm(
     // — local-only UI state, watch reads its own AlarmManager-equivalent
     // for its display. Not included in the LWW hash either.
     val snoozedUntilEpoch: Long? = null,
+    // Per-alarm full-screen background image for the phone AlarmActivity.
+    // null = use the default from SettingsStore. content:// URI obtained
+    // via OpenDocument with persistable read permission taken so the URI
+    // survives process death between picker selection and the eventual
+    // ring (could be hours later). Cover mode only — rendered with
+    // ContentScale.Crop behind a dimming overlay.
+    //
+    // Included in the LWW hash + wire envelope so a peer that learns
+    // about an alarm also knows what background to render (the watch
+    // currently ignores it, but the field is preserved for future use
+    // and so two devices stay in sync on alarm equality).
+    val backgroundImageUri: String? = null,
+    // Per-alarm watch-side background image. Resolved at picker time:
+    // the source image is cropped to a centered circular region and
+    // scaled to WATCH_BG_NATIVE_PX (466 × 466 for GT 6 Pro), written to
+    // the app cache as a PNG, and the local file:// URI of the cropped
+    // PNG is stored here. NOT serialized on the wire — the parallel
+    // BGRA `.bin` is what the watch consumes via the file-transfer
+    // path. Null means "no watch background — watch uses its default
+    // ring UI". Not included in AlarmHash either (the watch reconciles
+    // bg presence via the file-transfer path, not via the alarm row).
+    val watchBackgroundImageUri: String? = null,
 ) {
     init {
         if (relativeMinutes != null) {

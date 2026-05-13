@@ -27,6 +27,12 @@
     <string name="field_audio">Audio</string>
     <string name="field_audio_default">System default</string>
     <string name="field_audio_pick">Choose…</string>
+    <!-- reason: new for per-alarm phone background image. Translations
+         land in a follow-up; tools:ignore silences the lint until then. -->
+    <string name="field_background_image" tools:ignore="MissingTranslation">Background image</string>
+    <string name="field_background_image_none" tools:ignore="MissingTranslation">None (uses default)</string>
+    <string name="field_background_image_pick" tools:ignore="MissingTranslation">Choose…</string>
+    <string name="field_background_image_clear" tools:ignore="MissingTranslation">Clear background image</string>
     <string name="action_play_preview" tools:ignore="MissingTranslation">Play preview</string>
     <string name="action_stop_preview" tools:ignore="MissingTranslation">Stop preview</string>
     <string name="field_vibration_only">Vibration only</string>
@@ -94,6 +100,23 @@
     <string name="voice_alarm_failed">Couldn\'t set alarm</string>
 
     <string name="action_open_help">Help</string>
+    <string tools:ignore="MissingTranslation" name="action_open_settings">Settings</string>
+
+    <!-- ===== Settings screen. Translations to land in a follow-up; tools:ignore
+         silences the missing-translation lint until then. ===== -->
+    <string tools:ignore="MissingTranslation" name="screen_settings_title">Settings</string>
+    <string tools:ignore="MissingTranslation" name="settings_section_display">Display</string>
+    <string tools:ignore="MissingTranslation" name="settings_time_format_label">Time format</string>
+    <string tools:ignore="MissingTranslation" name="settings_time_format_system">System</string>
+    <string tools:ignore="MissingTranslation" name="settings_time_format_12h">12 h</string>
+    <string tools:ignore="MissingTranslation" name="settings_time_format_24h">24 h</string>
+    <string tools:ignore="MissingTranslation" name="settings_first_day_label">First day of week</string>
+    <string tools:ignore="MissingTranslation" name="settings_first_day_system">System (%1$s)</string>
+    <string tools:ignore="MissingTranslation" name="settings_section_default_ringtones">Default ringtones</string>
+    <string tools:ignore="MissingTranslation" name="settings_default_ringtones_intro">Used when you create a new alarm without picking a sound. Existing alarms keep their own audio.</string>
+    <string tools:ignore="MissingTranslation" name="settings_default_ringtone_absolute">For clock-time alarms</string>
+    <string tools:ignore="MissingTranslation" name="settings_default_ringtone_relative">For \"in N minutes\" alarms</string>
+    <string tools:ignore="MissingTranslation" name="settings_default_ringtone_reset">Use system default</string>
     <string name="screen_help_title">Voice setup</string>
     <string name="help_intro">Android doesn\'t have a single setting called \"default alarm app\". When you ask Google Assistant to set an alarm, the system either uses an app you\'ve picked before, or shows a chooser the first time. Choosing GT Alarm and tapping \"Always\" makes it the default thereafter.</string>
     <string name="help_status_default">GT Alarm is the default alarm app on this device.</string>
