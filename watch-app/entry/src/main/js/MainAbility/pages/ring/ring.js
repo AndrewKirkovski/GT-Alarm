@@ -17,6 +17,28 @@ function pad2(n) {
     return (n < 10 ? '0' : '') + n;
 }
 
+/**
+ * Compute fire-time as "HH:MM" for the ring screen. Relative alarms
+ * carry placeholder hour/minute fields (default 07:00 from the phone's
+ * picker UI) plus updatedAtEpoch + relativeMinutes; honouring the
+ * placeholders would render every Timer as 07:00 (bug 2026-05-13).
+ * Mirrors the helpers in pages/index/index.js; duplicated here because
+ * importing across pages didn't seem worth a shared common module for
+ * a 6-line helper. Keep these two copies in sync.
+ */
+function formatAlarmTime(alarm) {
+    if (alarm) {
+        var rel = alarm.relativeMinutes;
+        var stamp = alarm.updatedAtEpoch;
+        if (typeof rel === 'number' && isFinite(rel) && rel >= 1 &&
+            typeof stamp === 'number' && isFinite(stamp) && stamp > 0) {
+            var d = new Date(stamp + rel * 60000);
+            return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+        }
+    }
+    return pad2(alarm.hour) + ':' + pad2(alarm.minute);
+}
+
 export default {
     data: {
         title: '',
@@ -58,7 +80,10 @@ export default {
             for (var i = 0; i < items.length; i++) {
                 if (items[i].id === idNum) {
                     self.label = items[i].label || '';
-                    self.time = pad2(items[i].hour) + ':' + pad2(items[i].minute);
+                    // formatAlarmTime handles relative-alarm placeholder
+                    // hour/minute (resolves via updatedAtEpoch +
+                    // relativeMinutes). See helper JSDoc.
+                    self.time = formatAlarmTime(items[i]);
                     // Show snooze duration on the button when synced — this
                     // is display-only metadata; phone remains authoritative
                     // for the actual reschedule time.

@@ -17,6 +17,43 @@ function pad2(n) {
 }
 
 /**
+ * Compute the effective fire-time of an alarm in epoch ms.
+ *
+ * For relative ("Timer" / "in N min") alarms, the phone ships `hour`/
+ * `minute` as fixed placeholders (default 07:00 from the picker UI — see
+ * AlarmRepository on Android) and encodes the actual fire moment as
+ * `updatedAtEpoch + relativeMinutes * 60000`. Honouring the placeholders
+ * would render every Timer as "07:00" (bug observed 2026-05-13).
+ *
+ * For absolute alarms, `relativeMinutes` is missing/null/0 and we fall
+ * back to the literal `hour`/`minute` fields.
+ *
+ * Returns an epoch in ms (Number) for relative alarms, or `null` for
+ * absolute alarms (caller uses hour/minute directly).
+ */
+function relativeFireEpoch(alarm) {
+    if (!alarm) return null;
+    var rel = alarm.relativeMinutes;
+    if (typeof rel !== 'number' || !isFinite(rel) || rel < 1) return null;
+    var stamp = alarm.updatedAtEpoch;
+    if (typeof stamp !== 'number' || !isFinite(stamp) || stamp <= 0) return null;
+    return stamp + rel * 60000;
+}
+
+/**
+ * Format the visible "HH:MM" string for an alarm row. Branches on
+ * relativeMinutes per relativeFireEpoch's contract.
+ */
+function formatAlarmTime(alarm) {
+    var fireEpoch = relativeFireEpoch(alarm);
+    if (fireEpoch !== null) {
+        var d = new Date(fireEpoch);
+        return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+    }
+    return pad2(alarm.hour) + ':' + pad2(alarm.minute);
+}
+
+/**
  * Build the text label for a non-recurring alarm. Three flavors:
  *   "Timer"   — relative ("in N min") origin
  *   "One-off" — absolute one-shot with selfDestruct (auto-delete)
@@ -58,7 +95,11 @@ function formatRow(self, alarm) {
 
     return {
         id: alarm.id,
-        time: pad2(alarm.hour) + ':' + pad2(alarm.minute),
+        // formatAlarmTime resolves the relative-alarm placeholder hour/
+        // minute (default 07:00 from the phone's picker UI) to the actual
+        // fire clock-time using updatedAtEpoch + relativeMinutes. Absolute
+        // alarms use the literal hour/minute. See relativeFireEpoch JSDoc.
+        time: formatAlarmTime(alarm),
         enabled: enabled,
         // Lite Wearable if= directive does NOT coerce truthy values
         // (gotcha #8 in memory). Expose the negation pre-computed so
@@ -102,13 +143,29 @@ function letterArrayFromSelf(self) {
 
 /**
  * Compare two alarms for the flat list sort. Enabled rows come first
- * (true < false in our DESC convention here), then by hour:minute
- * ascending so the soonest in the day shows on top.
+ * (true < false in our DESC convention here), then by effective clock
+ * fire-time ascending so the soonest in the day shows on top.
+ *
+ * For relative ("Timer") alarms, the literal `hour`/`minute` fields are
+ * placeholders (default 07:00) — we project them onto the actual fire
+ * clock-time via relativeFireEpoch so Timers don't all clump at 07:00.
  */
 function compareAlarms(a, b) {
     if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
-    if (a.hour !== b.hour) return a.hour - b.hour;
-    return a.minute - b.minute;
+    var aFireEpoch = relativeFireEpoch(a);
+    var bFireEpoch = relativeFireEpoch(b);
+    var aHour = a.hour, aMin = a.minute;
+    var bHour = b.hour, bMin = b.minute;
+    if (aFireEpoch !== null) {
+        var da = new Date(aFireEpoch);
+        aHour = da.getHours(); aMin = da.getMinutes();
+    }
+    if (bFireEpoch !== null) {
+        var db = new Date(bFireEpoch);
+        bHour = db.getHours(); bMin = db.getMinutes();
+    }
+    if (aHour !== bHour) return aHour - bHour;
+    return aMin - bMin;
 }
 
 function formatLastSync(self, epoch) {
