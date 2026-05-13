@@ -97,7 +97,21 @@ class AlarmActivity : ComponentActivity() {
     private fun configureWindow() {
         setShowWhenLocked(true)
         setTurnScreenOn(true)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // The deprecated 4-flag quartet is REQUIRED on vendor skins (Samsung
+        // One UI, Huawei EMUI) even when the modern setShowWhenLocked /
+        // setTurnScreenOn APIs are also called. Documented in
+        // github.com/yuriykulikov/AlarmClock issue #360 + the comment block
+        // in AlarmAlertFullScreen.kt — without these, Samsung silently
+        // rejects the screen wake despite the modern APIs returning true.
+        // Confirmed identical pattern in FossifyOrg/Clock AlarmActivity.kt
+        // L213-224 (the only Android-14-targeting reference app).
+        @Suppress("DEPRECATION")
+        window.addFlags(
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+        )
     }
 
     private fun sendAction(action: String, alarmId: Long) {
@@ -115,6 +129,10 @@ class AlarmActivity : ComponentActivity() {
     }
 }
 
+// reason: single linear Box + Column with conditional time/label/button block;
+// splitting into header/buttons composables would add state-routing
+// boilerplate for one-call-site widgets.
+@Suppress("LongMethod")
 @Composable
 private fun AlarmRingScreen(
     alarm: Alarm?,
@@ -135,7 +153,18 @@ private fun AlarmRingScreen(
             verticalArrangement = Arrangement.Center,
         ) {
             val ctx = LocalContext.current
-            val time = alarm?.let { TimeFormatter.formatHourMinute(ctx, it.hour, it.minute) } ?: "--:--"
+            val time = alarm?.let {
+                if (it.isRelative) {
+                    // Relative alarms store hour=7 minute=0 as defaults (the
+                    // fields are meaningless for them). The actual fire clock
+                    // time comes from computedFireEpoch (updatedAtEpoch +
+                    // relativeMinutes). Formatting that gives the wall-clock
+                    // hh:mm the user expects to see on the ring screen.
+                    TimeFormatter.formatTime(ctx, java.util.Date(it.computedFireEpoch()))
+                } else {
+                    TimeFormatter.formatHourMinute(ctx, it.hour, it.minute)
+                }
+            } ?: "--:--"
             val label = alarm?.label?.takeIf { it.isNotBlank() }.orEmpty()
 
             Text(

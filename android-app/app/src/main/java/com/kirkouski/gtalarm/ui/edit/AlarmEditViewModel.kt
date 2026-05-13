@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.kirkouski.gtalarm.data.AlarmRepository
 import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.domain.DaysOfWeek
+import com.kirkouski.gtalarm.ring.EditingAlarmRegistry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -96,6 +97,10 @@ class AlarmEditViewModel @Inject constructor(
             } else {
                 openSnapshot = alarm
                 _state.value = stateFromAlarm(alarm).copy(loaded = true)
+                // Mark this alarm as "being edited" so AlarmRingService bails
+                // if its fire trigger arrives while we're on this screen.
+                // Cleared by flushPendingToWatch / delete / discardNewDraft.
+                EditingAlarmRegistry.setEditing(alarm.id)
             }
         }
     }
@@ -189,6 +194,10 @@ class AlarmEditViewModel @Inject constructor(
                 _state.update { it.copy(id = savedId) }
             }
             pendingWatchPushIds.add(savedId)
+            // Cover the new-draft case: load() registered nothing because id
+            // was 0; the first applyLocal here assigns a real id. Register
+            // now so the alarm can't fire while still in this edit session.
+            EditingAlarmRegistry.setEditing(savedId)
         }
     }
 
@@ -217,6 +226,7 @@ class AlarmEditViewModel @Inject constructor(
         if (id != 0L) {
             repository.delete(id)
             pendingWatchPushIds.remove(id)
+            EditingAlarmRegistry.clearEditing(id)
         }
     }
 
@@ -230,6 +240,7 @@ class AlarmEditViewModel @Inject constructor(
         if (id != 0L && openSnapshot == null) {
             repository.deleteLocalOnly(id)
             pendingWatchPushIds.remove(id)
+            EditingAlarmRegistry.clearEditing(id)
         }
     }
 
@@ -240,6 +251,19 @@ class AlarmEditViewModel @Inject constructor(
      * invoked by [onCleared] as the final safety net when the VM dies.
      */
     fun flushPendingToWatch() {
+        // Clear the editing flag FIRST so the reschedule below can fire-now
+        // if the alarm's computed next-trigger is already past (e.g., user
+        // edited a "fire in 1 min" alarm for 90 s and the original schedule
+        // already passed). Without clearing first, AlarmRingService would
+        // bail again on the immediate-fire that scheduler.schedule queues.
+        val currentId = _state.value.id
+        if (currentId > 0L) {
+            EditingAlarmRegistry.clearEditing(currentId)
+            // Re-schedule once from the final DB state. saveLocalOnly
+            // intentionally skips scheduling per keystroke (would bump fire
+            // forward for relative alarms); this is the catch-up call.
+            viewModelScope.launch { repository.rescheduleAlarm(currentId) }
+        }
         if (pendingWatchPushIds.isEmpty()) return
         val snapshot = pendingWatchPushIds.toList()
         pendingWatchPushIds.clear()

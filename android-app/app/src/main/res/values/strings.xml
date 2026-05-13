@@ -27,6 +27,8 @@
     <string name="field_audio">Audio</string>
     <string name="field_audio_default">System default</string>
     <string name="field_audio_pick">Choose…</string>
+    <string name="action_play_preview" tools:ignore="MissingTranslation">Play preview</string>
+    <string name="action_stop_preview" tools:ignore="MissingTranslation">Stop preview</string>
     <string name="field_vibration_only">Vibration only</string>
     <string name="field_repeat">Repeat</string>
     <string name="field_snooze_minutes">Snooze duration</string>

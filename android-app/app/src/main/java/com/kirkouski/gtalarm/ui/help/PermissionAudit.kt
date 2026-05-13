@@ -2,6 +2,7 @@ package com.kirkouski.gtalarm.ui.help
 
 import android.Manifest
 import android.app.AlarmManager
+import android.app.AppOpsManager
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
@@ -9,6 +10,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
+import android.os.Process
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
@@ -66,12 +68,43 @@ object PermissionAudit {
         return if (am.canScheduleExactAlarms()) Status.GRANTED else Status.DENIED
     }
 
+    // canUseFullScreenIntent() landed in Android 14 (UPSIDE_DOWN_CAKE).
+    // Older Androids honor USE_FULL_SCREEN_INTENT manifest grant directly.
+    //
+    // Why we DON'T trust NotificationManager.canUseFullScreenIntent() on 14+:
+    // on Samsung One UI 6, the API returns true for AppOps MODE_DEFAULT (the
+    // auto-grant path for apps with a SET_ALARM intent filter) — but
+    // Samsung's vendor FSI-delivery layer STILL silently rejects the op at
+    // fire time, leaving the alarm rendered as a heads-up only. Confirmed
+    // 2026-05-12 via `adb shell cmd appops get com.kirkouski.gtalarm
+    // USE_FULL_SCREEN_INTENT` showing `default; rejectTime=...` right after
+    // a missed fire. Querying AppOps directly and requiring MODE_ALLOWED
+    // forces the user through the explicit Settings toggle, which One UI
+    // honors at delivery time.
+    @Suppress("ReturnCount")
+    // reason: 4 returns reflect 4 distinct fallthrough states (pre-API-34
+    // shortcut, missing service, missing op string, op-mode result). A
+    // result-variable rewrite would be longer and harder to read.
     private fun checkFullScreenIntent(context: Context): Status {
-        // canUseFullScreenIntent() landed in Android 14 (UPSIDE_DOWN_CAKE).
-        // Older Androids honor USE_FULL_SCREEN_INTENT manifest grant directly.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return Status.GRANTED
-        val nm = context.getSystemService(NotificationManager::class.java) ?: return Status.DENIED
-        return if (nm.canUseFullScreenIntent()) Status.GRANTED else Status.DENIED
+        val aom = context.getSystemService(AppOpsManager::class.java) ?: return Status.DENIED
+        // OPSTR_USE_FULL_SCREEN_INTENT is @SystemApi (not public), so resolve
+        // the op string from the permission name via the public helper.
+        val opStr = AppOpsManager.permissionToOp(Manifest.permission.USE_FULL_SCREEN_INTENT)
+            ?: return Status.GRANTED
+        // reason: unsafeCheckOpNoThrow is flagged @Deprecated in compileSdk 36
+        // in favor of the AttributionSource-based variants, but those require
+        // building a full AttributionSource (uid/pid/package/tag) just to
+        // query our OWN app's op mode. The "unsafe" variant is unsafe ONLY
+        // when called for ANOTHER package (caller-spoofing risk). Querying
+        // our own package by our own uid is the documented safe pattern.
+        @Suppress("DEPRECATION")
+        val mode = aom.unsafeCheckOpNoThrow(
+            opStr,
+            Process.myUid(),
+            context.packageName,
+        )
+        return if (mode == AppOpsManager.MODE_ALLOWED) Status.GRANTED else Status.DENIED
     }
 
     private fun checkBatteryUnrestricted(context: Context): Status {

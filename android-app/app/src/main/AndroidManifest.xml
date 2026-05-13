@@ -3,8 +3,23 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- maxSdkVersion="32" mirrors Fossify Clock: USE_EXACT_ALARM (API 33+)
+         supersedes SCHEDULE_EXACT_ALARM, but Play policy still wants
+         SCHEDULE_EXACT_ALARM declared for API 32 and below. Capping it
+         avoids the runtime-grant nag flow on Android 14. -->
+    <uses-permission
+        android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- FGS type bumped from mediaPlayback to specialUse 2026-05-13: Fossify
+         Clock (only Android-14+ targeting reference alarm app) uses
+         specialUse + PROPERTY_SPECIAL_USE_FGS_SUBTYPE. mediaPlayback was
+         valid but not the documented choice for alarm rings. We declare
+         BOTH because minSdk=31 — FOREGROUND_SERVICE_SPECIAL_USE was added
+         in API 34; on API 31-33 the OS uses mediaPlayback (the service
+         declares both via foregroundServiceType="specialUse|mediaPlayback"
+         and code picks the right runtime int based on Build.VERSION). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
@@ -31,6 +46,7 @@
     <application
         android:name=".GtAlarmApp"
         android:allowBackup="false"
+        android:appCategory="productivity"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="false"
@@ -62,6 +78,11 @@
             </intent-filter>
         </activity>
 
+        <!-- taskAffinity="" (empty string) keeps AlarmActivity in its own task
+             so it can't be shoved behind a recent MainActivity when fired from
+             a lock screen, and FLAG_ACTIVITY_NEW_TASK lands on a fresh stack
+             every time. resizeableActivity=false avoids being squeezed into a
+             window on Samsung DeX. -->
         <activity
             android:name=".ring.AlarmActivity"
             android:exported="false"
@@ -69,6 +90,7 @@
             android:launchMode="singleInstance"
             android:showOnLockScreen="true"
             android:showWhenLocked="true"
+            android:taskAffinity=""
             android:turnScreenOn="true"
             android:theme="@style/Theme.GtAlarm.Fullscreen" />
 
@@ -84,10 +106,19 @@
             </intent-filter>
         </activity>
 
+        <!-- FGS type = specialUse|mediaPlayback. specialUse is the documented
+             choice for Android-14+ alarm rings (per Fossify Clock); the |
+             mediaPlayback is the fallback for API 31-33 where SPECIAL_USE
+             didn't exist. PROPERTY_SPECIAL_USE_FGS_SUBTYPE is mandated by
+             Google Play for the specialUse FGS path. -->
         <service
             android:name=".ring.AlarmRingService"
             android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
+            android:foregroundServiceType="specialUse|mediaPlayback">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Plays the alarm tone and shows the ringing UI when a scheduled alarm fires" />
+        </service>
 
         <receiver
             android:name=".scheduler.AlarmBroadcastReceiver"

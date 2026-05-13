@@ -1,8 +1,11 @@
 package com.kirkouski.gtalarm.ring
 
+import android.app.ActivityOptions
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -67,6 +70,18 @@ class AlarmRingService : Service() {
             // startForegroundService — Android 12+ throws
             // ForegroundServiceDidNotStartInTimeException otherwise. Use a
             // placeholder notification and immediately stop.
+            startForegroundPlaceholder()
+            stopForegroundAndSelf()
+            return
+        }
+        if (EditingAlarmRegistry.isEditing(alarmId)) {
+            // User is actively editing this alarm on AlarmEditScreen. Don't
+            // fire — would interrupt the edit with a full-screen alarm UI.
+            // Still satisfy startForeground budget, then bail. The edit-
+            // screen exit hook (flushPendingToWatch → rescheduleAlarm) will
+            // re-arm; if computedFireEpoch has already passed by then, the
+            // scheduler fires immediately and we re-enter here cleanly.
+            Log.i(TAG, "handleRing id=$alarmId — alarm is being edited, bailing")
             startForegroundPlaceholder()
             stopForegroundAndSelf()
             return
@@ -148,11 +163,7 @@ class AlarmRingService : Service() {
         // alarm row. If we never upgrade (null alarm path), this
         // notification is torn down by stopForegroundAndSelf shortly.
         val notif = AlarmNotifications.buildPlaceholderNotification(this)
-        startForeground(
-            AlarmNotifications.NOTIFICATION_ID,
-            notif,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
-        )
+        startForeground(AlarmNotifications.NOTIFICATION_ID, notif, foregroundServiceTypeForApi())
     }
 
     // Try to wake the watch so it shows its own ring page in time with the
@@ -186,12 +197,19 @@ class AlarmRingService : Service() {
             dismissIntent = AlarmNotifications.dismissPendingIntent(this, alarm.id),
             snoozeIntent = AlarmNotifications.snoozePendingIntent(this, alarm.id),
         )
-        startForeground(
-            AlarmNotifications.NOTIFICATION_ID,
-            notif,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
-        )
+        startForeground(AlarmNotifications.NOTIFICATION_ID, notif, foregroundServiceTypeForApi())
     }
+
+    // FOREGROUND_SERVICE_TYPE_SPECIAL_USE was added in API 34; on 31-33 we
+    // fall back to MEDIA_PLAYBACK. The manifest declares both types via
+    // foregroundServiceType="specialUse|mediaPlayback" so either int is
+    // valid at startForeground time.
+    private fun foregroundServiceTypeForApi(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        } else {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+        }
 
     private fun startRingingAudioAndUi(alarm: Alarm) {
         // Assign `player` BEFORE start() so that if MediaPlayer init throws
@@ -204,11 +222,46 @@ class AlarmRingService : Service() {
         player = p
         p.start(alarm.audioUri, alarm.isVibrationOnly)
 
-        val launch = Intent(this, AlarmActivity::class.java).apply {
+        // Primary path: AlarmActivity is launched by NotificationManager when
+        // it fires the setFullScreenIntent PendingIntent (see startForegroundOnly).
+        // Per AOSP docs, FSI launches an Activity when the screen is locked /
+        // off / AOD; it degrades to a heads-up notification when the device is
+        // already in use.
+        //
+        // Backup path: an extra PI.send() for the "device in use" case. We
+        // need AlarmActivity in the task stack regardless of FSI suppression
+        // because Huawei Wear Engine REQUIRES an Activity component for the
+        // P2P receive path — see memory/wear_engine_requires_activity.md.
+        // A direct startActivity() from the FGS is BAL-blocked on Android 14
+        // ("an app running a foreground service is considered to be in the
+        // background" per developer.android.com/guide/components/activities/
+        // background-starts), but a PendingIntent with creator-side BAL opt-in
+        // goes through a different BAL path and is honored. singleInstance
+        // launchMode + FLAG_ACTIVITY_NEW_TASK make a duplicate launch harmless
+        // (re-enters onNewIntent on the existing instance).
+        val launchIntent = Intent(this, AlarmActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             putExtra(EXTRA_ALARM_ID, alarm.id)
         }
-        runCatching { startActivity(launch) }
+        val options = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            @Suppress("DEPRECATION")
+            ActivityOptions.makeBasic()
+                .setPendingIntentCreatorBackgroundActivityStartMode(
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED,
+                )
+                .toBundle()
+        } else {
+            null
+        }
+        val pi = PendingIntent.getActivity(
+            this,
+            alarm.id.toInt() or DIRECT_LAUNCH_REQUEST_CODE_BIT,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            options,
+        )
+        runCatching { pi.send() }
+            .onFailure { Log.w(TAG, "AlarmActivity PI.send() failed: ${it.message}") }
     }
 
     private fun scheduleAutoStop() {
@@ -362,6 +415,12 @@ class AlarmRingService : Service() {
         // Dismiss / Snooze.
         private const val BROADCAST_AWAIT_MS = 2_000L
         private const val TAG = "AlarmRing"
+
+        // Request-code high bit for the direct-launch PendingIntent that
+        // bypasses the FGS BAL block (see startRingingAudioAndUi). Distinct
+        // from AlarmNotifications.FULL_SCREEN_BIT (0x08000000) so the two
+        // PIs don't collide on FLAG_UPDATE_CURRENT.
+        private const val DIRECT_LAUNCH_REQUEST_CODE_BIT = 0x04000000
 
         // Pure helper extracted for unit testing. Returns true iff the
         // dismiss action should flip enabled=false on the given alarm:

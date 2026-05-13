@@ -1,5 +1,6 @@
 package com.kirkouski.gtalarm.ring
 
+import android.app.ActivityOptions
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -17,7 +18,16 @@ import com.kirkouski.gtalarm.util.TimeFormatter
 
 object AlarmNotifications {
     private const val TAG = "AlarmNotifications"
-    const val CHANNEL_ID = "alarm_ringing"
+    // Channel id v2 (2026-05-12). NotificationChannel state is sticky on
+    // device — once "alarm_ringing" was registered with any importance, the
+    // existing `ensureChannel` early-return guard meant we never re-applied
+    // the IMPORTANCE_HIGH + setBypassDnd + sound-attrs config to subsequent
+    // installs. If any earlier APK iteration registered the channel at a
+    // lower importance, the FSI path silently degrades on that device.
+    // Bumping the id forces a fresh registration with the current config,
+    // and we delete the legacy id below in ensureChannel.
+    const val CHANNEL_ID = "alarm_ringing_v2"
+    private const val LEGACY_CHANNEL_ID = "alarm_ringing"
     const val NOTIFICATION_ID = 42
 
     // Separate low-priority channel for "missed during reboot" notifications.
@@ -28,6 +38,12 @@ object AlarmNotifications {
 
     fun ensureChannel(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
+        // Drop the legacy channel (one-time, idempotent — no-op once gone).
+        // Required because NotificationChannel importance is immutable after
+        // creation; without removing the legacy id, ringing notifications
+        // from the v2 channel would still inherit the legacy importance on
+        // some devices where the legacy id was registered.
+        runCatching { nm.deleteNotificationChannel(LEGACY_CHANNEL_ID) }
         if (nm.getNotificationChannel(CHANNEL_ID) != null) return
 
         val channel = NotificationChannel(
@@ -182,16 +198,44 @@ object AlarmNotifications {
         )
     }
 
+    // reason: MODE_BACKGROUND_ACTIVITY_START_ALLOWED is deprecated in API 36
+    // (in favor of the granular ALLOW_ALWAYS / DENIED constants added in 35),
+    // but compileSdk=36 still treats it as valid at runtime AND it's the
+    // value that works back to API 34 where our minSdk-effective target
+    // (the FSI gate) lives. The granular replacements would let us tighten
+    // later; for now we want the simple "allowed" behavior on Android 14
+    // because that's the broken-screen-wake case we're fixing.
+    @Suppress("DEPRECATION")
     fun fullScreenPendingIntent(context: Context, alarmId: Long): PendingIntent {
         val intent = Intent(context, AlarmActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             putExtra(AlarmRingService.EXTRA_ALARM_ID, alarmId)
+        }
+        // Fix C (2026-05-12): Android 14 BAL opt-in for the PI creator. Without
+        // this, when NotificationManagerService fires the FSI it carries no
+        // background-activity-start token of its own and the AlarmActivity
+        // launch is silently blocked (the heads-up notification still posts
+        // but the screen does not wake). Setting CREATOR mode = ALLOWED
+        // grants the PI the right to start an Activity in background when
+        // fired by anyone, including the system.
+        //
+        // UPSIDE_DOWN_CAKE = API 34 = Android 14, where this API + the
+        // requirement appeared. minSdk is 31 so we runtime-guard.
+        val options = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ActivityOptions.makeBasic()
+                .setPendingIntentCreatorBackgroundActivityStartMode(
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED,
+                )
+                .toBundle()
+        } else {
+            null
         }
         return PendingIntent.getActivity(
             context,
             (alarmId.toInt() or FULL_SCREEN_BIT),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            options,
         )
     }
 

@@ -23,7 +23,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Snooze
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Vibration
@@ -125,7 +127,11 @@ fun AlarmEditScreen(
             .collect { (h, m) -> vm.updateTime(h, m) }
     }
 
+    val audioPreview = rememberAudioPreview()
     val pickAudio = rememberAudioPicker { picked ->
+        // Stop any in-flight preview before swapping the audio — keeps the
+        // user from hearing the old tone after picking a new one.
+        audioPreview.stop()
         vm.updateAudio(picked.uri, picked.name)
     }
 
@@ -287,6 +293,19 @@ fun AlarmEditScreen(
                     Text(
                         text = state.audioName ?: stringResource(R.string.field_audio_default),
                         style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                val previewing by audioPreview.playing
+                IconButton(
+                    onClick = {
+                        if (previewing) audioPreview.stop() else audioPreview.play(state.audioUri)
+                    },
+                ) {
+                    Icon(
+                        imageVector = if (previewing) Icons.Default.Stop else Icons.Default.PlayArrow,
+                        contentDescription = stringResource(
+                            if (previewing) R.string.action_stop_preview else R.string.action_play_preview,
+                        ),
                     )
                 }
                 OutlinedButton(onClick = pickAudio) {

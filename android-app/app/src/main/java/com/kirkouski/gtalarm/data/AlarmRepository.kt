@@ -95,11 +95,14 @@ class AlarmRepository @Inject constructor(
         val stamped = alarm.copy(updatedAtEpoch = now, snoozedUntilEpoch = null)
         val newId = dao.upsert(stamped.toEntity())
         val saved = stamped.copy(id = if (isNew) newId else stamped.id)
-        if (saved.enabled) {
-            scheduler.schedule(saved)
-        } else {
-            scheduler.cancel(saved.id)
-        }
+        // INTENTIONALLY does NOT call scheduler.schedule / scheduler.cancel.
+        // The edit-screen reverse-save model writes this on every keystroke;
+        // if we rescheduled here, a relative "in 1 min" alarm would have its
+        // fire time bumped forward by 60 s on every edit (updatedAtEpoch=now
+        // is part of computedFireEpoch for relative alarms) — the user could
+        // never finish editing it before fire. Edit-screen exit calls
+        // [rescheduleAlarm] which performs the schedule/cancel once based
+        // on the final state.
         refreshWidgets()
         Log.i(
             TAG,
@@ -107,6 +110,22 @@ class AlarmRepository @Inject constructor(
                 "enabled=${saved.enabled} dow=${saved.daysOfWeek} stamp=$now",
         )
         return saved.id
+    }
+
+    /**
+     * Reads the alarm by id and schedules or cancels it based on its current
+     * enabled state. Idempotent. Called by AlarmEditViewModel on screen exit
+     * to commit the schedule once after a series of [saveLocalOnly] writes.
+     * No-op (logs) if the row is missing.
+     */
+    suspend fun rescheduleAlarm(id: Long) {
+        val alarm = dao.getById(id)?.toDomain()
+        if (alarm == null) {
+            Log.d(TAG, "rescheduleAlarm id=$id — row missing, skipping")
+            return
+        }
+        if (alarm.enabled) scheduler.schedule(alarm) else scheduler.cancel(id)
+        Log.i(TAG, "rescheduleAlarm id=$id enabled=${alarm.enabled}")
     }
 
     /**
