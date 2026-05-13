@@ -40,19 +40,15 @@ fun rememberBackgroundBitmap(uriString: String?): State<ImageBitmap?> {
 /**
  * Decode the URI off the main thread. Returns null on any failure
  * (logged with the URI prefix so a tester knows whether the persistable-
- * permission grant was lost vs. a real decode failure).
- *
- * reason: TooGenericExceptionCaught — ContentResolver.openInputStream
- * raises SecurityException (revoked grant), FileNotFoundException
- * (deleted), and IOException (read error) under the same `RuntimeException`
- * umbrella in practice; narrower catches would miss real failures and
- * a blank ring screen is worse than a logged null fallback.
+ * permission grant was lost vs. a real decode failure). `runCatching`
+ * covers SecurityException (revoked grant), FileNotFoundException, and
+ * IOException — all of which a missing/changed SAF grant can raise.
  */
-@Suppress("TooGenericExceptionCaught", "InjectDispatcher")
 // reason: InjectDispatcher — this is a top-level Compose helper, not a Hilt
 // entry point. Threading an @IoDispatcher through every caller (which would
 // have to add a parameter to rememberBackgroundBitmap and propagate up the
 // composable tree) is not worth it for a single off-main bitmap decode.
+@Suppress("InjectDispatcher")
 private suspend fun loadImageBitmap(context: Context, uriString: String): ImageBitmap? =
     withContext(Dispatchers.IO) {
         runCatching {

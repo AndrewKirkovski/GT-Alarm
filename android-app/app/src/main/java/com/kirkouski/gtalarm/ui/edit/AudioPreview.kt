@@ -57,8 +57,12 @@ class AudioPreview(private val context: Context) {
             Log.w(TAG, "no audio uri to preview (default ringtone also missing)")
             return
         }
-        try {
-            val mp = MediaPlayer().apply {
+        // MediaPlayer.setDataSource throws a documented mix of IOException,
+        // IllegalArgumentException, IllegalStateException, SecurityException —
+        // plus undocumented native errors on some ROMs. For a preview button,
+        // silently fail and log; never crash the edit screen.
+        runCatching {
+            player = MediaPlayer().apply {
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         // USAGE_MEDIA = preview-volume (media stream), not the
@@ -83,19 +87,13 @@ class AudioPreview(private val context: Context) {
                 }
                 prepareAsync()
             }
-            player = mp
             autoStopJob?.cancel()
             autoStopJob = scope.launch {
                 delay(PREVIEW_TIMEOUT_MS)
                 Log.i(TAG, "preview auto-stop after ${PREVIEW_TIMEOUT_MS}ms")
                 stop()
             }
-        } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
-            // reason: MediaPlayer.setDataSource throws a documented mix of
-            // IOException, IllegalArgumentException, IllegalStateException,
-            // SecurityException — plus undocumented native errors on some
-            // ROMs. For a preview button, we just want to silently fail and
-            // log; never crash the edit screen.
+        }.onFailure { t ->
             Log.w(TAG, "preview setup failed for $parsed: ${t.message}")
             stop()
         }

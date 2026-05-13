@@ -59,13 +59,15 @@ class GtAlarmApp : Application() {
         )
     }
 
-    @Suppress("TooGenericExceptionCaught")
-    private fun firstSignerSha256Short(): String {
-        return try {
+    private fun firstSignerSha256Short(): String =
+        // PackageManager.getPackageInfo can throw NameNotFoundException plus
+        // platform-version-specific runtime exceptions; launch-banner helper
+        // must never abort boot.
+        runCatching {
             // minSdk 31; signingInfo + GET_SIGNING_CERTIFICATES are API 28+,
             // so the legacy GET_SIGNATURES branch is unreachable and dropped.
             val info = packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-            val first = info.signingInfo?.apkContentsSigners?.firstOrNull() ?: return "?"
+            val first = info.signingInfo?.apkContentsSigners?.firstOrNull() ?: return@runCatching "?"
             val md = java.security.MessageDigest.getInstance("SHA-256")
             val digest = md.digest(first.toByteArray())
             // Locale-free hex: cert fingerprints are wire identifiers, not
@@ -78,14 +80,7 @@ class GtAlarmApp : Application() {
                 sb.append(HEX_CHARS[v and 0xF])
             }
             sb.toString()
-        } catch (e: Throwable) {
-            // reason: PackageManager.getPackageInfo can throw NameNotFoundException
-            // plus a handful of platform-version-specific runtime exceptions; this
-            // is a launch-banner helper, not a critical path — fall back to "?"
-            // rather than aborting boot.
-            "err:${e.javaClass.simpleName}"
-        }
-    }
+        }.getOrElse { "err:${it.javaClass.simpleName}" }
 
     private companion object {
         const val TAG = "GtAlarmApp"

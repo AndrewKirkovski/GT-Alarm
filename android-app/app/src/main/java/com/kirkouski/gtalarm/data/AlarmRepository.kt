@@ -23,19 +23,17 @@ import kotlinx.coroutines.plus
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// reason: function count grew past 15 with the reverse-save edit model
-// (saveLocalOnly + deleteLocalOnly + pushAlarmToWatch on top of save /
-// setEnabled / setEnabledLocalOnly / delete / snooze / snoozeAt /
+// reason: TooManyFunctions — function count grew past 15 with the reverse-save
+// edit model (saveLocalOnly + deleteLocalOnly + pushAlarmToWatch on top of
+// save / setEnabled / setEnabledLocalOnly / delete / snooze / snoozeAt /
 // rescheduleAll / rescheduleAllOnBoot / observeAlarms / getById / getAll /
-// debug helpers). Each function maps to a distinct repository capability
-// that takes the same DAO/scheduler/wear-bridge collaborators; splitting
-// into multiple repositories would just smear the shared dependency
-// surface across more files without changing logic.
+// debug helpers). Each maps to a distinct repository capability over the same
+// DAO/scheduler/wear-bridge collaborators; splitting would smear the shared
+// dependency surface across more files.
+// reason: LongParameterList — 8 collaborators (DAO, scheduler, wear bridge,
+// tombstones, widget refresher, settings, context, dispatcher). Splitting
+// would smear the same DI graph across more files without removing params.
 @Suppress("TooManyFunctions", "LongParameterList")
-// reason: LongParameterList — 8 collaborators. Each is a distinct system
-// surface the repository spans (DAO, scheduler, wear bridge, tombstones,
-// widget refresher, settings, context, dispatcher). Splitting would just
-// smear the same DI graph across more files without removing parameters.
 @Singleton
 class AlarmRepository @Inject constructor(
     private val dao: AlarmDao,

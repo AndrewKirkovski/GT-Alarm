@@ -152,10 +152,9 @@ class SettingsStore @Inject constructor(
         private val KEY_DEFAULT_ABS_NAME = stringPreferencesKey("default_abs_ringtone_name")
         private val KEY_DEFAULT_REL_URI = stringPreferencesKey("default_rel_ringtone_uri")
         private val KEY_DEFAULT_REL_NAME = stringPreferencesKey("default_rel_ringtone_name")
-        // Per-task scope addition: default phone ring-screen background image
-        // (content://...). Falls back to "none" when the per-alarm
-        // backgroundImageUri is also null, which keeps the existing all-black
-        // AlarmActivity background as the no-config default.
+        // Default phone ring-screen background image (content://...). When
+        // the per-alarm backgroundImageUri is also null, AlarmActivity falls
+        // back to its all-black background.
         private val KEY_DEFAULT_PHONE_BG_URI = stringPreferencesKey("default_phone_bg_uri")
         // Default watch ring-screen background image (file:// to cached
         // cropped 466 × 466 PNG). When the per-alarm watchBackgroundImageUri

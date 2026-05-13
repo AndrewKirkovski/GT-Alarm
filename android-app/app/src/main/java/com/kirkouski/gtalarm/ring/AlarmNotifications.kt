@@ -211,13 +211,13 @@ object AlarmNotifications {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             putExtra(AlarmRingService.EXTRA_ALARM_ID, alarmId)
         }
-        // Fix C (2026-05-12): Android 14 BAL opt-in for the PI creator. Without
-        // this, when NotificationManagerService fires the FSI it carries no
+        // Android 14 BAL opt-in for the PI creator. Without this, when
+        // NotificationManagerService fires the FSI it carries no
         // background-activity-start token of its own and the AlarmActivity
-        // launch is silently blocked (the heads-up notification still posts
-        // but the screen does not wake). Setting CREATOR mode = ALLOWED
-        // grants the PI the right to start an Activity in background when
-        // fired by anyone, including the system.
+        // launch is silently blocked (heads-up notification still posts but
+        // the screen does not wake). Setting CREATOR mode = ALLOWED grants
+        // the PI the right to start an Activity in background when fired by
+        // anyone, including the system.
         //
         // UPSIDE_DOWN_CAKE = API 34 = Android 14, where this API + the
         // requirement appeared. minSdk is 31 so we runtime-guard.

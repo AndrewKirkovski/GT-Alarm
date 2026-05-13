@@ -49,11 +49,13 @@ data class Alarm(
     // the source image is cropped to a centered circular region and
     // scaled to WATCH_BG_NATIVE_PX (466 × 466 for GT 6 Pro), written to
     // the app cache as a PNG, and the local file:// URI of the cropped
-    // PNG is stored here. NOT serialized on the wire — the parallel
-    // BGRA `.bin` is what the watch consumes via the file-transfer
-    // path. Null means "no watch background — watch uses its default
-    // ring UI". Not included in AlarmHash either (the watch reconciles
-    // bg presence via the file-transfer path, not via the alarm row).
+    // PNG is stored here. The parallel BGRA `.bin` is what the watch
+    // consumes via the file-transfer path. Null means "no watch
+    // background — watch uses its default ring UI". Included in
+    // AlarmHash so both sides agree on field count + ordering; the
+    // watch JS currently renders this slot as empty (no copy of the
+    // phone-side URI) — reconciliation of bg presence is via the
+    // file-transfer path.
     val watchBackgroundImageUri: String? = null,
 ) {
     init {

@@ -34,16 +34,13 @@ class AlarmAudioPlayer(private val context: Context) {
         }
         Log.i(TAG, "audio source=${if (parsedUserUri != null) "user" else "default"} uri=$playbackUri")
 
-        try {
-            val mp = buildPlayer(playbackUri, onPrepared = { it.start() }, onError = { tryFallback() })
-            mediaPlayer = mp
-        } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
-            // reason: MediaPlayer.setDataSource can throw IOException,
-            // IllegalArgumentException, IllegalStateException, SecurityException,
-            // and an undocumented set of native errors (NPE through JNI on certain
-            // ROMs). For the alarm-ring path we MUST not let any of these crash the
-            // foreground service — otherwise the alarm goes silent. Catch-all is the
-            // intent: log + fall back to system default.
+        // MediaPlayer.setDataSource can throw IOException, IllegalArgumentException,
+        // IllegalStateException, SecurityException, and undocumented native errors
+        // (NPE through JNI on certain ROMs). Alarm-ring path must NEVER crash the
+        // foreground service — log + fall back to system default on any failure.
+        runCatching {
+            mediaPlayer = buildPlayer(playbackUri, onPrepared = { it.start() }, onError = { tryFallback() })
+        }.onFailure { t ->
             Log.w(TAG, "failed to set up $playbackUri: ${t.message}")
             tryFallback()
         }
@@ -51,18 +48,16 @@ class AlarmAudioPlayer(private val context: Context) {
 
     private fun tryFallback() {
         val fallback = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM) ?: return
-        try {
-            val mp = buildPlayer(
+        // Same rationale as the primary catch in start() — alarm path must never
+        // crash. Even the system-default fallback failing (very rare, usually
+        // permission/storage corruption) just logs.
+        runCatching {
+            mediaPlayer = buildPlayer(
                 fallback,
                 onPrepared = { it.start() },
                 onError = { Log.e(TAG, "fallback playback failed in prepareAsync") },
             )
-            mediaPlayer = mp
-        } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
-            // reason: same as the primary catch above — alarm path must never
-            // crash. If even the system default fallback fails (very rare,
-            // typically permission/storage corruption), we log and continue
-            // silently rather than crashing the foreground service.
+        }.onFailure { t ->
             Log.e(TAG, "fallback playback also failed: ${t.message}")
         }
     }
