@@ -489,14 +489,15 @@ private fun AlarmRow(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Per-alarm background thumbnail at the leading edge. Only renders
-            // when the alarm has its own URI set (we don't load the user's
-            // default for every row — that's a recompose-per-row I/O storm on
-            // a long list). 24dp circular crop matches the row's vertical
-            // rhythm and keeps the thumbnail out of the way of the time text.
-            val bgUri = alarm.backgroundImageUri
-            if (bgUri != null) {
-                val bitmapState = com.kirkouski.gtalarm.ui.edit.rememberBackgroundBitmap(bgUri)
+            // Per-alarm background thumbnail at the leading edge. Falls back
+            // to the settings-level default so the user sees what's actually
+            // going to render at fire time. Each row decodes ONCE per recompose
+            // (rememberBackgroundBitmap caches behind a LaunchedEffect keyed
+            // on the URI) — fine for the visible list, would need a Coil-style
+            // cache if we ever paginate / display 100+ rows.
+            val effectiveBgUri = alarm.backgroundImageUri ?: settings.defaultPhoneBackgroundUri
+            if (effectiveBgUri != null) {
+                val bitmapState = com.kirkouski.gtalarm.ui.edit.rememberBackgroundBitmap(effectiveBgUri)
                 val bm = bitmapState.value
                 if (bm != null) {
                     androidx.compose.foundation.Image(
@@ -504,11 +505,10 @@ private fun AlarmRow(
                         contentDescription = null,
                         contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                         modifier = Modifier
-                            .size(24.dp)
-                            .clip(androidx.compose.foundation.shape.CircleShape)
-                            .padding(end = 0.dp),
+                            .size(56.dp)
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp)),
                     )
-                    Spacer(Modifier.size(12.dp))
+                    Spacer(Modifier.size(16.dp))
                 }
             }
             val ctx = LocalContext.current

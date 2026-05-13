@@ -44,6 +44,14 @@ class SettingsViewModel @Inject constructor(
         store.setDefaultRelativeRingtone(uri, name)
     }
 
+    fun setDefaultPhoneBackground(uri: String?) = viewModelScope.launch {
+        store.setDefaultPhoneBackgroundUri(uri)
+    }
+
+    fun setDefaultWatchBackground(uri: String?) = viewModelScope.launch {
+        store.setDefaultWatchBackgroundUri(uri)
+    }
+
     private companion object {
         // Matches the cadence used by [AlarmListViewModel.alarms] —
         // 5-second tail keeps the flow alive across short config changes.

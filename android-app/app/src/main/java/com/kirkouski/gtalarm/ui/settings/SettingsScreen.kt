@@ -11,14 +11,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
@@ -44,7 +48,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -54,6 +60,8 @@ import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.data.SettingsState
 import com.kirkouski.gtalarm.ui.edit.rememberAudioPicker
 import com.kirkouski.gtalarm.ui.edit.rememberAudioPreview
+import com.kirkouski.gtalarm.ui.edit.rememberBackgroundBitmap
+import com.kirkouski.gtalarm.ui.edit.rememberBackgroundImagePicker
 import com.kirkouski.gtalarm.util.firstCalendarDayWithOverride
 import com.kirkouski.gtalarm.util.longDayName
 import java.util.Calendar
@@ -90,6 +98,102 @@ fun SettingsScreen(
         ) {
             DisplaySection(state = state, vm = vm)
             RingtoneSection(state = state, vm = vm)
+            BackgroundSection(state = state, vm = vm)
+        }
+    }
+}
+
+@Composable
+private fun BackgroundSection(state: SettingsState, vm: SettingsViewModel) {
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            SectionTitle(textRes = R.string.settings_section_default_backgrounds)
+            Text(
+                text = stringResource(R.string.settings_default_backgrounds_intro),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            BackgroundRow(
+                titleRes = R.string.settings_default_phone_background,
+                currentUri = state.defaultPhoneBackgroundUri,
+                onPicked = { uri -> vm.setDefaultPhoneBackground(uri) },
+                onClear = { vm.setDefaultPhoneBackground(null) },
+            )
+            BackgroundRow(
+                titleRes = R.string.settings_default_watch_background,
+                currentUri = state.defaultWatchBackgroundUri,
+                onPicked = { uri -> vm.setDefaultWatchBackground(uri) },
+                onClear = { vm.setDefaultWatchBackground(null) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun BackgroundRow(
+    titleRes: Int,
+    currentUri: String?,
+    onPicked: (String) -> Unit,
+    onClear: () -> Unit,
+) {
+    val pick = rememberBackgroundImagePicker { uri -> onPicked(uri) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (currentUri != null) {
+            val bitmapState = rememberBackgroundBitmap(currentUri)
+            val bm = bitmapState.value
+            if (bm != null) {
+                Image(
+                    bitmap = bm,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Image,
+                    contentDescription = null,
+                    modifier = Modifier.size(56.dp).padding(8.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            Icon(
+                imageVector = Icons.Default.Image,
+                contentDescription = null,
+                modifier = Modifier.size(56.dp).padding(8.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Column(modifier = Modifier.padding(start = 12.dp).fillMaxWidth(0.55f)) {
+            Text(
+                text = stringResource(titleRes),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = stringResource(
+                    if (currentUri == null) R.string.settings_default_background_none
+                    else R.string.settings_default_background_set,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        if (currentUri != null) {
+            IconButton(onClick = onClear) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = stringResource(R.string.settings_default_background_clear),
+                )
+            }
+        }
+        OutlinedButton(onClick = pick) {
+            Text(stringResource(R.string.field_audio_pick))
         }
     }
 }

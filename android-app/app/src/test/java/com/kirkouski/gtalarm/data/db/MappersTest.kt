@@ -188,4 +188,41 @@ class MappersTest {
         assertEquals(null, roundTripped.relativeMinutes)
         assertEquals(false, roundTripped.selfDestruct)
     }
+
+    @Test
+    fun `backgroundImageUri survives round trip when set`() {
+        // Per-alarm phone background image URI must round-trip cleanly. A
+        // bug that dropped it on the entity→domain or domain→entity path
+        // would make the AlarmActivity render the default-bg or black-bg
+        // screen even though the user explicitly picked a per-alarm image.
+        val uri = "content://com.android.providers.media.documents/document/image%3A42"
+        val original = Alarm(
+            id = 30L,
+            label = "Photo bg",
+            hour = 7,
+            minute = 0,
+            daysOfWeek = 0,
+            enabled = true,
+            updatedAtEpoch = 1L,
+            backgroundImageUri = uri,
+        )
+        val roundTripped = original.toEntity().toDomain()
+        assertEquals(uri, roundTripped.backgroundImageUri)
+    }
+
+    @Test
+    fun `null backgroundImageUri survives round trip (fall back to default)`() {
+        val original = Alarm(
+            id = 31L,
+            label = "No bg",
+            hour = 7,
+            minute = 0,
+            daysOfWeek = 0,
+            enabled = true,
+            updatedAtEpoch = 1L,
+            backgroundImageUri = null,
+        )
+        val roundTripped = original.toEntity().toDomain()
+        assertEquals(null, roundTripped.backgroundImageUri)
+    }
 }
