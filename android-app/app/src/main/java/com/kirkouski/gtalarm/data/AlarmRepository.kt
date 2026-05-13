@@ -169,6 +169,29 @@ class AlarmRepository @Inject constructor(
         }
     }
 
+    /**
+     * Upload the per-alarm watch-side background `.bin` to the paired
+     * watch. The picker writes `watch_bg_<id>.bin` next to the PNG in
+     * [Context.getCacheDir]; we look it up by alarm id. If the file is
+     * missing (user cleared the watch bg or never picked one) we send
+     * the watch a clearance envelope instead so it cleans up its own
+     * `bg_<id>.bin` file. Caller is responsible for setting the alarm
+     * row's `watchBackgroundImageUri` first; this method only deals
+     * with the on-disk cache + the wire transfer.
+     */
+    fun uploadWatchBackground(id: Long) {
+        appScope.launch {
+            val binFile = java.io.File(appContext.cacheDir, "watch_bg_$id.bin")
+            if (!binFile.exists()) {
+                Log.i(TAG, "uploadWatchBackground id=$id — bin missing, sending cleared envelope")
+                wearBridge.sendWatchBackgroundCleared(id)
+                return@launch
+            }
+            val ok = wearBridge.uploadWatchBackground(id, binFile)
+            Log.i(TAG, "uploadWatchBackground id=$id ok=$ok size=${binFile.length()}")
+        }
+    }
+
     suspend fun setEnabled(id: Long, enabled: Boolean) {
         val now = System.currentTimeMillis()
         dao.setEnabledStamped(id, enabled, now)

@@ -33,6 +33,16 @@
     <string name="field_background_image_none" tools:ignore="MissingTranslation">None (uses default)</string>
     <string name="field_background_image_pick" tools:ignore="MissingTranslation">Choose…</string>
     <string name="field_background_image_clear" tools:ignore="MissingTranslation">Clear background image</string>
+    <!-- reason: new for per-alarm watch background picker. Translations
+         land in a follow-up; tools:ignore silences the lint until then. -->
+    <string name="field_watch_background_image" tools:ignore="MissingTranslation">Watch background</string>
+    <string name="field_watch_background_image_none" tools:ignore="MissingTranslation">None (uses default)</string>
+    <string name="field_watch_background_image_edit" tools:ignore="MissingTranslation">Edit</string>
+    <string name="field_watch_background_image_clear" tools:ignore="MissingTranslation">Clear watch background</string>
+    <string name="watch_bg_picker_title" tools:ignore="MissingTranslation">Crop watch background</string>
+    <string name="watch_bg_picker_help" tools:ignore="MissingTranslation">Pinch to zoom, drag to position. The circle previews how it will look on your watch.</string>
+    <string name="watch_bg_picker_pick" tools:ignore="MissingTranslation">Choose image</string>
+    <string name="watch_bg_picker_empty" tools:ignore="MissingTranslation">Tap "Choose image" to start</string>
     <string name="action_play_preview" tools:ignore="MissingTranslation">Play preview</string>
     <string name="action_stop_preview" tools:ignore="MissingTranslation">Stop preview</string>
     <string name="field_vibration_only">Vibration only</string>

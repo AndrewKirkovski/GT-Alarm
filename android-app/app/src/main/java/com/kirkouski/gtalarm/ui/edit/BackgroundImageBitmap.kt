@@ -53,12 +53,38 @@ private suspend fun loadImageBitmap(context: Context, uriString: String): ImageB
     withContext(Dispatchers.IO) {
         runCatching {
             val uri = uriString.toUri()
+            // Two-pass decode: read the image header to get native dimensions,
+            // pick an inSampleSize so the decoded bitmap fits within
+            // MAX_DECODE_PX × MAX_DECODE_PX, then decode at the sampled size.
+            // Code-review pass 1 #8 (2026-05-13): a 50 MP photo decoded at
+            // native resolution is ~200 MB ARGB_8888 — enough to OOM the
+            // process on a long alarm list. MAX_DECODE_PX=2048 is generous
+            // for the full-screen ring activity while keeping memory bounded.
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             context.contentResolver.openInputStream(uri)?.use { input ->
-                BitmapFactory.decodeStream(input)?.asImageBitmap()
+                BitmapFactory.decodeStream(input, null, bounds)
+            }
+            val sampleSize = computeInSampleSize(bounds.outWidth, bounds.outHeight)
+            val decodeOpts = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
+            }
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                BitmapFactory.decodeStream(input, null, decodeOpts)?.asImageBitmap()
             }
         }.onFailure { e ->
             Log.w(TAG, "loadImageBitmap failed for $uriString: ${e::class.simpleName}: ${e.message}")
         }.getOrNull()
     }
 
+private fun computeInSampleSize(srcW: Int, srcH: Int): Int {
+    if (srcW <= 0 || srcH <= 0) return 1
+    var sampleSize = 1
+    while (srcW / sampleSize > MAX_DECODE_PX || srcH / sampleSize > MAX_DECODE_PX) {
+        sampleSize *= 2
+    }
+    return sampleSize
+}
+
 private const val TAG = "BgImageLoad"
+private const val MAX_DECODE_PX = 2048

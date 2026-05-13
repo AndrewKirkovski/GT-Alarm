@@ -158,6 +158,7 @@ class MainActivity : ComponentActivity() {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         runCatching { startActivity(intent) }
+            .onFailure { Log.w(TAG, "ACTION_REQUEST_SCHEDULE_EXACT_ALARM unavailable: ${it.message}") }
     }
 
     private fun openFullScreenIntentSettings() {
@@ -167,6 +168,7 @@ class MainActivity : ComponentActivity() {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         runCatching { startActivity(intent) }
+            .onFailure { Log.w(TAG, "ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT unavailable: ${it.message}") }
     }
 
     private fun scheduleTestAlarm() {
@@ -225,12 +227,18 @@ class MainActivity : ComponentActivity() {
             data = "package:$packageName".toUri()
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        val started = runCatching { startActivity(direct) }.isSuccess
-        if (!started) {
+        val direct1 = runCatching { startActivity(direct) }
+        direct1.onFailure {
+            Log.w(TAG, "battery opt direct unavailable: ${it.message}")
+        }
+        if (direct1.isFailure) {
             val list = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             runCatching { startActivity(list) }
+                .onFailure {
+                    Log.w(TAG, "battery opt list fallback unavailable: ${it.message}")
+                }
         }
     }
 

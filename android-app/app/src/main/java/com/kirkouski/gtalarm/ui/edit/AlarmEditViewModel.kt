@@ -107,6 +107,13 @@ class AlarmEditViewModel @Inject constructor(
     // set also covers the case where a future "swap alarm" UX exists).
     private val pendingWatchPushIds = mutableSetOf<Long>()
 
+    // Alarm ids whose watch-side background image has changed since the
+    // last flush. We track these separately from pendingWatchPushIds
+    // because the watch-bg upload is a file-transfer (separate Wear
+    // Engine code path from JSON alarm envelopes) and we don't want to
+    // upload a new bin every time the user toggles any unrelated field.
+    private val pendingWatchBgUploadIds = mutableSetOf<Long>()
+
     fun load(id: Long?) {
         if (_state.value.loaded && _state.value.id == (id ?: 0L)) return
         viewModelScope.launch {
@@ -150,8 +157,22 @@ class AlarmEditViewModel @Inject constructor(
         it.copy(backgroundImageUri = uri)
     }
 
-    fun updateWatchBackgroundImage(uri: String?) = applyLocal {
-        it.copy(watchBackgroundImageUri = uri)
+    fun updateWatchBackgroundImage(uri: String?) {
+        // Same persist-locally pattern as applyLocal, but ALSO marks this
+        // alarm for a watch-bg upload on flush. We can't reuse applyLocal
+        // because that doesn't know about the parallel `.bin` file the
+        // picker dropped in cacheDir; the upload is its own pending set.
+        _state.update { it.copy(watchBackgroundImageUri = uri, dirty = true) }
+        viewModelScope.launch {
+            val alarm = buildAlarm(_state.value)
+            val savedId = repository.saveLocalOnly(alarm)
+            if (_state.value.id == 0L) {
+                _state.update { it.copy(id = savedId) }
+            }
+            pendingWatchPushIds.add(savedId)
+            pendingWatchBgUploadIds.add(savedId)
+            EditingAlarmRegistry.setEditing(savedId)
+        }
     }
 
     fun toggleVibrationOnly() = applyLocal { it.copy(isVibrationOnly = !it.isVibrationOnly) }
@@ -292,10 +313,20 @@ class AlarmEditViewModel @Inject constructor(
             // forward for relative alarms); this is the catch-up call.
             viewModelScope.launch { repository.rescheduleAlarm(currentId) }
         }
-        if (pendingWatchPushIds.isEmpty()) return
-        val snapshot = pendingWatchPushIds.toList()
-        pendingWatchPushIds.clear()
-        snapshot.forEach { repository.pushAlarmToWatch(it) }
+        if (pendingWatchPushIds.isNotEmpty()) {
+            val snapshot = pendingWatchPushIds.toList()
+            pendingWatchPushIds.clear()
+            snapshot.forEach { repository.pushAlarmToWatch(it) }
+        }
+        // Upload watch-side background bins for any alarm whose
+        // watchBackgroundImageUri changed in this edit session. Repo
+        // handles both the "bin present" (upload) and "bin missing"
+        // (send cleared envelope) cases.
+        if (pendingWatchBgUploadIds.isNotEmpty()) {
+            val bgSnapshot = pendingWatchBgUploadIds.toList()
+            pendingWatchBgUploadIds.clear()
+            bgSnapshot.forEach { repository.uploadWatchBackground(it) }
+        }
     }
 
     override fun onCleared() {

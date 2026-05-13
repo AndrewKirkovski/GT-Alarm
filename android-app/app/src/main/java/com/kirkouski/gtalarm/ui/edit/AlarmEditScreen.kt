@@ -1,3 +1,11 @@
+// reason: AlarmEditScreen is the single Compose entry for the edit UX and
+// every section (Time, Label, Mode, Days, Audio, BackgroundImage,
+// WatchBackgroundImage, Snooze, SelfDestruct, Save/Delete/Discard dialogs)
+// is factored into a small private composable in the same file because
+// they share state-hoisting from the VM. Splitting per-section into
+// separate files would push the same state-routing across more files.
+@file:Suppress("TooManyFunctions")
+
 package com.kirkouski.gtalarm.ui.edit
 
 import androidx.activity.compose.BackHandler
@@ -23,6 +31,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
@@ -113,6 +122,7 @@ fun AlarmEditScreen(
 
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showDiscardConfirm by remember { mutableStateOf(false) }
+    var showWatchBgPicker by remember { mutableStateOf(false) }
 
     BackHandler { exit() }
 
@@ -143,6 +153,22 @@ fun AlarmEditScreen(
         vm.updateBackgroundImage(uri)
     }
 
+    if (showWatchBgPicker) {
+        // The picker writes a 466 × 466 cropped PNG to cacheDir keyed by
+        // alarm id. We feed that file:// URI back into the alarm row via
+        // [AlarmEditViewModel.updateWatchBackgroundImage]; the parallel
+        // BGRA `.bin` (also written by the picker) is uploaded to the
+        // watch on screen exit via flushPendingToWatch.
+        WatchBackgroundPickerDialog(
+            alarmId = state.id,
+            initialUri = state.watchBackgroundImageUri,
+            onDismiss = { showWatchBgPicker = false },
+            onSaved = { uri ->
+                showWatchBgPicker = false
+                vm.updateWatchBackgroundImage(uri)
+            },
+        )
+    }
     if (showDeleteConfirm) {
         DeleteConfirmDialog(
             onConfirm = {
@@ -326,6 +352,18 @@ fun AlarmEditScreen(
                 uri = state.backgroundImageUri,
                 onPick = pickBackgroundImage,
                 onClear = { vm.updateBackgroundImage(null) },
+            )
+
+            // Per-alarm watch-side background image. Distinct from the
+            // phone bg because it must be cropped to a circular 466 × 466
+            // region with a watch-UI preview overlay (the watch's <image>
+            // element renders a BGRA blob — see WatchBackgroundEncoder).
+            // The picker writes both the PNG (for re-display) + .bin (for
+            // upload) into cacheDir; we only persist the PNG URI here.
+            WatchBackgroundImageRow(
+                uri = state.watchBackgroundImageUri,
+                onEdit = { showWatchBgPicker = true },
+                onClear = { vm.updateWatchBackgroundImage(null) },
             )
 
             Row(
@@ -592,6 +630,59 @@ private fun DayRow(mask: Int, firstDayOverride: Int?, onToggle: (Int) -> Unit) {
             ) {
                 Text(text = stringResource(shortLabelResForDayBit(bit)), color = fg)
             }
+        }
+    }
+}
+
+@Composable
+private fun WatchBackgroundImageRow(
+    uri: String?,
+    onEdit: () -> Unit,
+    onClear: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Default.Watch,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(end = 12.dp),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(stringResource(R.string.field_watch_background_image))
+            val bitmapState = rememberBackgroundBitmap(uri)
+            val bm = bitmapState.value
+            if (uri != null && bm != null) {
+                // Circular thumbnail — matches how the bg ends up
+                // rendered on the watch's circular display.
+                FoundationImage(
+                    bitmap = bm,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .size(48.dp)
+                        .clip(CircleShape),
+                )
+            } else {
+                Text(
+                    text = stringResource(R.string.field_watch_background_image_none),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+        if (uri != null) {
+            IconButton(onClick = onClear) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = stringResource(R.string.field_watch_background_image_clear),
+                )
+            }
+        }
+        OutlinedButton(onClick = onEdit) {
+            Text(stringResource(R.string.field_watch_background_image_edit))
         }
     }
 }
