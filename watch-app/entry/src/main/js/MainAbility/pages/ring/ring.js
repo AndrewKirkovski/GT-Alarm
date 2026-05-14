@@ -9,32 +9,49 @@ import Logger from '../../common/logger.js';
 
 var VIBRATE_INTERVAL_MS = 1500;
 var DOW_NONE = 0;
-// Grace before app.terminate() after dismiss/snooze. Tuned to cover:
-//   (a) WearBridge.notifyDismissed/Snoozed Wear Engine ack (~500–1000 ms)
-//   (b) async storage.get for PEER_END_KEY in onHide
-//   (c) best-effort one-shot auto-disable AlarmStore.update in onDismiss
-// Same value as DRAIN_QUIESCENCE_MS in incomingHandler for consistency.
-var TERMINATE_AFTER_ACTION_MS = 1500;
+// Two timers around app.terminate after dismiss/snooze:
+//   HARD_CAP_MS — fires unconditionally if no ack ever arrives (last
+//   notify retry exhausted silently, peer unreachable, etc.). Generous
+//   so a 3-attempt retry chain (each 3 s SDK timeout + 500 ms backoff)
+//   still gets a chance.
+//   AFTER_ACK_MS — short tail after a successful notify ack so the SDK
+//   has a beat to flush, then we kill the process.
+// On happy path we shrink hard-cap → after-ack via expediteTerminate.
+var TERMINATE_HARD_CAP_MS = 6000;
+var TERMINATE_AFTER_ACK_MS = 500;
 var _terminateScheduled = false;
 var _terminateTimer = null;
+
+function fireTerminate(tag) {
+    Logger.i('ring.terminate ' + tag);
+    try {
+        app.terminate();
+    } catch (e) {
+        Logger.err('ring.app.terminate threw', e);
+    }
+}
 
 function scheduleTerminate(reason) {
     if (_terminateScheduled) return;
     _terminateScheduled = true;
     _terminateTimer = setTimeout(function () {
-        Logger.i('ring.terminate reason=' + reason);
-        try {
-            app.terminate();
-        } catch (e) {
-            Logger.err('ring.app.terminate threw', e);
-        }
-    }, TERMINATE_AFTER_ACTION_MS);
+        fireTerminate('hard-cap reason=' + reason);
+    }, TERMINATE_HARD_CAP_MS);
+}
+
+// Called from a successful notify ack to shrink the hard-cap to a brief
+// flush tail. Without this every dismiss leaves the app on-screen for
+// TERMINATE_HARD_CAP_MS even on a clean happy path.
+function expediteTerminate(tag) {
+    if (!_terminateScheduled || _terminateTimer === null) return;
+    clearTimeout(_terminateTimer);
+    _terminateTimer = setTimeout(function () {
+        fireTerminate('acked ' + tag);
+    }, TERMINATE_AFTER_ACK_MS);
 }
 
 // Called from onShow so a fresh ring entry (back-to-back fires within
-// the 1.5 s grace window of a prior dismiss) clears any pending terminate.
-// Without this the older alarm's pending app.terminate would fire on the
-// freshly-shown ring page.
+// the hard-cap of a prior dismiss) clears any pending terminate.
 function cancelTerminate() {
     if (_terminateTimer !== null) {
         clearTimeout(_terminateTimer);
@@ -276,7 +293,10 @@ export default {
                 }
                 Logger.i('ring.onHide implicit-snooze (side button?) id=' + alarmId);
                 try {
-                    WearBridge.notifySnoozed(alarmId);
+                    WearBridge.notifySnoozed(alarmId, function (success, reason) {
+                        Logger.i('ring.onHide-ack success=' + success + ' reason=' + reason);
+                        expediteTerminate('onHide-snooze');
+                    });
                 } catch (e) {
                     Logger.err('ring.onHide notifySnoozed', e);
                 }
@@ -285,7 +305,10 @@ export default {
                 // No flag present = no peer-ended; still send implicit snooze.
                 Logger.i('ring.onHide implicit-snooze (no flag) id=' + alarmId);
                 try {
-                    WearBridge.notifySnoozed(alarmId);
+                    WearBridge.notifySnoozed(alarmId, function (success, reason) {
+                        Logger.i('ring.onHide-ack success=' + success + ' reason=' + reason);
+                        expediteTerminate('onHide-snooze');
+                    });
                 } catch (e) {
                     Logger.err('ring.onHide notifySnoozed', e);
                 }
@@ -324,7 +347,10 @@ export default {
         // the navigation is idempotent so a phone-driven close + our own
         // local close don't conflict.
         Logger.i('ring.dismiss notify id=' + alarmId);
-        WearBridge.notifyDismissed(alarmId);
+        WearBridge.notifyDismissed(alarmId, function (success, reason) {
+            Logger.i('ring.dismiss-ack success=' + success + ' reason=' + reason);
+            expediteTerminate('dismiss');
+        });
         try {
             router.replace({ uri: 'pages/index/index' });
             Logger.i('ring.dismiss router.replace returned id=' + alarmId);
@@ -368,7 +394,10 @@ export default {
         var alarmId = this.alarmId;
         // Phone owns snooze duration (per-alarm `alarm.snoozeMinutes`).
         // We just notify; phone schedules the reschedule itself.
-        WearBridge.notifySnoozed(alarmId);
+        WearBridge.notifySnoozed(alarmId, function (success, reason) {
+            Logger.i('ring.snooze-ack success=' + success + ' reason=' + reason);
+            expediteTerminate('snooze');
+        });
         Logger.i('ring.snooze notify+navigate id=' + alarmId);
         try {
             router.replace({ uri: 'pages/index/index' });

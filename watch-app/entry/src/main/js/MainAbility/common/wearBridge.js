@@ -234,18 +234,26 @@ function sendJson(envelope) {
 // fires. Acceptable: in the dismiss case the user is still looking at
 // the watch when they tap dismiss, so the page stays alive for the
 // retry window.
-function sendJsonWithRetry(envelope, maxAttempts, attempt) {
+// Optional terminalCb fires exactly once on terminal state: either the
+// first successful attempt or after `maxAttempts` failures. Callers like
+// ring.js use it to expedite app.terminate after the ack lands instead
+// of waiting out the hard-cap.
+function sendJsonWithRetry(envelope, maxAttempts, attempt, terminalCb) {
     if (!maxAttempts) maxAttempts = 3;
     if (!attempt) attempt = 1;
-    sendOnceWithResult(envelope, function (success) {
-        if (success) return;
+    sendOnceWithResult(envelope, function (success, reason) {
+        if (success) {
+            if (terminalCb) terminalCb(true, reason);
+            return;
+        }
         if (attempt >= maxAttempts) {
             console.warn('GT-Alarm: wearBridge.send gave up type=' + envelope.type + ' after ' + attempt + ' attempts');
+            if (terminalCb) terminalCb(false, reason);
             return;
         }
         setTimeout(function () {
             console.info('GT-Alarm: wearBridge.send retry type=' + envelope.type + ' attempt=' + (attempt + 1));
-            sendJsonWithRetry(envelope, maxAttempts, attempt + 1);
+            sendJsonWithRetry(envelope, maxAttempts, attempt + 1, terminalCb);
         }, 500);
     });
 }
@@ -276,22 +284,25 @@ export default {
     // of recovery window per tap, in addition to the per-send round
     // trips. notifyToggled/notifyDeleted stay fire-and-forget since the
     // user is staring at the list UI and can re-tap if a sync fails.
-    notifyDismissed: function (alarmId) {
+    // `cb(success, reason)` fires once on terminal state (success or
+    // exhausted retries). Ring page uses it to expedite app.terminate
+    // after the phone acks, instead of waiting out the hard-cap.
+    notifyDismissed: function (alarmId, cb) {
         sendJsonWithRetry({
             type: 'alarm_dismissed',
             alarmId: alarmId,
             updatedAtEpoch: Date.now(),
-        }, 3, 1);
+        }, 3, 1, cb);
     },
     // The phone owns snooze duration (per-alarm `alarm.snoozeMinutes`),
     // so the watch never sends a reschedule time — phone derives it from
     // the local row when the message arrives.
-    notifySnoozed: function (alarmId) {
+    notifySnoozed: function (alarmId, cb) {
         sendJsonWithRetry({
             type: 'alarm_snoozed',
             alarmId: alarmId,
             updatedAtEpoch: Date.now(),
-        }, 3, 1);
+        }, 3, 1, cb);
     },
     notifyDeleted: function (alarmId) {
         sendJson({

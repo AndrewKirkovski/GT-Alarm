@@ -46,7 +46,6 @@ var DRAIN_QUIESCENCE_MS = 1500;
 var _appStartMs = 0;
 var _wokenForSync = false;
 var _drainTimer = null;
-var _navigatedToSyncing = false;
 // Once an alarm_fired routes the user to the ring page, the ring page
 // owns the rest of the process lifetime (its own onDismiss/onSnooze/onHide
 // schedule app.terminate after the action settles). Any later envelope
@@ -97,7 +96,6 @@ var onPeerEndedRing = null;
 function markAppStart() {
     _appStartMs = Date.now();
     _wokenForSync = false;
-    _navigatedToSyncing = false;
     _ringActive = false;
 }
 
@@ -152,7 +150,6 @@ function noteIncomingEnvelope() {
         Logger.i('incoming.wake-by-sync (elapsed=' + elapsed + 'ms) — routing to syncing');
         try {
             router.replace({ uri: 'pages/syncing/syncing' });
-            _navigatedToSyncing = true;
         } catch (e) {
             Logger.err('incoming.route-syncing failed', e);
         }

@@ -2,9 +2,9 @@
      the watch app for a routine state push (sync_check / alarm_*).
      No interactive elements; the page tears down when IncomingHandler
      calls app.terminate() after the envelope burst quiesces. -->
-<stack class="container">
+<div class="container">
     <div class="content">
         <text class="title">{{title}}</text>
         <text class="subtitle">{{subtitle}}</text>
     </div>
-</stack>
+</div>
