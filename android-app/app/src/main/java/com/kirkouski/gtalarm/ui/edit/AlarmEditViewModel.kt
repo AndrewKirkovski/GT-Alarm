@@ -64,6 +64,12 @@ data class AlarmEditUiState(
  * background — Settings → Default watch background is the single entry
  * point. See [com.kirkouski.gtalarm.ui.settings.SettingsViewModel.setDefaultWatchBackground].
  */
+// reason: TooManyFunctions — VM owns one updater per editable alarm field
+// (label, time, days, audio, vibration, snooze, mode, relative, selfDestruct,
+// backgroundImage) + lifecycle hooks (save, cancel, delete) + state-derivation
+// helpers (loadFromAlarm, buildAlarm). Each maps to one UI control or one
+// lifecycle event; splitting would smear the same _state mutation channel
+// across more files.
 @Suppress("TooManyFunctions")
 @HiltViewModel
 class AlarmEditViewModel @Inject constructor(
@@ -95,7 +101,13 @@ class AlarmEditViewModel @Inject constructor(
     }
 
     fun updateTime(hour: Int, minute: Int) = mutate { it.copy(hour = hour, minute = minute) }
-    fun updateLabel(label: String) = mutate { it.copy(label = label) }
+    fun updateLabel(label: String) = mutate {
+        // Truncate at input so the Alarm.init MAX_LABEL_LENGTH require()
+        // can't crash save() inside the NonCancellable block (which would
+        // be a silent failure — no toast, no log, no navigation). 256 is
+        // already way past any reasonable label.
+        it.copy(label = label.take(Alarm.MAX_LABEL_LENGTH))
+    }
 
     fun toggleDay(day: Int) = mutate {
         val newDays = DaysOfWeek.toggle(it.daysOfWeek, day)

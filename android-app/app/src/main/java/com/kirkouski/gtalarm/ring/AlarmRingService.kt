@@ -276,6 +276,10 @@ class AlarmRingService : Service() {
             putExtra(EXTRA_ALARM_ID, alarm.id)
         }
         val options = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // reason: ActivityOptions.makeBasic() is the only API that
+            // exposes setPendingIntentCreatorBackgroundActivityStartMode on
+            // 34+; the alternative pendingIntentBackgroundActivityStartMode
+            // is on PendingIntentOptions which our minSdk doesn't have.
             @Suppress("DEPRECATION")
             ActivityOptions.makeBasic()
                 .setPendingIntentCreatorBackgroundActivityStartMode(
@@ -493,10 +497,9 @@ class AlarmRingService : Service() {
         // PIs don't collide on FLAG_UPDATE_CURRENT.
         private const val DIRECT_LAUNCH_REQUEST_CODE_BIT = 0x04000000
 
-        // Pure helper extracted for unit testing. Returns true iff the
-        // dismiss action should flip enabled=false on the given alarm:
-        // Decides what to do to the alarm row when the user dismisses (or
-        // the ring cycle auto-stops). Three outcomes:
+        // Pure helper extracted for unit testing. Decides what to do to the
+        // alarm row when the user dismisses (or the ring cycle auto-stops).
+        // Three outcomes:
         //   KEEP    — recurring alarm, stays armed; the system will fire
         //             again on the next day-of-week match.
         //   DISABLE — legacy one-shot behavior: clear `enabled` so the row

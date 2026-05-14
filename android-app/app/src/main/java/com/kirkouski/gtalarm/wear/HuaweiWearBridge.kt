@@ -348,13 +348,13 @@ class HuaweiWearBridge @Inject constructor(
         }
     }
 
-    // File-transfer path for the per-alarm watch background. Differs from
-    // the normal data-Message path in two ways:
-    //   1. Builder.setPayload(File) (not byte[]) — Wear Engine routes this
-    //      to the watch's file-receive handler instead of the byte-msg
-    //      Receiver.
-    //   2. Builder.setDescription("bg_<alarmId>.bin") — the watch reads
-    //      the description to know what file name to save under. Per
+    // File-transfer path for the shared default watch background.
+    // Differs from the normal data-Message path in two ways:
+    //   1. Builder.setPayload(byte[]) — Wear Engine routes any non-string
+    //      payload to the watch's file-receive handler instead of the
+    //      byte-msg Receiver.
+    //   2. Builder.setDescription("bg_default.bin") — the watch reads the
+    //      description to know what file name to save under. Per
     //      memory:wear_engine_lite_facts §setdesc-fix, setDescription
     //      takes a String (setPayload(String) was a known footgun).
     @Suppress("ReturnCount", "TooGenericExceptionCaught")

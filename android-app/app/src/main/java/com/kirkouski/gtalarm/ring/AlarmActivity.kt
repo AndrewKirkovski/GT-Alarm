@@ -147,11 +147,18 @@ class AlarmActivity : ComponentActivity() {
             putExtra(AlarmRingService.EXTRA_ALARM_ID, alarmId)
         }
         // Synchronous startService — wrapping in lifecycleScope.launch raced
-        // with finishAndRemoveTask: lifecycleScope cancels on Activity destroy,
-        // so if the cancellation won the next-main-loop tick race the
+        // with finishAndRemoveTask: lifecycleScope cancels on Activity
+        // destroy, so if cancellation won the next-main-loop tick the
         // startService never ran and the alarm kept ringing on the watch.
-        // startService is non-suspending and safe to call from the main thread.
-        startService(intent)
+        // runCatching guards against the Android 12+
+        // ForegroundServiceStartNotAllowedException edge case where the
+        // Activity has slipped from foreground (auto-stop runnable +
+        // keyguard reassertion mid-tap); we log + finish either way so the
+        // user-visible Activity always tears down.
+        runCatching { startService(intent) }
+            .onFailure {
+                Log.w(TAG, "startService action=$action id=$alarmId failed: ${it::class.simpleName}: ${it.message}")
+            }
         finishAndRemoveTask()
     }
 
@@ -160,13 +167,10 @@ class AlarmActivity : ComponentActivity() {
     }
 }
 
-// Dimming overlay alpha — 0.45 was chosen empirically so a bright lock-screen
-// wallpaper still reads as "your image" while the white 96sp time stays
-// legible. Lower values washed out under bright photos; higher made the
-// photo unrecognizable. Declared above its usage in [AlarmRingScreen] so
-// the kotlinc compile-debug path resolves it (kotlinc 2.3.21 has been
-// observed dropping forward references to file-level private consts that
-// live below the function under some module-cache configurations).
+// Dimming overlay alpha — 0.45 chosen empirically so a bright lockscreen
+// wallpaper reads as "your image" while the white 96sp time stays legible.
+// Lower values washed out bright photos; higher made the photo
+// unrecognizable.
 private const val DIM_OVERLAY_ALPHA = 0.45f
 
 // reason: single linear Box + Column with conditional time/label/button block;

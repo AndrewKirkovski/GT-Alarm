@@ -13,6 +13,7 @@ package com.kirkouski.gtalarm.ui.edit
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -39,6 +40,7 @@ fun rememberAudioPicker(onPicked: (PickedAudio) -> Unit): () -> Unit {
 private fun persistPermission(context: Context, uri: Uri) {
     val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
     runCatching { context.contentResolver.takePersistableUriPermission(uri, flags) }
+        .onFailure { Log.w(TAG, "takePersistableUriPermission failed: ${it::class.simpleName}: ${it.message}") }
 }
 
 private fun resolveName(context: Context, uri: Uri): String? {
@@ -48,3 +50,5 @@ private fun resolveName(context: Context, uri: Uri): String? {
             if (cursor.moveToFirst()) cursor.getString(0) else null
         }
 }
+
+private const val TAG = "AudioPicker"

@@ -103,6 +103,9 @@ class AlarmAudioPlayer(private val context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             v.vibrate(effect, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_ALARM))
         } else {
+            // reason: Vibrator.vibrate(VibrationEffect, AudioAttributes) is
+            // required pre-API-33; the modern VibrationAttributes overload
+            // doesn't exist on minSdk 31. Branched cleanly above.
             @Suppress("DEPRECATION")
             v.vibrate(
                 effect,

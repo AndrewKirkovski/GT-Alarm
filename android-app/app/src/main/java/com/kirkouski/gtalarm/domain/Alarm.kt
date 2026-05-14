@@ -42,10 +42,10 @@ data class Alarm(
     // ring (could be hours later). Cover mode only — rendered with
     // ContentScale.Crop behind a dimming overlay.
     //
-    // Included in the LWW hash + wire envelope so a peer that learns
-    // about an alarm also knows what background to render (the watch
-    // currently ignores it, but the field is preserved for future use
-    // and so two devices stay in sync on alarm equality).
+    // Carried in the wire envelope so the field round-trips through sync,
+    // but intentionally EXCLUDED from AlarmHash because content:// URIs
+    // don't round-trip between devices (each peer's resolver mints its
+    // own opaque IDs) — including it would mismatch every sync forever.
     val backgroundImageUri: String? = null,
 ) {
     init {
@@ -83,8 +83,15 @@ data class Alarm(
     /** True when snooze is set up — the ring UI shows a Snooze button only in this case. */
     val isSnoozeEnabled: Boolean get() = snoozeMinutes > 0
 
-    /** Fire time for relative alarms. Undefined for absolute — caller must check `isRelative`. */
-    fun computedFireEpoch(): Long = updatedAtEpoch + (relativeMinutes ?: 0) * 60_000L
+    /**
+     * Fire time for relative alarms. For absolute alarms returns
+     * [updatedAtEpoch] (i.e. the last-edited instant), which is NOT a
+     * meaningful fire time — callers must check [isRelative] first.
+     */
+    fun computedFireEpoch(): Long {
+        check(isRelative) { "computedFireEpoch called on absolute alarm id=$id" }
+        return updatedAtEpoch + (relativeMinutes ?: 0) * 60_000L
+    }
 
     companion object {
         const val DEFAULT_SNOOZE_MINUTES = 10

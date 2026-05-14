@@ -9,6 +9,21 @@ internal object WearJsonCodec {
 
     private const val TAG = "WearJsonCodec"
 
+    // 7-bit Mon..Sun mask; bits 7+ are illegal on the wire (would force a
+    // permanent hash divergence between phone and watch).
+    private const val DAYS_OF_WEEK_MASK = 0x7F
+
+    // How far into the future an incoming stamp may sit relative to local
+    // wall clock. Tolerates modest cross-device skew; anything beyond is a
+    // peer-clock-broken-or-attacker scenario where we'd rather reset the
+    // stamp than let a far-future value poison LWW forever. (No symmetric
+    // lower bound: an absolute lower limit would break test fixtures using
+    // small ordinal epochs, and the IncomingMessageHandler envelope-level
+    // check already rejects non-positive ts.)
+    private const val MAX_FUTURE_SKEW_MS = 24L * 60L * 60L * 1000L
+
+    private val ALLOWED_AUDIO_SCHEMES = setOf("content", "file", "android.resource")
+
     // Hash MUST be exactly 8 lowercase hex chars (Java String.hashCode →
     // unsigned 32-bit → lowercase hex, see AlarmHash). Any non-matching
     // payload is treated as corrupt and dropped — accepting anything would
@@ -108,7 +123,24 @@ internal object WearJsonCodec {
             Log.w(TAG, "parseAlarm rejected — missing required field for id=$envelopeAlarmId")
             return null
         }
+        val hour = j.getInt("hour")
+        val minute = j.getInt("minute")
+        if (hour !in 0..23 || minute !in 0..59) {
+            Log.w(
+                TAG,
+                "parseAlarm rejected id=$envelopeAlarmId — hour=$hour minute=$minute out of clock range",
+            )
+            return null
+        }
         val daysOfWeek = j.optInt("daysOfWeek", 0)
+        if (daysOfWeek and DAYS_OF_WEEK_MASK.inv() != 0) {
+            Log.w(
+                TAG,
+                "parseAlarm rejected id=$envelopeAlarmId — daysOfWeek=0x${daysOfWeek.toString(16)} " +
+                    "has bits outside 7-day mask",
+            )
+            return null
+        }
         val rawRelative = if (j.has("relativeMinutes") && !j.isNull("relativeMinutes")) {
             j.optInt("relativeMinutes", Int.MIN_VALUE)
         } else {
@@ -153,11 +185,12 @@ internal object WearJsonCodec {
             // specifically because it's user-facing display text — losing
             // a tail is better than dropping the whole alarm.
             label = j.optString("label", "").take(Alarm.MAX_LABEL_LENGTH),
-            hour = j.getInt("hour"),
-            minute = j.getInt("minute"),
+            hour = hour,
+            minute = minute,
             daysOfWeek = daysOfWeek,
             enabled = j.getBoolean("enabled"),
-            audioUri = j.optString("audioUri", "").takeIf { it.isNotEmpty() },
+            audioUri = j.optString("audioUri", "")
+                .takeIf { it.isNotEmpty() && it.substringBefore(":", "") in ALLOWED_AUDIO_SCHEMES },
             audioName = null,
             isVibrationOnly = j.optBoolean("isVibrationOnly", false),
             snoozeMinutes = if (rawSnooze <= Alarm.SNOOZE_DISABLED) {
@@ -165,7 +198,8 @@ internal object WearJsonCodec {
             } else {
                 rawSnooze.coerceIn(Alarm.MIN_SNOOZE_MINUTES, Alarm.MAX_SNOOZE_MINUTES)
             },
-            updatedAtEpoch = j.optLong("updatedAtEpoch", 0L),
+            updatedAtEpoch = j.optLong("updatedAtEpoch", 0L)
+                .coerceAtMost(System.currentTimeMillis() + MAX_FUTURE_SKEW_MS),
             relativeMinutes = relativeMinutes,
             selfDestruct = selfDestruct,
             // Per-alarm background image URI. Peer (watch) does not currently

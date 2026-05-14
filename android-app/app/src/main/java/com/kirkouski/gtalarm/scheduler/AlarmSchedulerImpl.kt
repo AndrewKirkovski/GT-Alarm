@@ -29,10 +29,10 @@ class AlarmSchedulerImpl @Inject constructor(
     }
 
     override fun scheduleAt(alarm: Alarm, triggerAtMillis: Long) {
-        val firePi = firePendingIntent(alarm.id) ?: run {
-            Log.w(TAG, "could not create PendingIntent for alarm id=${alarm.id}")
-            return
-        }
+        // FLAG_UPDATE_CURRENT (default flags) always returns a non-null PI;
+        // the null path only exists when callers pass FLAG_NO_CREATE — and
+        // cancel() is the only such caller, not scheduleAt.
+        val firePi = checkNotNull(firePendingIntent(alarm.id))
         val showPi = showPendingIntent(alarm.id)
         val info = AlarmManager.AlarmClockInfo(triggerAtMillis, showPi)
         try {

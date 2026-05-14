@@ -182,6 +182,12 @@ class IncomingMessageHandler @Inject constructor(
      * the user sees no regression, just no phone-side propagation.
      */
     private fun dispatchToRingService(intent: Intent, label: String) {
+        // reason: TooGenericExceptionCaught — Android 12+ throws
+        // ForegroundServiceStartNotAllowedException, vendor skins throw
+        // SecurityException or a wrapped RuntimeException. We catch all of
+        // them so the peer-sync path never crashes the message-receive
+        // thread (caller is the Wear Engine callback; an uncaught throw
+        // there would tear down our receiver).
         @Suppress("TooGenericExceptionCaught")
         try {
             context.startService(intent)

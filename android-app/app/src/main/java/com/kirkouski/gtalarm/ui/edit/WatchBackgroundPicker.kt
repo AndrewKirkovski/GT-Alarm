@@ -149,6 +149,10 @@ fun WatchBackgroundPickerDialog(
         sourceBitmap?.recycle()
         sourceBitmap = null
         val uri = sourceUriString ?: return@LaunchedEffect
+        // reason: InjectDispatcher — Compose helper, not a Hilt entry point.
+        // Threading the @IoDispatcher qualifier through every caller of
+        // this picker would be cargo-cult. Same rationale as
+        // BackgroundImageBitmap.loadImageBitmap.
         @Suppress("InjectDispatcher")
         sourceBitmap = withContext(Dispatchers.IO) {
             loadSampledBitmap(context, uri)
@@ -349,6 +353,8 @@ fun WatchBackgroundPickerDialog(
                         if (capturedViewport <= 0f) return@Button
                         saving = true
                         scope.launch {
+                            // reason: same as the loader above — Compose
+                            // save-button handler, not a Hilt entry point.
                             @Suppress("InjectDispatcher")
                             val out = withContext(Dispatchers.IO) {
                                 persistCrop(
@@ -422,6 +428,10 @@ private fun EmptyCircle(
  * never displays the full original; downsampling first avoids OOM on
  * modern 50 MP camera photos.
  */
+// reason: ReturnCount — 4 returns reflect distinct early-out states (parse
+// fail, openInputStream null, decode-bounds null, decode-stream null) each
+// with its own diagnostic shape. A sentinel-variable rewrite would obscure
+// the failure boundary.
 @Suppress("ReturnCount")
 private fun loadSampledBitmap(context: Context, uriString: String): Bitmap? {
     return runCatching {
@@ -570,6 +580,7 @@ private fun computeBaseScale(srcW: Float, srcH: Float, viewportPx: Float): Float
 private fun persistImagePermission(context: Context, uri: Uri) {
     val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
     runCatching { context.contentResolver.takePersistableUriPermission(uri, flags) }
+        .onFailure { Log.w(TAG, "takePersistableUriPermission failed: ${it::class.simpleName}: ${it.message}") }
 }
 
 // Sampling cap for the picker viewport. 1024 px max edge: enough for a

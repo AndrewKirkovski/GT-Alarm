@@ -11,6 +11,7 @@ package com.kirkouski.gtalarm.ui.edit
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -57,4 +58,7 @@ fun rememberBackgroundImagePicker(onPicked: (String) -> Unit): () -> Unit {
 private fun persistImagePermission(context: Context, uri: Uri) {
     val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
     runCatching { context.contentResolver.takePersistableUriPermission(uri, flags) }
+        .onFailure { Log.w(TAG, "takePersistableUriPermission failed: ${it::class.simpleName}: ${it.message}") }
 }
+
+private const val TAG = "ImagePicker"

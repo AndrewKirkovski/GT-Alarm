@@ -23,13 +23,14 @@ import kotlinx.coroutines.plus
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// reason: TooManyFunctions — function count grew past 15 with the reverse-save
-// edit model (saveLocalOnly + deleteLocalOnly + pushAlarmToWatch on top of
-// save / setEnabled / setEnabledLocalOnly / delete / snooze / snoozeAt /
-// rescheduleAll / rescheduleAllOnBoot / observeAlarms / getById / getAll /
-// debug helpers). Each maps to a distinct repository capability over the same
-// DAO/scheduler/wear-bridge collaborators; splitting would smear the shared
-// dependency surface across more files.
+// reason: TooManyFunctions — the repository exposes the full alarm CRUD
+// surface (save / setEnabled / setEnabledLocalOnly / delete / snooze /
+// snoozeAt / rescheduleAll / rescheduleAllOnBoot / observeAlarms / getById /
+// getAll + the three-phase edit-screen save: saveLocalOnly + rescheduleAlarm
+// + pushAlarmToWatch + the default-watch-bg helpers + debug helpers). Each
+// maps to a distinct repository capability over the same DAO/scheduler/
+// wear-bridge collaborators; splitting would smear the shared dependency
+// surface across more files.
 // reason: LongParameterList — 8 collaborators (DAO, scheduler, wear bridge,
 // tombstones, widget refresher, settings, context, dispatcher). Splitting
 // would smear the same DI graph across more files without removing params.
@@ -84,11 +85,11 @@ class AlarmRepository @Inject constructor(
     }
 
     /**
-     * Persist the alarm to local DB + scheduler + widget WITHOUT pushing to
-     * the watch. Used by the edit screen's reverse-save UX: every keystroke
-     * commits locally, but the watch only learns about it on exit (see
-     * [pushAlarmToWatch]). Keeps the watch's notification feed quiet while
-     * the user is mid-edit.
+     * Persist to local DB + widget WITHOUT touching the scheduler or pushing
+     * to the watch. The edit screen calls this from inside its save()
+     * NonCancellable block; [rescheduleAlarm] + [pushAlarmToWatch] then
+     * commit the remaining side-effects so all three can be wrapped in the
+     * same NonCancellable to survive caller-VM cancellation.
      *
      * For new alarms (id=0), inserts and returns the assigned id. For
      * existing ids, upserts in place.
@@ -96,22 +97,13 @@ class AlarmRepository @Inject constructor(
     suspend fun saveLocalOnly(alarm: Alarm): Long {
         val now = System.currentTimeMillis()
         val isNew = alarm.id == 0L
-        // Snooze invalidated on edit — see save() for rationale.
-        // Pre-apply settings-derived default ringtone for brand-new draft rows
+        // Pre-apply settings-derived default ringtone for brand-new rows
         // that haven't picked an audio URI yet. Existing alarms keep their
         // own audio (including explicit null = system default).
         val resolved = applyDefaultRingtoneIfNeeded(alarm, isNew)
         val stamped = resolved.copy(updatedAtEpoch = now, snoozedUntilEpoch = null)
         val newId = dao.upsert(stamped.toEntity())
         val saved = stamped.copy(id = if (isNew) newId else stamped.id)
-        // INTENTIONALLY does NOT call scheduler.schedule / scheduler.cancel.
-        // The edit-screen reverse-save model writes this on every keystroke;
-        // if we rescheduled here, a relative "in 1 min" alarm would have its
-        // fire time bumped forward by 60 s on every edit (updatedAtEpoch=now
-        // is part of computedFireEpoch for relative alarms) — the user could
-        // never finish editing it before fire. Edit-screen exit calls
-        // [rescheduleAlarm] which performs the schedule/cancel once based
-        // on the final state.
         refreshWidgets()
         Log.i(
             TAG,
@@ -123,9 +115,9 @@ class AlarmRepository @Inject constructor(
 
     /**
      * Reads the alarm by id and schedules or cancels it based on its current
-     * enabled state. Idempotent. Called by AlarmEditViewModel on screen exit
-     * to commit the schedule once after a series of [saveLocalOnly] writes.
-     * No-op (logs) if the row is missing.
+     * enabled state. Idempotent. Paired with [saveLocalOnly] so the edit
+     * screen's NonCancellable save block commits Room first, scheduler
+     * second. No-op (logs) if the row is missing.
      */
     suspend fun rescheduleAlarm(id: Long) {
         val alarm = dao.getById(id)?.toDomain()
@@ -138,25 +130,12 @@ class AlarmRepository @Inject constructor(
     }
 
     /**
-     * Discard an in-progress new alarm row that was created via
-     * [saveLocalOnly] but never committed (user backed out of the edit
-     * screen before completing the alarm). Skips the watch broadcast +
-     * tombstone since the watch never learned the alarm existed.
-     */
-    suspend fun deleteLocalOnly(id: Long) {
-        scheduler.cancel(id)
-        dao.deleteById(id)
-        refreshWidgets()
-        Log.i(TAG, "deleteLocalOnly id=$id")
-    }
-
-    /**
      * Fire-and-forget broadcast of the alarm's current state to the watch.
-     * Called by AlarmEditViewModel on screen exit to flush pending changes
-     * after a series of [saveLocalOnly] writes. Uses the singleton-scoped
-     * [appScope] so it survives the caller's VM cancellation. Idempotent:
-     * if the alarm row is missing (deleted between local-save and flush),
-     * silently no-ops.
+     * Paired with [saveLocalOnly] + [rescheduleAlarm] as the third leg of
+     * the edit-screen save chain. Uses the singleton-scoped [appScope] so
+     * it survives the caller's VM cancellation. Idempotent: if the alarm
+     * row is missing (deleted between local-save and flush), silently
+     * no-ops.
      */
     fun pushAlarmToWatch(id: Long) {
         appScope.launch {
