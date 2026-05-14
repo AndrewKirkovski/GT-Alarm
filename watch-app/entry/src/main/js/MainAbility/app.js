@@ -30,6 +30,12 @@ export default {
         });
         Logger.i('app.onCreate build=' + BUILD_TAG);
 
+        // Anchor the wake-reason clock BEFORE we install the incoming
+        // handler. If we wired the handler first and an envelope arrived
+        // before this call, the handler would see _appStartMs=0 and
+        // skip the syncing-page route. Order matters.
+        IncomingHandler.markAppStart();
+
         IncomingHandler.setOnAlarmFiredNavigator(function (alarmId) {
             Logger.i('app.onAlarmFired routing to ring id=' + alarmId);
             try {

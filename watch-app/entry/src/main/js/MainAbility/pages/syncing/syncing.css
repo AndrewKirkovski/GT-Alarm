@@ -1,0 +1,44 @@
+/* GT 6 round watch (466 × 466 px). Same Lite Wearable CSS subset as
+   pages/index/index.css — no `background:` shorthand, no gradients,
+   no `transform`, no :active. */
+
+.container {
+    width: 466px;
+    height: 466px;
+    background-color: #0F0F23;
+}
+
+.content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 466px;
+    height: 466px;
+    background-color: #0F0F23;
+}
+
+.title {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 340px;
+    height: 40px;
+    color: #FFFFFF;
+    font-size: 28px;
+    text-align: center;
+}
+
+.subtitle {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 340px;
+    height: 30px;
+    margin-top: 12px;
+    color: #8A8AA8;
+    font-size: 20px;
+    text-align: center;
+}

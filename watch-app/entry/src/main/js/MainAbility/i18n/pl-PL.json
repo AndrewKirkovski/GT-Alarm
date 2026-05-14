@@ -32,6 +32,8 @@
         "sync_just_now": "Zsynchronizowano teraz",
         "sync_min_ago": "Zsynchronizowano {n} min temu",
         "sync_hr_ago": "Zsynchronizowano {n} godz. temu",
-        "sync_day_ago": "Zsynchronizowano {n} dni temu"
+        "sync_day_ago": "Zsynchronizowano {n} dni temu",
+        "syncing_title": "Synchronizacja",
+        "syncing_subtitle": "…"
     }
 }

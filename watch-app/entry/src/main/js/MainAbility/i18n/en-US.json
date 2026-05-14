@@ -32,6 +32,8 @@
         "sync_just_now": "Synced just now",
         "sync_min_ago": "Synced {n} min ago",
         "sync_hr_ago": "Synced {n} hr ago",
-        "sync_day_ago": "Synced {n} d ago"
+        "sync_day_ago": "Synced {n} d ago",
+        "syncing_title": "Syncing alarms",
+        "syncing_subtitle": "…"
     }
 }

@@ -12,6 +12,8 @@
 //   { type: 'alarm_snoozed',   alarmId, updatedAtEpoch }  // closes our ring page if active
 //
 // All apply paths are tombstone-aware and LWW-resolved.
+import app from '@system.app';
+import router from '@system.router';
 import storage from '@system.storage';
 import AlarmStore from './alarmStore.js';
 import SettingsStore from './settingsStore.js';
@@ -20,6 +22,31 @@ import Lww from './lwwResolver.js';
 import Logger from './logger.js';
 import AlarmHash from './alarmHash.js';
 import WearBridge from './wearBridge.js';
+
+// Wake-reason tracking. When the phone wakes the watch app via Wear
+// Engine auto-launch for a sync push, the first state-mutation envelope
+// arrives within ~1 s of app.onCreate (per memory:wear_engine_wake_protocol).
+// We route to a transient "Syncing alarms" page on that first envelope,
+// then call app.terminate() after the burst quiesces so the app doesn't
+// hang around occupying the watch face when the user didn't actually
+// open it.
+//
+// When the user opens the app themselves, the first envelope (if any)
+// arrives well after WAKE_SYNC_GRACE_MS — we skip the sync screen and
+// the terminate, applying mutations silently to the index page they're
+// already looking at.
+//
+// Module-level state lives in app.js's bundle (Lite gotcha #11: page
+// bundles are isolated, but app.js + common/* share one). The ring page
+// has its own auto-close path on dismiss/snooze; this tracker is only
+// for sync wakes.
+var WAKE_SYNC_GRACE_MS = 2500;
+var DRAIN_QUIESCENCE_MS = 1500;
+
+var _appStartMs = 0;
+var _wokenForSync = false;
+var _drainTimer = null;
+var _navigatedToSyncing = false;
 
 // Cross-bundle-shared diagnostic counter for inbound P2P messages. Per
 // gotcha #11, app.js and pages/*.js have isolated module state, so a
@@ -56,6 +83,53 @@ function bumpInboundDiag(type) {
 
 var onAlarmFired = null;
 var onPeerEndedRing = null;
+
+// Called once from app.onCreate so we know when the app process started.
+// Anything before WAKE_SYNC_GRACE_MS from now is treated as part of the
+// wake-from-sync cold-launch window.
+function markAppStart() {
+    _appStartMs = Date.now();
+    _wokenForSync = false;
+    _navigatedToSyncing = false;
+}
+
+// Routes to the syncing page on the first state-mutation envelope within
+// the grace window, and arms / re-arms the drain timer so the burst can
+// settle before app.terminate(). No-op when the user is already using
+// the app (envelope arrived after grace).
+function noteIncomingEnvelope() {
+    if (_appStartMs === 0) return;
+    var elapsed = Date.now() - _appStartMs;
+    if (!_wokenForSync) {
+        if (elapsed > WAKE_SYNC_GRACE_MS) {
+            // User has been using the app long enough that this envelope
+            // is a live sync, not a wake-by-sync. Don't interrupt them.
+            return;
+        }
+        _wokenForSync = true;
+        Logger.i('incoming.wake-by-sync (elapsed=' + elapsed + 'ms) — routing to syncing');
+        try {
+            router.replace({ uri: 'pages/syncing/syncing' });
+            _navigatedToSyncing = true;
+        } catch (e) {
+            Logger.err('incoming.route-syncing failed', e);
+        }
+    }
+    // Re-arm the drain quiescence timer on every envelope. Burst of N
+    // envelopes resets to the last + DRAIN_QUIESCENCE_MS.
+    if (_drainTimer !== null) clearTimeout(_drainTimer);
+    _drainTimer = setTimeout(function () {
+        Logger.i('incoming.drain-quiesced — app.terminate()');
+        try {
+            app.terminate();
+        } catch (e) {
+            // Per local SDK research, app.terminate is void with no
+            // documented throw path; if it ever does, the process is
+            // dying anyway. Log for diagnostic completeness.
+            Logger.err('incoming.app.terminate threw', e);
+        }
+    }, DRAIN_QUIESCENCE_MS);
+}
 
 // Stamp the AlarmStore's last-sync-epoch whenever any peer-driven mutation
 // actually takes effect locally. Drives the "Last sync: N min ago" line on
@@ -168,6 +242,7 @@ function applyToggle(msg) {
 }
 
 export default {
+    markAppStart: markAppStart,
     setOnAlarmFiredNavigator: function (fn) {
         onAlarmFired = fn;
     },
@@ -186,6 +261,7 @@ export default {
         // AlarmHash so it can skip a redundant force-sync.
         if (msg && msg.type === 'sync_check') {
             bumpInboundDiag('sync_check');
+            noteIncomingEnvelope();
             AlarmStore.getAll(function (items) {
                 var hash = AlarmHash.compute(items);
                 Logger.i('incoming.sync_check responding hash=' + hash + ' n=' + items.length);
@@ -200,6 +276,7 @@ export default {
         // means "follow watch system locale".
         if (msg && msg.type === 'settings_changed') {
             bumpInboundDiag('settings_changed');
+            noteIncomingEnvelope();
             var u = (msg.use24Hour === true || msg.use24Hour === false) ? msg.use24Hour : null;
             var d = (typeof msg.firstDayOfWeek === 'number' && isFinite(msg.firstDayOfWeek))
                 ? msg.firstDayOfWeek : null;
@@ -226,12 +303,18 @@ export default {
                 Logger.w('incoming.add-or-update missing alarm');
                 return;
             }
+            noteIncomingEnvelope();
             applyAddOrUpdate(msg);
         } else if (type === 'alarm_deleted') {
+            noteIncomingEnvelope();
             applyDelete(msg);
         } else if (type === 'alarm_toggled') {
+            noteIncomingEnvelope();
             applyToggle(msg);
         } else if (type === 'alarm_fired') {
+            // alarm_fired has its own dedicated UX (ring page); skip the
+            // sync screen + drain-terminate. The ring page's own onHide /
+            // dismiss / snooze paths own the eventual termination.
             if (onAlarmFired) onAlarmFired(msg.alarmId);
         } else if (type === 'alarm_dismissed' || type === 'alarm_snoozed') {
             Logger.i('incoming.peer-ended type=' + type + ' id=' + msg.alarmId);

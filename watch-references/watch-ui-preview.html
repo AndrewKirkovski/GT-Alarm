@@ -286,6 +286,46 @@
   }
   .btn-snooze   { background-color: #374151; }
   .btn-dismiss  { background-color: #B91C1C; }
+
+  /* ---------------- SYNCING page CSS ---------------- */
+  /* Mirrors watch-app/.../pages/syncing/syncing.css. Used during the
+     wake-by-sync grace window — phone-driven cold launch shows this
+     while applying inbound envelopes, then app.terminate()s. */
+  .syncing-container {
+    width: 466px;
+    height: 466px;
+    background-color: #0F0F23;
+  }
+  .syncing-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 466px;
+    height: 466px;
+    background-color: #0F0F23;
+  }
+  .syncing-title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 340px;
+    height: 40px;
+    color: #FFFFFF;
+    font-size: 28px;
+    text-align: center;
+  }
+  .syncing-subtitle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 340px;
+    height: 30px;
+    margin-top: 12px;
+    color: #8A8AA8;
+    font-size: 20px;
+    text-align: center;
+  }
 </style>
 </head>
 <body>
@@ -399,6 +439,19 @@
           </div>
           <div class="diag-line">Last sync: 1 min ago</div>
           <div class="diag-line">store rd:3 wr:0</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <div class="panel">
+    <div class="panel-label">Syncing page (wake-by-sync)</div>
+    <div class="watch">
+      <div class="syncing-container">
+        <div class="syncing-content">
+          <div class="syncing-title">Syncing alarms</div>
+          <div class="syncing-subtitle">…</div>
         </div>
       </div>
     </div>

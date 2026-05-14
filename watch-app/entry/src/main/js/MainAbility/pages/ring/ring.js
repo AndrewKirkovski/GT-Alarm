@@ -1,3 +1,4 @@
+import app from '@system.app';
 import router from '@system.router';
 import storage from '@system.storage';
 import vibrator from '@system.vibrator';
@@ -8,6 +9,26 @@ import Logger from '../../common/logger.js';
 
 var VIBRATE_INTERVAL_MS = 1500;
 var DOW_NONE = 0;
+// Grace before app.terminate() after dismiss/snooze. Tuned to cover:
+//   (a) WearBridge.notifyDismissed/Snoozed Wear Engine ack (~500–1000 ms)
+//   (b) async storage.get for PEER_END_KEY in onHide
+//   (c) best-effort one-shot auto-disable AlarmStore.update in onDismiss
+// Same value as DRAIN_QUIESCENCE_MS in incomingHandler for consistency.
+var TERMINATE_AFTER_ACTION_MS = 1500;
+var _terminateScheduled = false;
+
+function scheduleTerminate(reason) {
+    if (_terminateScheduled) return;
+    _terminateScheduled = true;
+    setTimeout(function () {
+        Logger.i('ring.terminate reason=' + reason);
+        try {
+            app.terminate();
+        } catch (e) {
+            Logger.err('ring.app.terminate threw', e);
+        }
+    }, TERMINATE_AFTER_ACTION_MS);
+}
 // Re-attempt the alarm-row lookup once after this delay if it wasn't found
 // on first try. The alarm_fired envelope and the alarm_added envelope come
 // over the same P2P channel but can be processed out of order if the watch
@@ -218,6 +239,10 @@ export default {
         this.stopVibrate();
         var explicit = this._explicitAction;
         var alarmId = Number(this.alarmId);
+        // Whatever the close reason — local tap, side button, peer-ended —
+        // the ring screen is transient. Self-terminate after the action
+        // bursts (notify ack, storage callback, auto-disable) settle.
+        scheduleTerminate('onHide');
         if (explicit || !isFinite(alarmId) || alarmId <= 0) return;
         // Async storage read for the peer-ended marker. We're already
         // exiting the page; the read happens off the lifecycle path
@@ -291,6 +316,10 @@ export default {
         } catch (e) {
             Logger.err('ring.dismiss router.replace threw', e);
         }
+        // onHide also schedules a terminate, but explicit call here is a
+        // safety net: if router.replace threw before onHide could fire we
+        // still want the app to close.
+        scheduleTerminate('dismiss');
         // Best-effort one-shot auto-disable. Runs after navigation; if
         // storage is broken this silently does nothing.
         AlarmStore.getAll(function (items) {
@@ -332,5 +361,6 @@ export default {
         } catch (e) {
             Logger.err('ring.snooze router.replace threw', e);
         }
+        scheduleTerminate('snooze');
     },
 };
