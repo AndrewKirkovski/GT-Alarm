@@ -47,6 +47,13 @@ var _appStartMs = 0;
 var _wokenForSync = false;
 var _drainTimer = null;
 var _navigatedToSyncing = false;
+// Once an alarm_fired routes the user to the ring page, the ring page
+// owns the rest of the process lifetime (its own onDismiss/onSnooze/onHide
+// schedule app.terminate after the action settles). Any later envelope
+// (sync_check piggybacking on the fire wake, alarm_added for a different
+// row, etc.) MUST NOT router.replace to the syncing page or arm a drain
+// timer — both would tear down the ring screen mid-alarm.
+var _ringActive = false;
 
 // Cross-bundle-shared diagnostic counter for inbound P2P messages. Per
 // gotcha #11, app.js and pages/*.js have isolated module state, so a
@@ -91,14 +98,49 @@ function markAppStart() {
     _appStartMs = Date.now();
     _wokenForSync = false;
     _navigatedToSyncing = false;
+    _ringActive = false;
+}
+
+// Called from the alarm_fired branch when the ring page takes over the
+// process. Disarms any pending drain timer and latches _ringActive so
+// later sync envelopes don't try to route us back to the syncing page
+// or terminate while the user is mid-alarm.
+function markRingActive() {
+    _ringActive = true;
+    if (_drainTimer !== null) {
+        clearTimeout(_drainTimer);
+        _drainTimer = null;
+    }
+}
+
+// Arms / re-arms the drain quiescence timer. Burst of N envelopes
+// resets to the last + DRAIN_QUIESCENCE_MS. Pulled out of
+// noteIncomingEnvelope so alarm_dismissed / alarm_snoozed (which never
+// route to the syncing page) can still arm the drain.
+function armDrain() {
+    if (_ringActive) return;
+    if (_drainTimer !== null) clearTimeout(_drainTimer);
+    _drainTimer = setTimeout(function () {
+        Logger.i('incoming.drain-quiesced — app.terminate()');
+        try {
+            app.terminate();
+        } catch (e) {
+            // Per local SDK research, app.terminate is void with no
+            // documented throw path; if it ever does, the process is
+            // dying anyway. Log for diagnostic completeness.
+            Logger.err('incoming.app.terminate threw', e);
+        }
+    }, DRAIN_QUIESCENCE_MS);
 }
 
 // Routes to the syncing page on the first state-mutation envelope within
 // the grace window, and arms / re-arms the drain timer so the burst can
 // settle before app.terminate(). No-op when the user is already using
-// the app (envelope arrived after grace).
+// the app (envelope arrived after grace) or when the ring page owns the
+// foreground (markRingActive was called).
 function noteIncomingEnvelope() {
     if (_appStartMs === 0) return;
+    if (_ringActive) return;
     var elapsed = Date.now() - _appStartMs;
     if (!_wokenForSync) {
         if (elapsed > WAKE_SYNC_GRACE_MS) {
@@ -115,20 +157,7 @@ function noteIncomingEnvelope() {
             Logger.err('incoming.route-syncing failed', e);
         }
     }
-    // Re-arm the drain quiescence timer on every envelope. Burst of N
-    // envelopes resets to the last + DRAIN_QUIESCENCE_MS.
-    if (_drainTimer !== null) clearTimeout(_drainTimer);
-    _drainTimer = setTimeout(function () {
-        Logger.i('incoming.drain-quiesced — app.terminate()');
-        try {
-            app.terminate();
-        } catch (e) {
-            // Per local SDK research, app.terminate is void with no
-            // documented throw path; if it ever does, the process is
-            // dying anyway. Log for diagnostic completeness.
-            Logger.err('incoming.app.terminate threw', e);
-        }
-    }, DRAIN_QUIESCENCE_MS);
+    armDrain();
 }
 
 // Stamp the AlarmStore's last-sync-epoch whenever any peer-driven mutation
@@ -312,15 +341,23 @@ export default {
             noteIncomingEnvelope();
             applyToggle(msg);
         } else if (type === 'alarm_fired') {
-            // alarm_fired has its own dedicated UX (ring page); skip the
-            // sync screen + drain-terminate. The ring page's own onHide /
-            // dismiss / snooze paths own the eventual termination.
+            // Ring page takes over: cancel any in-flight drain timer and
+            // latch _ringActive so a piggybacked sync envelope can't
+            // router.replace us off the ring screen or terminate
+            // mid-alarm. The ring page's own onHide/dismiss/snooze paths
+            // own the eventual app.terminate.
+            markRingActive();
             if (onAlarmFired) onAlarmFired(msg.alarmId);
         } else if (type === 'alarm_dismissed' || type === 'alarm_snoozed') {
             Logger.i('incoming.peer-ended type=' + type + ' id=' + msg.alarmId);
             // If our ring page is showing for this alarm, close it. The
             // callback is a no-op when no ring is active (see app.js).
             if (onPeerEndedRing) onPeerEndedRing(msg.alarmId);
+            // Arm drain (without routing to syncing) so a watch woken
+            // purely by a peer-ended envelope — no preceding ring — still
+            // self-closes. When ring WAS active, ring.scheduleTerminate
+            // covers it; the two terminates dedupe at the process level.
+            armDrain();
         } else {
             Logger.w('incoming.unknown-type ' + type);
         }

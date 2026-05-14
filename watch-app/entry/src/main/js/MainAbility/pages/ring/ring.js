@@ -16,11 +16,12 @@ var DOW_NONE = 0;
 // Same value as DRAIN_QUIESCENCE_MS in incomingHandler for consistency.
 var TERMINATE_AFTER_ACTION_MS = 1500;
 var _terminateScheduled = false;
+var _terminateTimer = null;
 
 function scheduleTerminate(reason) {
     if (_terminateScheduled) return;
     _terminateScheduled = true;
-    setTimeout(function () {
+    _terminateTimer = setTimeout(function () {
         Logger.i('ring.terminate reason=' + reason);
         try {
             app.terminate();
@@ -28,6 +29,18 @@ function scheduleTerminate(reason) {
             Logger.err('ring.app.terminate threw', e);
         }
     }, TERMINATE_AFTER_ACTION_MS);
+}
+
+// Called from onShow so a fresh ring entry (back-to-back fires within
+// the 1.5 s grace window of a prior dismiss) clears any pending terminate.
+// Without this the older alarm's pending app.terminate would fire on the
+// freshly-shown ring page.
+function cancelTerminate() {
+    if (_terminateTimer !== null) {
+        clearTimeout(_terminateTimer);
+        _terminateTimer = null;
+    }
+    _terminateScheduled = false;
 }
 // Re-attempt the alarm-row lookup once after this delay if it wasn't found
 // on first try. The alarm_fired envelope and the alarm_added envelope come
@@ -192,8 +205,10 @@ export default {
     onShow: function () {
         Logger.i('ring.onShow alarmId=' + this.alarmId);
         // Fresh ring lifecycle — clear any prior explicit-action marker
-        // so onHide's implicit-snooze fallback is armed.
+        // so onHide's implicit-snooze fallback is armed, and cancel any
+        // pending terminate left over from a back-to-back prior dismiss.
         this._explicitAction = null;
+        cancelTerminate();
         // Tell the phone our ring UI is up. Phone awaits this reply
         // before starting its own audio so the two devices ring in
         // sync. Fire-and-retry — phone falls back to ringing alone if
