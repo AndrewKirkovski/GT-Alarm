@@ -13,7 +13,7 @@ var PEER_END_KEY = 'ring_peer_ended_at_ms';
 // Build tag — bump when the HAP is rebuilt for a fresh hardware test.
 // Lite Wearable has no equivalent of PackageInfo.versionName at runtime,
 // so this is the cheapest way to know which HAP is on the watch.
-var BUILD_TAG = '0.1.0/2026-05-12-oneoff';
+var BUILD_TAG = '0.1.0/2026-05-14-close-after-sync';
 
 export default {
     onCreate: function () {
