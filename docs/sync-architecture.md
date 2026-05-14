@@ -292,6 +292,35 @@ T+5.1s  Watch receives { type: "alarm_snoozed", alarmId, updatedAtEpoch, resched
 T+10min Phone's AlarmManager fires (the rescheduled trigger). Loop returns to §4.1.
 ```
 
+**Variant — snooze on a snooze-disabled alarm (Phase 5a+):**
+
+```
+Watch sends { type: "alarm_snoozed", alarmId, ... }.
+Phone IncomingMessageHandler.applySnooze:
+  – reads local row → alarm.isSnoozeEnabled == false (snoozeMinutes == 0)
+  – DOES NOT schedule a 0-minute re-fire
+  – dispatchDismissFromPeer(alarmId): hands a DISMISS intent (with
+    EXTRA_FROM_PEER=true) to AlarmRingService
+  – AlarmRingService.handleDismiss runs the regular dismiss-side
+    transitions (DELETE for selfDestruct, DISABLE for one-shot,
+    KEEP for recurring), suppresses the outbound dismiss broadcast
+    (fromPeer == true, peer's UI already moved on)
+
+Symmetric variant — user taps stale Snooze action on phone
+notification AFTER snooze was disabled in edit:
+  AlarmRingService.handleSnooze reads alarm.isSnoozeEnabled == false
+  → calls handleDismiss(fromPeer=false). The outbound dismiss broadcast
+    DOES fire so the watch stops ringing too.
+```
+
+**Process-kill-resilience rule for both handlers:** local Room write
+(`repository.snoozeAt` or `dismissAction → setEnabled / delete`) commits
+BEFORE the wear broadcast. If the OS reaps the FGS between the two, the
+phone DB is consistent and the watch self-heals on the next sync hash
+check. Concurrent `handleSnooze` + `handleDismiss` are serialized by
+`AlarmRingService.handlerMutex` to prevent contradictory partial commits
+(`enabled=false` AND `snoozedUntilEpoch != null`).
+
 **Snooze on watch (asymmetric — phone owns duration):** watch's ring page Snooze tap sends `{ type: "alarm_snoozed", alarmId, updatedAtEpoch }` — no `rescheduleEpoch`. The phone's `IncomingMessageHandler.applySnooze` looks up the local `Alarm.snoozeMinutes` for that id, computes `trigger = now + minutes·60_000`, and dispatches the from-peer snooze intent to `AlarmRingService` (which calls `repository.snoozeAt(trigger)` to schedule without echoing the broadcast). This keeps the per-alarm snooze duration authoritative on the phone — the watch is a thin trigger surface and never picks the reschedule time.
 
 ### 4.3 — Edit on phone, mirror to watch (display-only)

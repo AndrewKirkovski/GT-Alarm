@@ -447,7 +447,10 @@ private fun loadSampledBitmap(context: Context, uriString: String): Bitmap? {
             BitmapFactory.decodeStream(input, null, decodeOpts)
         }
     }.onFailure { e ->
-        Log.w(TAG, "loadSampledBitmap failed for $uriString: ${e::class.simpleName}: ${e.message}")
+        // Log only URI scheme, never the full content-URI: SAF URIs may
+        // embed user-visible filenames.
+        val scheme = runCatching { uriString.toUri().scheme }.getOrNull() ?: "unknown"
+        Log.w(TAG, "loadSampledBitmap failed scheme=$scheme: ${e::class.simpleName}: ${e.message}")
     }.getOrNull()
 }
 

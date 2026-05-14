@@ -147,7 +147,12 @@ internal object WearJsonCodec {
         val rawSnooze = j.optInt("snoozeMinutes", Alarm.DEFAULT_SNOOZE_MINUTES)
         return Alarm(
             id = envelopeAlarmId,
-            label = j.optString("label", ""),
+            // Truncate label to the domain cap so a peer pushing an
+            // oversized string can't violate Alarm.init's require() and
+            // crash the receiver. We choose truncate-over-reject for label
+            // specifically because it's user-facing display text — losing
+            // a tail is better than dropping the whole alarm.
+            label = j.optString("label", "").take(Alarm.MAX_LABEL_LENGTH),
             hour = j.getInt("hour"),
             minute = j.getInt("minute"),
             daysOfWeek = daysOfWeek,

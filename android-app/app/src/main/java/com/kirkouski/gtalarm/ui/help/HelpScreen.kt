@@ -1,10 +1,13 @@
-// reason: HelpScreen is the central UI for both reliability setup AND voice
-// help. 16 top-level helpers = the screen itself + 6 small composables (status
+// reason: HelpScreen is the central UI for both reliability setup, voice
+// help, and the donate / device-unsupported / credits surfaces. ~18
+// top-level helpers = the screen itself + ~8 small composables (status
 // dot, permission row, status banner, action card, debug card, brand tips
-// card, section header) + 4 brand-to-resource lookups + 2 deep-link helpers
-// + hasUnresolvedSetup. Splitting into multiple files would hide the linear
-// dependency on PermissionAudit + DeviceBrand enums for no reuse — every
-// helper is referenced exactly once, from inside the screen.
+// card, section header, credits footer) + 4 brand-to-resource lookups +
+// 3 deep-link helpers (openDefaultAppsSettings, openExternalUrl,
+// startActivitySafely) + hasUnresolvedSetup. Splitting into multiple
+// files would hide the linear dependency on PermissionAudit + DeviceBrand
+// enums for no reuse — every helper is referenced exactly once, from
+// inside the screen.
 @file:Suppress("TooManyFunctions")
 
 package com.kirkouski.gtalarm.ui.help

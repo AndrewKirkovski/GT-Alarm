@@ -128,6 +128,10 @@ android {
 
     buildFeatures {
         compose = true
+        // BuildConfig: enables BuildConfig.DEBUG gate in DatabaseModule so
+        // destructive migration is debug-only. Release builds get strict
+        // migrations.
+        buildConfig = true
     }
 
     packaging {

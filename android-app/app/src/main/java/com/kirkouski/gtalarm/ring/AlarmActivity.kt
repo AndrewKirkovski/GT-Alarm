@@ -146,7 +146,12 @@ class AlarmActivity : ComponentActivity() {
             this.action = action
             putExtra(AlarmRingService.EXTRA_ALARM_ID, alarmId)
         }
-        lifecycleScope.launch { startService(intent) }
+        // Synchronous startService — wrapping in lifecycleScope.launch raced
+        // with finishAndRemoveTask: lifecycleScope cancels on Activity destroy,
+        // so if the cancellation won the next-main-loop tick race the
+        // startService never ran and the alarm kept ringing on the watch.
+        // startService is non-suspending and safe to call from the main thread.
+        startService(intent)
         finishAndRemoveTask()
     }
 

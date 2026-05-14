@@ -168,6 +168,22 @@ class WearJsonCodecTest {
     }
 
     @Test
+    fun `parseAlarm truncates oversize label to Alarm MAX_LABEL_LENGTH`() {
+        // A compromised / buggy peer could push a multi-megabyte label and
+        // crash Alarm's init validator. parseAlarm truncates instead of
+        // rejecting because label is user-facing display text — losing a
+        // tail is better than dropping the whole alarm.
+        val huge = "x".repeat(Alarm.MAX_LABEL_LENGTH + 100)
+        val payload = JSONObject().apply {
+            put("id", 5L); put("hour", 7); put("minute", 0); put("enabled", true); put("label", huge)
+        }
+        val msg = WearJsonCodec.parseIncoming(JSONObject().apply {
+            put("type", "alarm_added"); put("alarmId", 5L); put("updatedAtEpoch", 1L); put("alarm", payload)
+        }) as IncomingMessage.AlarmAdded
+        assertEquals(Alarm.MAX_LABEL_LENGTH, msg.alarm.label.length)
+    }
+
+    @Test
     fun `alarm_updated treats null audioUri as null on the parsed Alarm`() {
         val alarm = JSONObject().apply {
             put("id", 5L)

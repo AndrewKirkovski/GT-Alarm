@@ -21,6 +21,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -33,6 +35,14 @@ class AlarmRingService : Service() {
 
     private val serviceScope by lazy { CoroutineScope(SupervisorJob() + ioDispatcher) }
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    // Serializes handleDismiss and handleSnooze. Both can race on
+    // ACTION_DISMISS arriving while ACTION_SNOOZE is mid-flight (or the
+    // reverse): user taps Snooze on phone notification, watch's dismiss
+    // envelope races in via peer; without serialization the row could end
+    // up with enabled=false AND snoozedUntilEpoch set, a contradictory
+    // state. Mutex blocks the second handler until the first commits.
+    private val handlerMutex = Mutex()
 
     private var player: AlarmAudioPlayer? = null
     private var currentAlarmId: Long = -1L
@@ -317,27 +327,33 @@ class AlarmRingService : Service() {
         autoStopRunnable = null
 
         serviceScope.launch {
-            if (!fromPeer) {
-                val acked = wearBridge.sendAlarmDismissedAwaiting(alarmId, BROADCAST_AWAIT_MS)
-                Log.i(TAG, "dismiss broadcast id=$alarmId acked=$acked")
-            }
-            val alarm = repository.getById(alarmId)
-            when (dismissAction(alarm)) {
-                DismissAction.KEEP -> Unit
-                DismissAction.DISABLE -> {
-                    if (fromPeer) {
-                        repository.setEnabledLocalOnly(alarmId, false)
-                    } else {
-                        repository.setEnabled(alarmId, false)
+            handlerMutex.withLock {
+                // Commit local truth FIRST, then broadcast. If the OS kills
+                // us between the two, the watch can recover via the next
+                // sync hash mismatch; the phone DB can't recover its own
+                // inconsistent state, so it gets priority.
+                val alarm = repository.getById(alarmId)
+                when (dismissAction(alarm)) {
+                    DismissAction.KEEP -> Unit
+                    DismissAction.DISABLE -> {
+                        if (fromPeer) {
+                            repository.setEnabledLocalOnly(alarmId, false)
+                        } else {
+                            repository.setEnabled(alarmId, false)
+                        }
+                    }
+                    DismissAction.DELETE -> {
+                        // Tombstone + propagation via repository.delete().
+                        // Idempotent on the peer if it also originated this
+                        // dismiss (the alarm_dismissed envelope already told
+                        // the watch it's done; the alarm_deleted that delete()
+                        // sends back is a redundant-but-harmless cleanup).
+                        repository.delete(alarmId)
                     }
                 }
-                DismissAction.DELETE -> {
-                    // Tombstone + propagation via repository.delete().
-                    // Idempotent on the peer if it also originated this
-                    // dismiss (the alarm_dismissed envelope already told
-                    // the watch it's done; the alarm_deleted that delete()
-                    // sends back is a redundant-but-harmless cleanup).
-                    repository.delete(alarmId)
+                if (!fromPeer) {
+                    val acked = wearBridge.sendAlarmDismissedAwaiting(alarmId, BROADCAST_AWAIT_MS)
+                    Log.i(TAG, "dismiss broadcast id=$alarmId acked=$acked")
                 }
             }
             stopForegroundAndSelf()
@@ -355,42 +371,48 @@ class AlarmRingService : Service() {
         autoStopRunnable = null
 
         serviceScope.launch {
-            if (fromPeer) {
-                if (rescheduleEpochFromPeer > 0L) {
-                    repository.snoozeAt(alarmId, rescheduleEpochFromPeer)
+            // Read the row OUTSIDE the Mutex to decide whether to collapse to
+            // dismiss. `snoozeMinutes` is a config field; it doesn't race
+            // against the dismiss path (which mutates `enabled` /
+            // `snoozedUntilEpoch`), so the read is safe without locking.
+            val alarm = repository.getById(alarmId)
+            if (alarm == null) {
+                Log.w(TAG, "snooze id=$alarmId — row missing, skipping")
+                stopForegroundAndSelf()
+                return@launch
+            }
+            if (!fromPeer && !alarm.isSnoozeEnabled) {
+                // Snooze was disabled on this alarm — stale notification
+                // action button was tapped. Treat as a dismiss: from the
+                // user's perspective the alarm went silent, and we need
+                // the dismiss-side state transitions (self-destruct DELETE,
+                // recurring DISABLE if applicable, snoozedUntilEpoch=null)
+                // to actually commit. handleDismiss owns its own launch +
+                // Mutex acquisition; calling it from here just schedules the
+                // dismiss coroutine and returns — Mutex serializes the two.
+                Log.i(TAG, "snooze id=$alarmId — snooze disabled, collapsing to dismiss")
+                handleDismiss(alarmId, fromPeer = false)
+                return@launch
+            }
+            handlerMutex.withLock {
+                // Commit local truth FIRST, then broadcast — matches
+                // handleDismiss ordering so a process kill between the two
+                // leaves the phone consistent; the watch recovers via the
+                // next sync hash mismatch.
+                val trigger = if (fromPeer && rescheduleEpochFromPeer > 0L) {
+                    rescheduleEpochFromPeer
+                } else {
+                    System.currentTimeMillis() + alarm.snoozeMinutes * 60_000L
                 }
-            } else {
-                // Each alarm carries its own snooze duration. Compute the
-                // trigger ourselves so we can broadcast to the watch BEFORE
-                // tearing down the service (repository.snooze would also
-                // broadcast but as fire-and-forget — at risk of being
-                // killed mid-flight if the OS reaps the process).
-                val alarm = repository.getById(alarmId)
-                if (alarm == null) {
-                    Log.w(TAG, "snooze id=$alarmId — row missing, skipping")
-                    stopForegroundAndSelf()
-                    return@launch
-                }
-                if (!alarm.isSnoozeEnabled) {
-                    // Snooze was disabled on this alarm — reaches here only via
-                    // a stale notification action posted before the user turned
-                    // it off. Collapse to a real dismiss so the watch stops
-                    // ringing AND self-destruct / disable / delete actions run;
-                    // otherwise the watch keeps ringing and the row stays in
-                    // an inconsistent state. handleDismiss owns its own
-                    // stopForegroundAndSelf().
-                    Log.i(TAG, "snooze id=$alarmId — snooze disabled, collapsing to dismiss")
-                    handleDismiss(alarmId, fromPeer = false)
-                    return@launch
-                }
-                val trigger = System.currentTimeMillis() + alarm.snoozeMinutes * 60_000L
-                val acked = wearBridge.sendAlarmSnoozedAwaiting(
-                    alarmId,
-                    trigger,
-                    BROADCAST_AWAIT_MS,
-                )
-                Log.i(TAG, "snooze broadcast id=$alarmId acked=$acked trigger=$trigger")
                 repository.snoozeAt(alarmId, trigger)
+                if (!fromPeer) {
+                    val acked = wearBridge.sendAlarmSnoozedAwaiting(
+                        alarmId,
+                        trigger,
+                        BROADCAST_AWAIT_MS,
+                    )
+                    Log.i(TAG, "snooze broadcast id=$alarmId acked=$acked trigger=$trigger")
+                }
             }
             stopForegroundAndSelf()
         }
@@ -411,6 +433,13 @@ class AlarmRingService : Service() {
         stopSelf()
     }
 
+    // onDestroy: `serviceScope.cancel()` is non-blocking. If the OS reaps the
+    // service while a handler is mid-DB-write (Room transactions usually <10ms
+    // but tombstone+broadcast chains can take longer), the write may be
+    // truncated. Trade-off accepted: blocking onDestroy violates the Service
+    // lifecycle contract; non-blocking is the correct call. Critical writes
+    // are committed BEFORE the broadcast (see handleDismiss/handleSnooze
+    // ordering) so the phone DB stays consistent even on mid-flight kill.
     override fun onDestroy() {
         serviceScope.cancel()
         player?.stop()

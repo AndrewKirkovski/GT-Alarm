@@ -243,6 +243,21 @@ class AlarmRepositoryTest {
     }
 
     @Test
+    fun `snooze without override on snoozeMinutes=0 alarm returns null and does not broadcast`() = runTest {
+        // Regression test: a 0-minute "snooze" would compute trigger = now + 0
+        // and immediately re-fire the alarm. The guard rejects the call.
+        dao.upsert(AlarmEntity(id = 13L, label = "Off", hour = 8, minute = 0, daysOfWeek = 0,
+            enabled = true, audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L,
+            snoozeMinutes = 0))
+
+        val trigger = repo.snooze(13L)
+
+        assertNull(trigger)
+        verify(exactly = 0) { scheduler.scheduleAt(any(), any()) }
+        verify(exactly = 0) { wearBridge.sendAlarmSnoozed(any(), any()) }
+    }
+
+    @Test
     fun `observeAlarms emits mapped domain objects`() = runTest {
         dao.upsert(AlarmEntity(id = 1L, label = "A", hour = 7, minute = 0, daysOfWeek = 0,
             enabled = true, audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 5L))

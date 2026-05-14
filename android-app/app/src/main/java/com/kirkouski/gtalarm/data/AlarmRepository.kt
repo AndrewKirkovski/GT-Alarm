@@ -318,10 +318,14 @@ class AlarmRepository @Inject constructor(
     }
 
     private suspend fun handleMissedDuringDowntime(alarm: Alarm) {
+        // labelLen instead of label content: alarm labels can be PII
+        // ("Doctor's appointment", "Job interview"); logcat is readable by
+        // certain system contexts. Length + has-label flag is enough for
+        // diagnostics without leaking the string.
         Log.i(
             TAG,
             "missedDuringDowntime id=${alarm.id} target=${alarm.computedFireEpoch()} " +
-                "label='${alarm.label}'",
+                "labelLen=${alarm.label.length}",
         )
         AlarmNotifications.postMissedNotification(appContext, alarm)
         // Self-destruct semantics: relative alarms with a downtime miss are

@@ -86,7 +86,7 @@ Do not implement against memory of how an API used to work. APIs change.
 ## ANDROID APP — `com.kirkouski.gtalarm`
 
 ### Alarm management
-- 🟡 Create alarm: time, label, days-of-week, audio URI, vibration-only flag, snooze duration — `AlarmEditScreen`
+- 🟡 Create alarm: time, label, days-of-week, audio URI, vibration-only flag, snooze duration (incl. "Off" preset for snooze-disabled), background image — `AlarmEditScreen`. Time picker is `PickTime-Compose 1.1.6` wheel/odometer (from JitPack `com.github.anhaki`, Apache-2.0). Label is truncated to `Alarm.MAX_LABEL_LENGTH = 256` characters by `WearJsonCodec.parseAlarm` on receive (peer protection); domain `Alarm.init` enforces the same cap. (Phase 5a+, 2026-05-14.)
 - 🟡 Edit any field — `AlarmEditViewModel.load`
 - 🟡 Edit-screen reverse-save model: every field mutation writes to DB immediately via `AlarmRepository.saveLocalOnly` (no watch broadcast); top-bar Revert restores the open-time snapshot; exit triggers a single batched `pushAlarmToWatch` for all touched rows. **Why:** keeps the watch's P2P feed quiet during a multi-second edit instead of N redundant pushes per keystroke. Phone stays the source of truth — a process kill mid-edit just leaves the watch one sync behind; the force-sync hash precheck catches it. (Phase 5b post-review rework, 2026-05-12.)
 - 🟡 Confirmation dialog on destructive actions: edit-screen Delete (existing alarm), edit-screen Discard (new draft), list swipe-to-delete. Swipe cancel resets `SwipeToDismissBoxState` so the row snaps back. (Phase 5b post-review rework.)
@@ -126,7 +126,9 @@ Do not implement against memory of how an API used to work. APIs change.
 ### Dismiss & snooze
 - 🟡 Dismiss from full-screen activity (primary button) and from notification action
 - 🟡 Snooze duration is configurable **per alarm** (`Alarm.snoozeMinutes`, range 1–60, default 10). The full-screen activity and notification action both call `AlarmRingService.handleSnooze`, which calls `AlarmRepository.snooze(id)` with no minutes override, causing the repo to read the alarm's own `snoozeMinutes` value. The edit screen exposes a preset chip row (1 / 5 / 10 / 30 min) and persists the choice via Room migration v3. Watch ring page reads the same field from its local `AlarmStore` copy of the alarm and uses it for the `rescheduleEpoch` it sends back to the phone. Wire format `alarm` payload carries `snoozeMinutes` on add/update/toggle.
+- 🟡 Snooze can be **disabled** per alarm: `Alarm.snoozeMinutes == Alarm.SNOOZE_DISABLED (0)` means the ring UI (`AlarmActivity` + heads-up notification) hides the Snooze button entirely. Edit screen exposes an "Off" chip as the first preset. Wire format preserves `0` end-to-end (`WearJsonCodec.parseAlarm` sentinel ladder: `<=0 → 0`, else clamp `[1,60]`). Peer-initiated snooze on a locally-disabled alarm collapses to a dismiss in `IncomingMessageHandler.applySnooze` to prevent a phantom 0-minute re-fire. `AlarmRepository.snooze` guards with an explicit `<= 0` early-return for the same reason. (Phase 5a+, 2026-05-14.)
 - 🟡 Snooze reuses `alarm.id` as `PendingIntent` `requestCode` so a second snooze cancels the first
+- 🟡 Concurrent `handleSnooze` / `handleDismiss` on `AlarmRingService` are serialized via `handlerMutex` so the row can't end up with `enabled=false` AND `snoozedUntilEpoch` set. Both handlers commit local truth (Room write) BEFORE the wear broadcast: a process kill between the two leaves the phone consistent and the watch recovers via the next sync hash mismatch. (Phase 5a+ review fix, 2026-05-14.)
 
 ### Audio picker
 - 🟡 SAF-based picker filtered to `audio/*` — `ActivityResultContracts.OpenDocument`
@@ -139,6 +141,12 @@ Do not implement against memory of how an API used to work. APIs change.
 - 🟡 "No alarms" empty state
 - 🟡 Tap "Add alarm" → deep link `gtalarm://add` → `MainActivity` with `screen=add` extra
 - 🟡 Widget refresh within 1 minute of any mutation — `AlarmRepository.refreshWidgets()` (via `WidgetRefresher` interface; `GlanceWidgetRefresher` impl) iterates `GlanceAppWidgetManager(ctx).getGlanceIds(NextAlarmGlanceWidget::class.java)` and calls `widget.update(ctx, glanceId)` per id (NOT `updateAll`). Wired into save/setEnabled/delete/snooze. Verified via `AlarmRepositoryTest` mock-asserts `widgetRefresher.refresh()` called on every mutation. (Phase 3b.2, 2026-04-25.)
+
+### Help screen surfaces (Phase 5a+, 2026-05-14)
+- 🟡 Reliability checklist + per-brand tips + voice-default banner + pair-watch card + debug card (existing).
+- 🟡 **Donate card**: `ActionCard` linking to `https://ko-fi.com/ryotsuke` via `Intent.ACTION_VIEW`. Address #90.
+- 🟡 **Device-unsupported card**: problem-first ordering, ABOVE the donate card. Links to `mailto:ryotsuke+gtalarm@gmail.com?subject=GT%20Alarm%20-%20Device%20support`. Address #91.
+- 🟡 **Credits footer**: clickable Flaticon attribution → `https://www.flaticon.com/authors/pixel-perfect`. (Phase 5a+ icon migration #105.) **LEGAL GAP**: current `icons/attribution.txt` credits only Pixel-perfect smartwatch glyphs. The 16 wired drawables span snooze, repeat, tag, music-note, vibration, info, warning, settings, timer, delete, image, help, watch, alarm-off, watch-off, delete-forever. Flaticon's free license requires per-pack/author attribution; full credit per-icon must be added pre-Play-Store. Tracked in "KNOWN GAPS TO CLOSE NEXT → Android".
 
 ### Permissions (manifest + runtime)
 **Permissions in manifest:**
@@ -154,6 +162,7 @@ Do not implement against memory of how an API used to work. APIs change.
 
 **Runtime checks on cold start (`MainActivity.onCreate`):**
 - 🟡 `NotificationManager.canUseFullScreenIntent()` (API 34+); if false, surface a non-blocking card linking to `Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT`
+- 🟡 FSI auto-deeplink on first launch when `PermissionAudit.checkFullScreenIntent` (AppOps `MODE_ALLOWED` — bypasses Samsung's `MODE_DEFAULT` silent-drop) reports DENIED. One-shot via `OnboardingState.fsiPromptShown()` (SharedPreferences, `commit=true` so the marker survives the deeplink). Subsequent launches rely on the in-app Setup banner. (Phase 5a+, 2026-05-14, addresses #73.)
 - 🟡 `POST_NOTIFICATIONS` runtime request (API 33+)
 - 🟡 Samsung-specific battery-optimisation rationale — `BatteryOptRationaleCard` in `AlarmListScreen` shows when `PowerManager.isIgnoringBatteryOptimizations(packageName)` is false AND user hasn't dismissed it (`OnboardingState`-backed). Tap opens `Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` directly (falls back to `ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS` list). Manifest declares `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (alarm-clock category exemption). Lint suppression in `lint.xml` documents the policy basis. (Phase 3b.4, 2026-04-26.)
 
@@ -406,6 +415,11 @@ i18n is not "wrap a few strings"; it's an end-to-end contract. Both apps must en
 ## KNOWN GAPS TO CLOSE NEXT
 
 ### Android
+0. ❌ **Pre-release legal/correctness backlog (Phase 5a+, 2026-05-14):**
+   - **Flaticon per-icon attribution.** `icons/attribution.txt` covers only smartwatch glyphs; the other 14 wired drawables (snooze, repeat, tag, music-note, vibration, info, warning, settings, timer, delete, image, help, alarm-off, watch-off, delete-forever) need per-author/per-pack credit OR replacement with single-pack content. Pre-Play-Store legal exposure.
+   - **`DatabaseModule.fallbackToDestructiveMigration` debug-gated** via `BuildConfig.DEBUG` (Phase 5a+ review fix). Add a verification test for the release-build behavior (Room must throw IllegalStateException on schema mismatch).
+   - **Proper Migration v8→vN** for first post-release schema bump. Destructive fallback is acceptable while pre-release per `phase_3_4_landings.md` policy.
+
 1. 🟡 One-off auto-disable after firing — `AlarmRingService.handleDismiss` flips when `daysOfWeek == 0` (Phase 3b.1, 2026-04-25)
 2. 🟡 Swipe-to-delete in `AlarmListScreen` — `SwipeToDismissBox` wired (Phase 3b.3, 2026-04-25)
 3. 🟡 Widget `update(ctx, glanceId)` from each `AlarmRepository` mutation — via `WidgetRefresher` interface (Phase 3b.2, 2026-04-25)

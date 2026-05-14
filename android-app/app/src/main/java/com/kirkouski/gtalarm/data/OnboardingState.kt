@@ -30,7 +30,12 @@ class OnboardingState @Inject constructor(
         prefs.getBoolean(KEY_FSI_PROMPT_SHOWN, false)
 
     fun markFsiPromptShown() {
-        prefs.edit { putBoolean(KEY_FSI_PROMPT_SHOWN, true) }
+        // commit=true: caller immediately deeplinks to system Settings.
+        // Default `apply()` is async; if the OS reaps our process while the
+        // user is in Settings before the flush completes, the bool is lost
+        // and we'd re-prompt on next launch. Synchronous commit guarantees
+        // the flag is persisted before we leave.
+        prefs.edit(commit = true) { putBoolean(KEY_FSI_PROMPT_SHOWN, true) }
     }
 
     companion object {

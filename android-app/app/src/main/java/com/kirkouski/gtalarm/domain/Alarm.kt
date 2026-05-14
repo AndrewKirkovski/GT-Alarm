@@ -53,6 +53,14 @@ data class Alarm(
             "snoozeMinutes=$snoozeMinutes invalid — must be SNOOZE_DISABLED (0) or in " +
                 "[$MIN_SNOOZE_MINUTES, $MAX_SNOOZE_MINUTES]"
         }
+        // Label cap: defense against a compromised / buggy peer pushing a
+        // multi-megabyte label that would bloat the DB row, full-screen
+        // AlarmActivity title, widget, and notification subject. 256 chars
+        // is well past any reasonable user-typed label (the edit field has
+        // no enforced max but humans don't write paragraphs).
+        require(label.length <= MAX_LABEL_LENGTH) {
+            "label too long (${label.length} chars, max $MAX_LABEL_LENGTH)"
+        }
         if (relativeMinutes != null) {
             require(relativeMinutes in MIN_RELATIVE_MINUTES..MAX_RELATIVE_MINUTES) {
                 "relativeMinutes=$relativeMinutes out of range " +
@@ -85,5 +93,6 @@ data class Alarm(
         const val MAX_SNOOZE_MINUTES = 60
         const val MIN_RELATIVE_MINUTES = 1
         const val MAX_RELATIVE_MINUTES = 1440 // 24 hours
+        const val MAX_LABEL_LENGTH = 256
     }
 }

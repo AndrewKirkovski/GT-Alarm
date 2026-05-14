@@ -209,6 +209,60 @@ What ✅ verifies (when hardware lands):
 - All Phase 5a 🟡 entries flip to ✅ as the corresponding live-device tests pass.
 - AC items in `docs/acceptance-criteria.md` under "Relative alarms", "Self-destruct", "Alarm management" → reverse-save, "Force-sync hash precheck" track that flip.
 
+### Phase 5a+ — Polish + feature top-up (DONE 2026-05-13 → 2026-05-14)
+
+Multi-feature landing covering queued UX + bug-fix items. Two commits:
+`e762235` (feature batch) + a follow-up review-fix commit (HIGH/MED items
+surfaced in two parallel-agent review passes).
+
+Tasks landed:
+- Phase 5a B3 — shared watch background image (issue #98): drop per-alarm
+  `watchBackgroundImageUri`, single shared default via
+  `SettingsStore.defaultWatchBackgroundUri`, db v7→v8 destructive migration
+  (debug-gated as of the follow-up review-fix commit), wire rename to
+  `bg_default.bin` / `watch_default_bg_cleared`. Watch-side file-receive
+  handlers DEFERRED to Phase 0b watch-app rewrite (documented in
+  `sync-architecture.md` §2.4).
+- FSI auto-deeplink on first launch (issue #73): `MainActivity` switches
+  to `PermissionAudit.checkFullScreenIntent` (AppOps `MODE_ALLOWED`) for
+  Samsung S24 compatibility, one-shot gate via
+  `OnboardingState.fsiPromptShown` (`commit=true` so the marker survives
+  the deeplink).
+- Snooze "Off" feature: `Alarm.SNOOZE_DISABLED = 0` sentinel,
+  `isSnoozeEnabled` getter, edit chip + descriptor, ring UI hides
+  Snooze button, notification skips snooze action,
+  `IncomingMessageHandler.applySnooze` collapses peer-snooze on
+  locally-off alarm to dismiss, `AlarmRepository.snooze` guard against
+  phantom 0-min re-fire.
+- Help screen donate + contact (issues #90 / #91): ko-fi.com/ryotsuke +
+  mailto:ryotsuke+gtalarm@gmail.com. Translations across all 6 locales.
+  Problem-first card ordering (device-unsupported above donate).
+- Icon migration (issue #105, supersedes #102): Material → Flaticon
+  "Pixel perfect" wired across the UI, with 5 Material vectors kept for
+  tight slots (Add, PlayArrow, Stop, ArrowDropDown, Check/CheckCircle,
+  Close, RadioButtonUnchecked) after AVD review. Every PNG-painter Icon
+  site got explicit `Modifier.size(...)`. **Pending legal**: per-pack
+  Flaticon attribution expansion (see AC "KNOWN GAPS → Android" entry 0).
+- PickTime-Compose wheel time picker (issue #101): replaces M3 TimePicker,
+  JitPack dep with tight `includeGroup` scope.
+- Swipe-cancel fix (issue #103), "Keep editing" dialog label (issue #104),
+  debug-alarm 1-min snooze fix (issue #71).
+- Review-fix commit: `AlarmRingService` `handlerMutex` serializing
+  snooze/dismiss, broadcast order swap (local truth first), stale-snooze
+  collapse-to-dismiss with self-destruct semantics intact, label PII
+  scrubbed from logcat, peer-label length cap (`Alarm.MAX_LABEL_LENGTH =
+  256`), URI scheme-only logging, `AlarmActivity.sendAction` race fix,
+  `AlarmEditViewModel.save` `NonCancellable` guard,
+  `DatabaseModule.fallbackToDestructiveMigration` `BuildConfig.DEBUG` gate.
+
+What ✅ verifies (when hardware lands):
+- AC items under "Help screen surfaces", "Dismiss & snooze" (snooze-off
+  + collapse rules + handlerMutex), "Permissions" (FSI auto-deeplink),
+  "Alarm management" (label cap + wheel picker) flip to ✅ as the
+  corresponding live-device tests pass.
+- Pre-release legal/correctness backlog (AC "KNOWN GAPS → Android"
+  entries 0 a/b/c) must close before public Play Store release.
+
 ---
 
 ## Phase ordering rationale

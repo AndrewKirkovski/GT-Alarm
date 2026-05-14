@@ -1,1 +1,19 @@
+# Flaticon icon attribution
+
+The watch + smartwatch glyphs in this app are by "Pixel perfect" via Flaticon:
 <a href="https://www.flaticon.com/free-icons/smartwatch" title="smartwatch icons">Smartwatch icons created by Pixel perfect - Flaticon</a>
+
+## TODO — pre-Play-Store legal hardening
+
+Flaticon's free license requires per-pack attribution. The 16 wired drawables
+in android-app/app/src/main/res/drawable-nodpi/ (snooze, repeat, tag,
+music-note, vibration, info, warning, settings, timer, delete, image, help,
+watch, alarm-off, watch-off, delete-forever) likely span multiple Flaticon
+authors/packs — not all are guaranteed to be in Pixel-perfect's smartwatch
+pack. Before public release, EITHER:
+  (a) confirm every drawable is sourced from one Pixel-perfect pack and
+      expand this credit per-pack, OR
+  (b) re-source all icons from a single same-license pack and document.
+
+This is tracked as a pre-release legal/correctness item in
+docs/acceptance-criteria.md → "KNOWN GAPS TO CLOSE NEXT → Android" (entry 0).

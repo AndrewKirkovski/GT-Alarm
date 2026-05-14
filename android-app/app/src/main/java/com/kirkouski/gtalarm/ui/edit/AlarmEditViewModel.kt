@@ -9,6 +9,7 @@ import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.domain.DaysOfWeek
 import com.kirkouski.gtalarm.ring.EditingAlarmRegistry
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 enum class AlarmMode { ABSOLUTE, RELATIVE }
@@ -187,10 +189,17 @@ class AlarmEditViewModel @Inject constructor(
         viewModelScope.launch {
             val snapshot = _state.value
             val alarm = buildAlarm(snapshot)
-            val savedId = repository.saveLocalOnly(alarm)
-            EditingAlarmRegistry.clearEditing(savedId)
-            repository.rescheduleAlarm(savedId)
-            repository.pushAlarmToWatch(savedId)
+            // NonCancellable guards against the caller popping the back-
+            // stack inside onComplete: navigating away clears the VM,
+            // which cancels viewModelScope. Without this, saveLocalOnly /
+            // rescheduleAlarm / pushAlarmToWatch could abort partway
+            // through and leave Room + scheduler + watch in disagreement.
+            withContext(NonCancellable) {
+                val savedId = repository.saveLocalOnly(alarm)
+                EditingAlarmRegistry.clearEditing(savedId)
+                repository.rescheduleAlarm(savedId)
+                repository.pushAlarmToWatch(savedId)
+            }
             onComplete()
         }
     }

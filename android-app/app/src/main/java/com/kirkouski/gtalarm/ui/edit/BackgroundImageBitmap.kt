@@ -100,7 +100,10 @@ private suspend fun loadImageBitmap(context: Context, uriString: String): ImageB
                 BitmapFactory.decodeStream(input, null, decodeOpts)?.asImageBitmap()
             }
         }.onFailure { e ->
-            Log.w(TAG, "loadImageBitmap failed for $uriString: ${e::class.simpleName}: ${e.message}")
+            // Log only URI scheme, never the full content-URI: SAF URIs
+            // may embed user-visible filenames.
+            val scheme = runCatching { uriString.toUri().scheme }.getOrNull() ?: "unknown"
+            Log.w(TAG, "loadImageBitmap failed scheme=$scheme: ${e::class.simpleName}: ${e.message}")
         }.getOrNull()
     }
 
