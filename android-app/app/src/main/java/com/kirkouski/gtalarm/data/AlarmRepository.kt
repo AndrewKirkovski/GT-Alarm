@@ -57,6 +57,11 @@ class AlarmRepository @Inject constructor(
 
     suspend fun getById(id: Long): Alarm? = dao.getById(id)?.toDomain()
 
+    // Synchronous variant for AlarmRingService.onStartCommand. See
+    // AlarmDao.getByIdSync — the FSI path can't tolerate the
+    // placeholder→upgrade double-post race.
+    fun getByIdSync(id: Long): Alarm? = dao.getByIdSync(id)?.toDomain()
+
     suspend fun getAll(): List<Alarm> = dao.getAll().map { it.toDomain() }
 
     suspend fun save(alarm: Alarm): Long {

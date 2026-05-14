@@ -162,8 +162,27 @@ class AlarmActivity : ComponentActivity() {
         finishAndRemoveTask()
     }
 
-    private companion object {
-        const val TAG = "AlarmActivity"
+    override fun onStart() {
+        super.onStart()
+        isVisible.set(true)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        isVisible.set(false)
+    }
+
+    companion object {
+        // Tracks whether an AlarmActivity instance is currently in the
+        // foreground. Used by AlarmRingService.startRingingAudioAndUi to
+        // skip the backup PI.send() when FSI already launched us — without
+        // this gate, every successful FSI fire results in a second
+        // Activity launch ~2.6 s later (after preArmWatch returns), which
+        // animates a visible "second screen sliding in" over the first.
+        val isVisible: java.util.concurrent.atomic.AtomicBoolean =
+            java.util.concurrent.atomic.AtomicBoolean(false)
+
+        private const val TAG = "AlarmActivity"
     }
 }
 

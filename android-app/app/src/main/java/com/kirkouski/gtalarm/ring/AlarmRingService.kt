@@ -98,19 +98,28 @@ class AlarmRingService : Service() {
         }
         currentAlarmId = alarmId
 
-        // STEP 1 (SYNCHRONOUS): bind FG IMMEDIATELY. Has to happen on the
-        // service's main thread, before the suspend launch below, so we
-        // satisfy the 5 s startForeground deadline even if the coroutine
-        // dispatcher is slow to pick up. We use a placeholder notification
-        // and upgrade it inside the launch once the alarm row is loaded.
-        startForegroundPlaceholder()
+        // STEP 1: SYNCHRONOUS Room read + startForeground with the REAL
+        // FSI notification. Earlier versions used a placeholder→upgrade
+        // pattern (post placeholder fast, async-load alarm, re-post with
+        // FSI). That triggered Samsung One UI's NotifAttentionHelper
+        // "Muting recently noisy" rate-limiter on the second post — the
+        // FSI Activity launch was silently suppressed on every other fire
+        // (alternating-fire bug, verified on S24 Ultra 2026-05-14).
+        //
+        // Room non-suspend reads are <50 ms — well inside the 5 s
+        // startForeground deadline. If the row is missing (deleted in a
+        // narrow window between schedule and fire) we still post the
+        // placeholder so the FG contract holds, then tear down.
+        val alarm = repository.getByIdSync(alarmId)
+        if (alarm == null) {
+            Log.w(TAG, "no alarm found for id=$alarmId — placeholder + tear down")
+            startForegroundPlaceholder()
+            stopForegroundAndSelf()
+            return
+        }
+        startForegroundOnly(alarm)
 
         serviceScope.launch {
-            val alarm = repository.getById(alarmId) ?: run {
-                Log.w(TAG, "no alarm found for id=$alarmId — was already FG, tearing down")
-                stopForegroundAndSelf()
-                return@launch
-            }
             // Snooze consumed: the trigger that just fired was either the
             // alarm's normal clock-time or its snooze-deferred trigger. Either
             // way the snoozedUntilEpoch override no longer reflects reality —
@@ -119,13 +128,7 @@ class AlarmRingService : Service() {
             if (alarm.snoozedUntilEpoch != null) {
                 repository.clearSnoozedUntil(alarmId)
             }
-            // Upgrade the placeholder to the real ringing notification now
-            // that we have the alarm details. If anything in the upgrade or
-            // ring-audio path throws, we MUST tear down the service — the
-            // FG placeholder we already showed would otherwise stick around
-            // forever, blocking the user from re-firing the alarm.
             try {
-                startForegroundOnly(alarm)
                 // STEP 2: pre-arm — if watch is paired+connected, await
                 // alarm_fired delivery up to PREARM_TIMEOUT_MS. Returns
                 // immediately false if no watch is reachable.
@@ -254,23 +257,36 @@ class AlarmRingService : Service() {
         player = p
         p.start(alarm.audioUri, alarm.isVibrationOnly)
 
-        // Primary path: AlarmActivity is launched by NotificationManager when
-        // it fires the setFullScreenIntent PendingIntent (see startForegroundOnly).
-        // Per AOSP docs, FSI launches an Activity when the screen is locked /
-        // off / AOD; it degrades to a heads-up notification when the device is
-        // already in use.
+        // CANONICAL Huawei Wear Engine compliance path: ensure AlarmActivity
+        // is in the task at fire time. Huawei P2P receive REQUIRES an Activity
+        // component to be present — without one, the watch can't deliver
+        // dismiss/snooze envelopes back to the phone. Watch sync is the core
+        // product feature; this guarantee is non-negotiable. See memory/
+        // wear_engine_requires_activity.md.
         //
-        // Backup path: an extra PI.send() for the "device in use" case. We
-        // need AlarmActivity in the task stack regardless of FSI suppression
-        // because Huawei Wear Engine REQUIRES an Activity component for the
-        // P2P receive path — see memory/wear_engine_requires_activity.md.
-        // A direct startActivity() from the FGS is BAL-blocked on Android 14
-        // ("an app running a foreground service is considered to be in the
-        // background" per developer.android.com/guide/components/activities/
-        // background-starts), but a PendingIntent with creator-side BAL opt-in
-        // goes through a different BAL path and is honored. singleInstance
-        // launchMode + FLAG_ACTIVITY_NEW_TASK make a duplicate launch harmless
-        // (re-enters onNewIntent on the existing instance).
+        // Two paths bring AlarmActivity into the task:
+        //   1. NotificationManager's FSI dispatch when we post the notification
+        //      with setFullScreenIntent (runs as uid 10051 with the
+        //      BAL_ALLOW_NON_APP_VISIBLE_WINDOW exemption — always succeeds
+        //      when screen is locked + canFsi=true).
+        //   2. PI.send() from this service — covers the case where FSI degraded
+        //      to heads-up only (device active, FSI permission revoked, OEM
+        //      policy). Uses ActivityOptions with
+        //      setPendingIntentCreatorBackgroundActivityStartMode so it
+        //      survives Android 14+ BAL.
+        //
+        // If AlarmActivity.isVisible is already true, FSI already brought it
+        // up and PI.send would just re-enter the singleInstance task with a
+        // fresh ActivityRecord — the user would see a "second screen sliding
+        // in" ~2.6 s after FSI launch (the system animates the open
+        // transition over the already-visible Activity). Skip in that case
+        // as a UX-only optimization. The Wear Engine requirement is already
+        // satisfied by FSI's launch. Visible flag set in AlarmActivity.onStart
+        // / cleared in onStop.
+        if (AlarmActivity.isVisible.get()) {
+            Log.d(TAG, "skip PI.send — AlarmActivity already visible (FSI launched it)")
+            return
+        }
         val launchIntent = Intent(this, AlarmActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             putExtra(EXTRA_ALARM_ID, alarm.id)

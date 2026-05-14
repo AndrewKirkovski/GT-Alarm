@@ -350,6 +350,22 @@ export default {
             // If our ring page is showing for this alarm, close it. The
             // callback is a no-op when no ring is active (see app.js).
             if (onPeerEndedRing) onPeerEndedRing(msg.alarmId);
+            // Application-level ack: tell the phone we actually processed
+            // this envelope. Without it, the phone only sees the transport
+            // 207 ACK which doesn't prove the JS receiver ran our handler
+            // (it can be in a transient state and silently drop). The
+            // phone's sendAlarmDismissed/SnoozedAwaiting is blocked on
+            // this reply — fire it BEFORE armDrain so app.terminate
+            // doesn't kill the send mid-flight.
+            try {
+                if (type === 'alarm_dismissed') {
+                    WearBridge.sendDismissedAck(msg.alarmId);
+                } else {
+                    WearBridge.sendSnoozedAck(msg.alarmId);
+                }
+            } catch (e) {
+                Logger.err('incoming.peer-ended ack send threw', e);
+            }
             // Arm drain (without routing to syncing) so a watch woken
             // purely by a peer-ended envelope — no preceding ring — still
             // self-closes. When ring WAS active, ring.scheduleTerminate

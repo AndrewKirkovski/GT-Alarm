@@ -17,6 +17,16 @@ interface AlarmDao {
     @Query("SELECT * FROM alarms WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): AlarmEntity?
 
+    // Synchronous variant for AlarmRingService.onStartCommand. The 5 s
+    // startForeground deadline forces us to either runBlocking on a
+    // suspend DAO or expose a non-suspend query. Non-suspend is the
+    // documented Room option for foreground-critical reads. Used ONLY
+    // by the ringing path to avoid the placeholder→upgrade double-post
+    // pattern that triggers NotifAttentionHelper "Muting recently noisy"
+    // on Samsung One UI (suppresses FSI Activity launch).
+    @Query("SELECT * FROM alarms WHERE id = :id LIMIT 1")
+    fun getByIdSync(id: Long): AlarmEntity?
+
     @Upsert
     suspend fun upsert(entity: AlarmEntity): Long
 

@@ -15,6 +15,7 @@ import androidx.core.app.NotificationCompat
 import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.util.TimeFormatter
+import java.util.Calendar
 
 object AlarmNotifications {
     private const val TAG = "AlarmNotifications"
@@ -158,10 +159,32 @@ object AlarmNotifications {
             }
         }
         val title = alarm.label.ifBlank { context.getString(R.string.alarm_notification_title) }
+        // For relative ("in N minutes") alarms, alarm.hour/minute are the
+        // 07:00 picker placeholder — the actual fire moment is
+        // updatedAtEpoch + relativeMinutes. We use the wall-clock NOW as
+        // the ring time (same anchor as the watch ring page, task #74):
+        // it's by definition correct since we're rendering the notification
+        // AT the fire moment, and it never lies about the wake instant.
+        val fireCal = if (alarm.isRelative) {
+            Calendar.getInstance()
+        } else {
+            Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, alarm.hour)
+                set(Calendar.MINUTE, alarm.minute)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+        }
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(title)
-            .setContentText(TimeFormatter.formatHourMinute(context, alarm.hour, alarm.minute))
+            .setContentText(
+                TimeFormatter.formatHourMinute(
+                    context,
+                    fireCal.get(Calendar.HOUR_OF_DAY),
+                    fireCal.get(Calendar.MINUTE),
+                ),
+            )
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)

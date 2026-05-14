@@ -120,6 +120,57 @@ class HuaweiWearBridge @Inject constructor(
         java.util.concurrent.atomic.AtomicReference<PendingRing?>(null)
     private val pendingAlarmRingingMutex = Mutex()
 
+    // Pending alarm_dismissed → alarm_dismissed_ack round-trip. The 207
+    // transport ACK on dismiss only proves "delivered to watch's Wear
+    // Engine layer", NOT "watch's JS receiver processed it" — the JS
+    // receiver can be in a transient state (mid-bundle-load, mid-page-
+    // transition) and silently drop the envelope. Without an application-
+    // level reply the phone has no way to detect this, and the user has
+    // to manually dismiss on the watch too. The watch's incomingHandler
+    // sends `alarm_dismissed_ack` after `onPeerEndedRing(alarmId)` runs.
+    private data class PendingAck(
+        val alarmId: Long,
+        val deferred: CompletableDeferred<Unit>,
+    )
+
+    private val pendingDismissAck =
+        java.util.concurrent.atomic.AtomicReference<PendingAck?>(null)
+    private val pendingDismissAckMutex = Mutex()
+
+    // Symmetric to pendingDismissAck for snooze.
+    private val pendingSnoozeAck =
+        java.util.concurrent.atomic.AtomicReference<PendingAck?>(null)
+    private val pendingSnoozeAckMutex = Mutex()
+
+    /**
+     * Shared completion path for the dismiss / snooze ack deferreds.
+     * Matches by alarmId so a stale ack from a previous action can't
+     * satisfy a fresh wait; compareAndSet guards against the rare race
+     * with the awaiter's timeout-finally clear.
+     */
+    private fun completePendingAck(
+        slot: java.util.concurrent.atomic.AtomicReference<PendingAck?>,
+        ackedAlarmId: Long,
+        label: String,
+    ) {
+        // Watch's application-level ack also proves the receiver is bound
+        // and JS layer is healthy — same as alarm_ringing's effect on the
+        // running cache. Refresh stamp so we don't re-ping needlessly on
+        // any subsequent send in the immediate window.
+        lastConfirmedRunningAtMs = System.currentTimeMillis()
+        val pending = slot.get() ?: run {
+            Log.d(TAG, "$label id=$ackedAlarmId but no pending request — dropping")
+            return
+        }
+        val matches = pending.alarmId == ackedAlarmId && !pending.deferred.isCompleted
+        if (matches && slot.compareAndSet(pending, null)) {
+            pending.deferred.complete(Unit)
+            Log.i(TAG, "$label received id=$ackedAlarmId — watch confirmed action")
+            return
+        }
+        Log.d(TAG, "$label id=$ackedAlarmId mismatched pending (got ${pending.alarmId}) — dropping")
+    }
+
     /**
      * Receiver path for `alarm_ringing`. Extracted into its own method to
      * keep the receiver lambda's complexity in check (ComplexCondition
@@ -180,6 +231,20 @@ class HuaweiWearBridge @Inject constructor(
             // finally's clear.
             if (parsed is IncomingMessage.AlarmRinging) {
                 handleAlarmRinging(parsed)
+                return@launch
+            }
+            // AlarmDismissedAck / AlarmSnoozedAck: watch confirms it
+            // processed the dismiss/snooze envelope (closed its ring
+            // page or accepted the action). Application-level ack —
+            // proves the JS receiver actually ran our handler, not just
+            // that Wear Engine's transport ACK'd at 207. Routed via
+            // shared completePendingAck helper.
+            if (parsed is IncomingMessage.AlarmDismissedAck) {
+                completePendingAck(pendingDismissAck, parsed.alarmId, "alarm_dismissed_ack")
+                return@launch
+            }
+            if (parsed is IncomingMessage.AlarmSnoozedAck) {
+                completePendingAck(pendingSnoozeAck, parsed.alarmId, "alarm_snoozed_ack")
                 return@launch
             }
             incomingHandler?.handle(parsed)
@@ -290,12 +355,19 @@ class HuaweiWearBridge @Inject constructor(
         sendJson(envelope, retryOnError = true)
     }
 
-    // Suspending dismiss: wait up to timeoutMs for the watch to ACK the
-    // P2P send (onSendResult=207). Used by AlarmRingService.handleDismiss
-    // to make sure the watch heard us BEFORE the service tears down —
-    // earlier the service stopped, the process could be killed by the
-    // OS within seconds, and any in-flight broadcast got dropped (leaving
-    // the watch still ringing).
+    // Suspending dismiss: wait up to timeoutMs for the WATCH'S APPLICATION-
+    // LEVEL ACK (`alarm_dismissed_ack` envelope), not just the P2P
+    // transport ACK. Earlier impl waited only for the 207 transport code,
+    // which says "delivered to watch's Wear Engine layer" but NOT "JS
+    // receiver processed it" — the JS receiver can be in a transient
+    // state and silently drop the envelope. Without an application-level
+    // reply the user had to manually dismiss on the watch too. See memory:
+    // android_alarm_lockscreen_pattern §ack-protocol.
+    //
+    // Also forces a fresh peer-running ping (bypasses 30 s cache) — the
+    // cache stamp from the fire's wake-protocol can be misleading 30+ s
+    // later when the channel has degraded but the OS process is still
+    // alive. force=true causes a real ping → wait for 202 before send.
     override suspend fun sendAlarmDismissedAwaiting(alarmId: Long, timeoutMs: Long): Boolean {
         val now = System.currentTimeMillis()
         if (!validateStamp("sendAlarmDismissedAwaiting", now)) return false
@@ -304,11 +376,42 @@ class HuaweiWearBridge @Inject constructor(
             put("alarmId", alarmId)
             put("updatedAtEpoch", now)
         }
-        return withTimeoutOrNull(timeoutMs) {
-            performSend(envelope, retryOnError = true)
-        } ?: run {
-            Log.w(TAG, "sendAlarmDismissedAwaiting timed out id=$alarmId after ${timeoutMs}ms")
-            false
+        return pendingDismissAckMutex.withLock {
+            val deferred = CompletableDeferred<Unit>()
+            pendingDismissAck.set(PendingAck(alarmId, deferred))
+            try {
+                val outcome = withTimeoutOrNull(timeoutMs) {
+                    val device = ensurePairedDevice() ?: return@withTimeoutOrNull false
+                    // Force-reping: bypass the 30 s cache so we re-establish
+                    // the wake channel even if the OS process is still
+                    // marked alive.
+                    if (!ensurePeerAppRunning(device, force = true)) {
+                        Log.w(TAG, "sendAlarmDismissedAwaiting: peer not 202 after force-reping id=$alarmId")
+                        return@withTimeoutOrNull false
+                    }
+                    val sent = performSend(envelope, retryOnError = true)
+                    if (!sent) {
+                        Log.w(TAG, "sendAlarmDismissedAwaiting: alarm_dismissed send failed id=$alarmId")
+                        return@withTimeoutOrNull false
+                    }
+                    deferred.await()
+                    true
+                }
+                if (outcome == null) {
+                    Log.w(
+                        TAG,
+                        "sendAlarmDismissedAwaiting timed out after ${timeoutMs}ms id=$alarmId — " +
+                            "no application-level ack",
+                    )
+                    false
+                } else {
+                    outcome
+                }
+            } finally {
+                pendingDismissAck.updateAndGet { current ->
+                    if (current?.deferred === deferred) null else current
+                }
+            }
         }
     }
 
@@ -324,9 +427,9 @@ class HuaweiWearBridge @Inject constructor(
         sendJson(envelope, retryOnError = true)
     }
 
-    // Suspending snooze: same rationale as sendAlarmDismissedAwaiting —
-    // the watch's ring page must hear about the snooze before the phone
-    // service shuts down, or the watch keeps ringing.
+    // Suspending snooze: same rationale + protocol as
+    // sendAlarmDismissedAwaiting. Awaits the watch's application-level
+    // `alarm_snoozed_ack` reply, force-repings to bypass the wake-cache.
     override suspend fun sendAlarmSnoozedAwaiting(
         alarmId: Long,
         rescheduleEpoch: Long,
@@ -340,11 +443,39 @@ class HuaweiWearBridge @Inject constructor(
             put("updatedAtEpoch", now)
             put("rescheduleEpoch", rescheduleEpoch)
         }
-        return withTimeoutOrNull(timeoutMs) {
-            performSend(envelope, retryOnError = true)
-        } ?: run {
-            Log.w(TAG, "sendAlarmSnoozedAwaiting timed out id=$alarmId after ${timeoutMs}ms")
-            false
+        return pendingSnoozeAckMutex.withLock {
+            val deferred = CompletableDeferred<Unit>()
+            pendingSnoozeAck.set(PendingAck(alarmId, deferred))
+            try {
+                val outcome = withTimeoutOrNull(timeoutMs) {
+                    val device = ensurePairedDevice() ?: return@withTimeoutOrNull false
+                    if (!ensurePeerAppRunning(device, force = true)) {
+                        Log.w(TAG, "sendAlarmSnoozedAwaiting: peer not 202 after force-reping id=$alarmId")
+                        return@withTimeoutOrNull false
+                    }
+                    val sent = performSend(envelope, retryOnError = true)
+                    if (!sent) {
+                        Log.w(TAG, "sendAlarmSnoozedAwaiting: alarm_snoozed send failed id=$alarmId")
+                        return@withTimeoutOrNull false
+                    }
+                    deferred.await()
+                    true
+                }
+                if (outcome == null) {
+                    Log.w(
+                        TAG,
+                        "sendAlarmSnoozedAwaiting timed out after ${timeoutMs}ms id=$alarmId — " +
+                            "no application-level ack",
+                    )
+                    false
+                } else {
+                    outcome
+                }
+            } finally {
+                pendingSnoozeAck.updateAndGet { current ->
+                    if (current?.deferred === deferred) null else current
+                }
+            }
         }
     }
 

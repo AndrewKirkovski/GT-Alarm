@@ -71,6 +71,18 @@ class IncomingMessageHandler @Inject constructor(
             Log.d(TAG, "received AlarmRinging id=${msg.alarmId} after pre-arm window — dropping")
             return
         }
+        // AlarmDismissedAck / AlarmSnoozedAck are also intercepted by
+        // HuaweiWearBridge — they satisfy the pending dismiss/snooze
+        // round-trip deferreds. Same fall-through semantics as AlarmRinging:
+        // if they reach the handler the await had already timed out.
+        if (msg is IncomingMessage.AlarmDismissedAck) {
+            Log.d(TAG, "received AlarmDismissedAck id=${msg.alarmId} after await window — dropping")
+            return
+        }
+        if (msg is IncomingMessage.AlarmSnoozedAck) {
+            Log.d(TAG, "received AlarmSnoozedAck id=${msg.alarmId} after await window — dropping")
+            return
+        }
         if (msg.updatedAtEpoch <= 0L) {
             Log.w(TAG, "rejecting bad updatedAtEpoch=${msg.updatedAtEpoch} type=${msg::class.simpleName}")
             return
@@ -85,6 +97,9 @@ class IncomingMessageHandler @Inject constructor(
             is IncomingMessage.AlarmSnoozed -> applySnooze(msg.alarmId, msg.updatedAtEpoch)
             is IncomingMessage.WatchLog -> Unit // handled above; exhaustiveness only
             is IncomingMessage.SyncHash -> Unit // handled above; exhaustiveness only
+            is IncomingMessage.AlarmRinging -> Unit // handled above; exhaustiveness only
+            is IncomingMessage.AlarmDismissedAck -> Unit // handled above; exhaustiveness only
+            is IncomingMessage.AlarmSnoozedAck -> Unit // handled above; exhaustiveness only
         }
     }
 

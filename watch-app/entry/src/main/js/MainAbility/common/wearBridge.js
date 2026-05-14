@@ -336,6 +336,32 @@ export default {
         }, 3, 1);
     },
 
+    // Application-level ack for a phone-originated `alarm_dismissed`
+    // envelope. Sent by incomingHandler.js AFTER `onPeerEndedRing(alarmId)`
+    // executes (i.e. after the ring page has been navigated away from /
+    // PEER_END_KEY has been written). Lets the phone tell that the watch's
+    // JS receiver actually processed the dismiss, not just that the
+    // transport layer ACK'd at 207. Without this loop the phone has no
+    // way to detect a silently-dropped envelope and the user would have
+    // to manually dismiss on the watch too. Retry path because losing
+    // it means the phone falls back to time-out + "stale dismiss" UX.
+    sendDismissedAck: function (alarmId) {
+        sendJsonWithRetry({
+            type: 'alarm_dismissed_ack',
+            alarmId: alarmId,
+            updatedAtEpoch: Date.now(),
+        }, 3, 1);
+    },
+
+    // Symmetric to sendDismissedAck — for the snooze action.
+    sendSnoozedAck: function (alarmId) {
+        sendJsonWithRetry({
+            type: 'alarm_snoozed_ack',
+            alarmId: alarmId,
+            updatedAtEpoch: Date.now(),
+        }, 3, 1);
+    },
+
     // Dev-only: relay a watch-side log line to the phone so it surfaces in
     // adb logcat (Lite Wearable HiLog is hard to read from DevEco on Windows).
     // No fingerprint validation, no LWW — just envelope + send. NOT called

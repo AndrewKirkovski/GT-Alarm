@@ -85,4 +85,24 @@ sealed class IncomingMessage {
         override val alarmId: Long,
         override val updatedAtEpoch: Long,
     ) : IncomingMessage()
+
+    // Watch's reply to a phone-originated `alarm_dismissed`. Sent from
+    // incomingHandler.js after onPeerEndedRing(alarmId) runs — confirms
+    // the watch's ring page has closed (or that it was never up to
+    // begin with). HuaweiWearBridge intercepts this for the dismiss
+    // coordinator so the phone knows the watch actually processed the
+    // dismiss, not just the transport layer's 207. Without this loop
+    // a 207 ACK can succeed while the watch's JS receiver was in a
+    // transient state and silently dropped the envelope — the user
+    // would then have to manually dismiss on the watch too.
+    data class AlarmDismissedAck(
+        override val alarmId: Long,
+        override val updatedAtEpoch: Long,
+    ) : IncomingMessage()
+
+    // Symmetric to AlarmDismissedAck — for the snooze action.
+    data class AlarmSnoozedAck(
+        override val alarmId: Long,
+        override val updatedAtEpoch: Long,
+    ) : IncomingMessage()
 }

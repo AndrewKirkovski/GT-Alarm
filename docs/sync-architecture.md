@@ -87,11 +87,30 @@ JSON over P2P. Every message is a single line, single object, no nesting.
 // = follow system locale.
 { "type": "settings_changed", "use24Hour": <bool|null>,
   "firstDayOfWeek": <int|null>, "updatedAtEpoch": <number> }
+
+// watch → phone: confirms the watch's ring page is up and vibrating.
+// Phone awaits this before starting its own audio so the two devices
+// ring in lock-step instead of phone-first / watch-late.
+{ "type": "alarm_ringing", "alarmId": <number>, "updatedAtEpoch": <number> }
+
+// watch → phone: application-level ack that the watch's JS receiver
+// processed a phone-originated `alarm_dismissed` (or `alarm_snoozed`).
+// Sent from incomingHandler.js after onPeerEndedRing(alarmId) executes.
+// Phone's sendAlarmDismissedAwaiting/sendAlarmSnoozedAwaiting blocks on
+// this reply — proves the JS receiver actually ran our handler, NOT
+// just that Wear Engine's transport ACK'd at 207 (the transport ACK
+// can succeed while the JS receiver was in a transient state and
+// silently dropped the envelope; without this loop the user has to
+// manually dismiss on the watch too).
+{ "type": "alarm_dismissed_ack", "alarmId": <number>, "updatedAtEpoch": <number> }
+{ "type": "alarm_snoozed_ack",   "alarmId": <number>, "updatedAtEpoch": <number> }
 ```
 
 `sync_check` / `sync_hash` implement the force-sync precheck (§6). Phone sends `sync_check`, watch replies `sync_hash` with the result of `AlarmHash.compute(localAlarms)`. If the phone's local hash matches, it skips the per-alarm `alarm_added` push and surfaces `ForceSyncResult.AlreadyInSync`. Hash format is locked to 8 lowercase hex chars; receivers reject anything else.
 
 `watch_log` is opt-in diagnostic; the receiver (phone) writes it to `adb logcat` under the `WatchLog` tag and exits — never reaches the LWW handler. It legitimately carries `updatedAtEpoch = ts` (not the LWW stamp).
+
+`alarm_ringing` / `alarm_dismissed_ack` / `alarm_snoozed_ack` are intercepted by `HuaweiWearBridge` directly (NOT routed through `IncomingMessageHandler`) so they can satisfy the pending `CompletableDeferred<Unit>` reservations made by the phone's `sendAlarmFiredAwaiting` / `sendAlarmDismissedAwaiting` / `sendAlarmSnoozedAwaiting`. The corresponding `Awaiting` methods also force a fresh peer-running ping (bypass the 30 s wake-cache) before send, so the wake protocol re-establishes the channel even if the OS process is still marked alive but the JS receiver has degraded since the last confirmed running event.
 
 ### 2.1 Payload-size budget
 
@@ -104,6 +123,7 @@ JSON over P2P. Every message is a single line, single object, no nesting.
 | `alarm_fired` / `alarm_deleted` / `alarm_dismissed` | < 128 B |
 | `alarm_snoozed` | < 160 B |
 | `alarm_toggled` | < 160 B |
+| `alarm_ringing` / `alarm_dismissed_ack` / `alarm_snoozed_ack` | < 128 B |
 | `alarm_added` / `alarm_updated` with normal label + URI | < 1 KiB |
 
 ### 2.2 Per-alarm fields in the `alarm` payload
