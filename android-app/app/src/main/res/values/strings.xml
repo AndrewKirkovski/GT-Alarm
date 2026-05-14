@@ -33,12 +33,9 @@
     <string name="field_background_image_none" tools:ignore="MissingTranslation">None (uses default)</string>
     <string name="field_background_image_pick" tools:ignore="MissingTranslation">Choose…</string>
     <string name="field_background_image_clear" tools:ignore="MissingTranslation">Clear background image</string>
-    <!-- reason: new for per-alarm watch background picker. Translations
-         land in a follow-up; tools:ignore silences the lint until then. -->
-    <string name="field_watch_background_image" tools:ignore="MissingTranslation">Watch background</string>
-    <string name="field_watch_background_image_none" tools:ignore="MissingTranslation">None (uses default)</string>
-    <string name="field_watch_background_image_edit" tools:ignore="MissingTranslation">Edit</string>
-    <string name="field_watch_background_image_clear" tools:ignore="MissingTranslation">Clear watch background</string>
+    <!-- reason: shared watch-background picker (Settings → Default watch
+         background only — no per-alarm field). Translations land in a
+         follow-up; tools:ignore silences the lint until then. -->
     <string name="watch_bg_picker_title" tools:ignore="MissingTranslation">Crop watch background</string>
     <string name="watch_bg_picker_help" tools:ignore="MissingTranslation">Pinch to zoom, drag to position. The circle previews how it will look on your watch.</string>
     <string name="watch_bg_picker_pick" tools:ignore="MissingTranslation">Choose image</string>
@@ -49,6 +46,8 @@
     <string name="field_repeat">Repeat</string>
     <string name="field_snooze_minutes">Snooze duration</string>
     <string name="field_snooze_minutes_value">%1$d min</string>
+    <string name="field_snooze_off_value">Off</string>
+    <string name="field_snooze_off_chip">Off</string>
 
     <!-- reason: new for relative-alarm + self-destruct MVP. Translations
          will land in a follow-up; tools:ignore silences the lint until then. -->
@@ -61,6 +60,12 @@
     <string name="list_relative_in_hr_min" tools:ignore="MissingTranslation">in %1$d h %2$d min</string>
     <string name="list_relative_in_sec" tools:ignore="MissingTranslation">in %1$d s</string>
     <string name="list_relative_fired" tools:ignore="MissingTranslation">firing now</string>
+    <!-- Disabled-relative-alarm label. We show the configured duration
+         instead of a live countdown when the alarm is off — keeping the
+         row identifiable without falsely reading "firing now" after the
+         frozen target has slipped into the past (bug #93). -->
+    <string name="list_relative_off_min" tools:ignore="MissingTranslation">%1$d min timer · off</string>
+    <string name="list_relative_off_hr_min" tools:ignore="MissingTranslation">%1$d h %2$d min timer · off</string>
     <string name="delete">Delete</string>
     <string name="cancel">Cancel</string>
     <string name="add_alarm">Add alarm</string>
@@ -87,11 +92,19 @@
          confirm). Translations land in a follow-up; tools:ignore silences
          the lint until then. -->
     <string name="action_save" tools:ignore="MissingTranslation">Save</string>
-    <string name="action_revert" tools:ignore="MissingTranslation">Revert</string>
+    <string name="unsaved_changes_title" tools:ignore="MissingTranslation">Discard changes?</string>
+    <string name="unsaved_changes_body" tools:ignore="MissingTranslation">You have unsaved changes. They will be lost if you leave this screen.</string>
+    <string name="unsaved_changes_confirm" tools:ignore="MissingTranslation">Discard</string>
     <string name="delete_alarm_confirm_body" tools:ignore="MissingTranslation">Delete this alarm? This can\'t be undone.</string>
     <string name="discard_draft_title" tools:ignore="MissingTranslation">Discard new alarm?</string>
     <string name="discard_draft_body" tools:ignore="MissingTranslation">You haven\'t finished editing this alarm. It will be removed from your list.</string>
     <string name="discard_draft_confirm" tools:ignore="MissingTranslation">Discard</string>
+    <!-- reason: shared dismiss-button label for both "Discard new alarm?" and
+         "Discard changes?" dialogs. Renamed from generic "Cancel" because a
+         Cancel + Discard pair reads as "cancel the discard" — ambiguous about
+         which side keeps the user's edits. "Keep editing" expresses the action
+         the button performs. -->
+    <string name="dialog_keep_editing">Keep editing</string>
     <string name="swipe_delete_confirm_body" tools:ignore="MissingTranslation">Delete \"%1$s\"?</string>
     <string name="swipe_delete_confirm_body_unlabeled" tools:ignore="MissingTranslation">Delete this alarm?</string>
 
@@ -154,6 +167,23 @@
     <string name="help_debug_test_alarm_toast" translatable="false">Test alarm fires in 60s</string>
     <string name="help_debug_fire_now_button" translatable="false">Fire alarm NOW (test watch ring)</string>
     <string name="help_debug_fire_now_toast" translatable="false">Firing alarm id=%1$d (watch should ring too)</string>
+
+    <!-- Support development (ko-fi donate). -->
+    <string name="help_donate_title">Support development</string>
+    <string name="help_donate_body">GT Alarm is free and ad-free. If it\'s saving your mornings, consider buying me a coffee — it directly funds time spent on features and device support.</string>
+    <string name="help_donate_button">Buy me a coffee</string>
+    <string name="help_donate_url" translatable="false">https://ko-fi.com/ryotsuke</string>
+
+    <!-- Device-not-supported notice + contact CTA. -->
+    <string name="help_device_unsupported_title">Different watch?</string>
+    <string name="help_device_unsupported_body">Only Huawei GT 6 Pro is fully tested today. If your watch model isn\'t syncing or the layout looks wrong, drop me a line — donating a device for testing is the fastest way to add proper support.</string>
+    <string name="help_device_unsupported_button">Contact developer</string>
+    <string name="help_device_unsupported_url" translatable="false">mailto:ryotsuke+gtalarm@gmail.com?subject=GT%20Alarm%20-%20Device%20support</string>
+
+    <!-- Credits / attribution footer in the Help screen. -->
+    <string name="help_credits_title">Credits</string>
+    <string name="help_credits_icons">Icons by Pixel perfect — Flaticon</string>
+    <string name="help_credits_flaticon_url" translatable="false">https://www.flaticon.com/authors/pixel-perfect</string>
 
     <!-- WatchSyncCard + Force-sync — debug/diagnostic UI, English-only. -->
     <string name="watch_status_card_device_unknown" translatable="false">Device: unknown</string>

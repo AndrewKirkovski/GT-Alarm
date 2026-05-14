@@ -83,8 +83,7 @@ class SettingsStore @Inject constructor(
      * picker writes a 466 × 466 cropped PNG into the app cache; this URI
      * points at it. Watch consumes the parallel BGRA `.bin` over P2P
      * file-transfer, not this URI — the phone keeps it only so the
-     * Settings UI can show the current default + the per-alarm picker
-     * can offer a "Use default" fallback.
+     * Settings UI can show the current selection thumbnail.
      */
     val defaultWatchBackgroundUri: Flow<String?> = dataStore.data.map { prefs ->
         prefs[KEY_DEFAULT_WATCH_BG_URI]
@@ -157,9 +156,9 @@ class SettingsStore @Inject constructor(
         // back to its all-black background.
         private val KEY_DEFAULT_PHONE_BG_URI = stringPreferencesKey("default_phone_bg_uri")
         // Default watch ring-screen background image (file:// to cached
-        // cropped 466 × 466 PNG). When the per-alarm watchBackgroundImageUri
-        // is null the picker can pre-fill with this; when both are null the
-        // watch falls back to its own default ring UI.
+        // cropped 466 × 466 PNG). Single shared default per Phase 5a — the
+        // per-alarm watch-bg field was removed in db v8; when this is null
+        // the watch falls back to its own default ring UI.
         private val KEY_DEFAULT_WATCH_BG_URI = stringPreferencesKey("default_watch_bg_uri")
 
         // Extension property generates a process-singleton DataStore<Preferences>

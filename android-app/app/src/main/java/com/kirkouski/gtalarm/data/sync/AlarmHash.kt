@@ -24,12 +24,12 @@ import com.kirkouski.gtalarm.domain.Alarm
  * check becomes useless overhead.
  *
  * **Intentionally NOT included** in the canonical form:
- *   - `backgroundImageUri` / `watchBackgroundImageUri` — device-local
- *     `content://` / `file://` paths that don't round-trip between phone
- *     and watch (watch never has the same URI). Reconciliation of the
- *     watch image happens via file-transfer of the BGRA `.bin` blob,
- *     orthogonal to this hash. Code-review pass 1 (2026-05-13) confirmed
- *     including them broke the AlreadyInSync short-circuit on every sync.
+ *   - `backgroundImageUri` — device-local `content://` path that doesn't
+ *     round-trip between phone and watch (watch never has the same URI).
+ *     Reconciliation of the watch image happens via file-transfer of the
+ *     BGRA `.bin` blob, orthogonal to this hash. Code-review pass 1
+ *     (2026-05-13) confirmed including it broke the AlreadyInSync
+ *     short-circuit on every sync.
  */
 object AlarmHash {
     fun compute(alarms: List<Alarm>): String {

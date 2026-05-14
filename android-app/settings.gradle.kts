@@ -45,6 +45,15 @@ dependencyResolutionManagement {
                 includeGroupByRegex("com\\.huawei.*")
             }
         }
+        // JitPack — hosts PickTime-Compose (`com.github.anhaki:PickTime-Compose`).
+        // The library is Apache-2.0 but only publishes to JitPack, not Maven
+        // Central. Scope tightly so we don't accidentally pull other artifacts.
+        maven {
+            url = uri("https://jitpack.io")
+            content {
+                includeGroup("com.github.anhaki")
+            }
+        }
     }
 }
 

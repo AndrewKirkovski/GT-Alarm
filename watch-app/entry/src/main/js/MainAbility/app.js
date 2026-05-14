@@ -1,7 +1,14 @@
 import router from '@system.router';
+import storage from '@system.storage';
 import WearBridge from './common/wearBridge.js';
 import IncomingHandler from './common/incomingHandler.js';
 import Logger from './common/logger.js';
+
+// MUST stay byte-identical to PEER_END_KEY in pages/ring/ring.js.
+// Bumping this without bumping the reader silently disables the
+// implicit-snooze guard — ring.js would then echo a snooze back to
+// the phone right after the phone already dismissed/snoozed.
+var PEER_END_KEY = 'ring_peer_ended_at_ms';
 
 // Build tag — bump when the HAP is rebuilt for a fresh hardware test.
 // Lite Wearable has no equivalent of PackageInfo.versionName at runtime,
@@ -52,21 +59,37 @@ export default {
         // showing, this closes it.
         IncomingHandler.setOnPeerEndedRing(function (alarmId) {
             Logger.i('app.peer-ended routing to index for alarmId=' + alarmId);
-            // Belt-and-suspenders: hit the vibrator with a no-arg call OR
-            // a tiny pulse to flush the current buzz. The ring page's
-            // setInterval lives on `this._vibrateTimer` and clears on
-            // onHide — but if onHide fires after the next buzz tick, the
-            // user sees one extra pulse. There's no documented
-            // vibrator.stop() on Lite Wearable; the safest signal we can
-            // send is to NOT call vibrate again (the page's clearInterval
-            // handles that). This block is currently a placeholder so a
-            // future @system.vibrator API addition has an obvious home.
-            // For now we rely on the page lifecycle.
+            // Write the peer-ended marker BEFORE router.replace so that
+            // ring.js's onHide can read it and skip the implicit-snooze
+            // (task #85). The marker is a small ASCII number — well
+            // under @system.storage's 128 B cap. Storage.set is async,
+            // so we navigate inside its success callback to guarantee
+            // ordering. If storage fails we still navigate; the worst
+            // case is ring.js sees no flag and sends a redundant snooze
+            // notify, which the phone's IncomingMessageHandler treats
+            // as a no-op since the alarm is already dismissed/snoozed
+            // on its side (idempotent per docs/sync-architecture §4.1).
+            var goIndex = function () {
+                try {
+                    router.replace({ uri: 'pages/index/index' });
+                    Logger.i('app.peer-ended router.replace returned');
+                } catch (e) {
+                    Logger.err('app.peer-ended router.replace', e);
+                }
+            };
             try {
-                router.replace({ uri: 'pages/index/index' });
-                Logger.i('app.peer-ended router.replace returned');
+                storage.set({
+                    key: PEER_END_KEY,
+                    value: '' + Date.now(),
+                    success: goIndex,
+                    fail: function (data, code) {
+                        Logger.w('app.peer-ended marker write fail code=' + code);
+                        goIndex();
+                    },
+                });
             } catch (e) {
-                Logger.err('app.peer-ended router.replace', e);
+                Logger.err('app.peer-ended marker write threw', e);
+                goIndex();
             }
         });
 

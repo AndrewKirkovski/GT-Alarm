@@ -39,7 +39,7 @@ class AlarmListViewModel @Inject constructor(
     private val scheduler: AlarmScheduler,
     private val onboarding: OnboardingState,
     private val wearBridge: WearBridgeService,
-    settingsStore: SettingsStore,
+    private val settingsStore: SettingsStore,
 ) : ViewModel() {
 
     val alarms: StateFlow<List<Alarm>> = repository.observeAlarms()
@@ -84,6 +84,15 @@ class AlarmListViewModel @Inject constructor(
         }
         try {
             _forceSyncRunning.value = true
+            // Re-push display prefs (12/24h + week-start) on force sync so
+            // a re-pair or post-install watch picks them up without the
+            // user having to re-toggle each setting. Cheap — single small
+            // envelope, fire-and-forget. Watch overwrites unconditionally.
+            val currentSettings = settingsStore.snapshot()
+            wearBridge.sendSettingsChanged(
+                currentSettings.use24Hour,
+                currentSettings.firstDayOfWeek,
+            )
             // Pass a fresh-snapshot lambda so the bridge re-reads the
             // alarm list AFTER its sync_check round-trip, closing the
             // TOCTOU window where the user mutates the list mid-sync.

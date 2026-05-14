@@ -79,6 +79,14 @@ JSON over P2P. Every message is a single line, single object, no nesting.
 
 // watch → phone: dev-only log relay (carries no alarmId)
 { "type": "watch_log", "level": "I" | "W" | "E", "msg": "<string>", "ts": <number> }
+
+// phone → watch: push display preferences (12/24h + first-day-of-week).
+// Not LWW. Phone is the only place these are edited; watch overwrites
+// its local copy unconditionally. `use24Hour` null = follow system locale.
+// `firstDayOfWeek` is 1..7 = SUNDAY..SATURDAY per java.util.Calendar; null
+// = follow system locale.
+{ "type": "settings_changed", "use24Hour": <bool|null>,
+  "firstDayOfWeek": <int|null>, "updatedAtEpoch": <number> }
 ```
 
 `sync_check` / `sync_hash` implement the force-sync precheck (§6). Phone sends `sync_check`, watch replies `sync_hash` with the result of `AlarmHash.compute(localAlarms)`. If the phone's local hash matches, it skips the per-alarm `alarm_added` push and surfaces `ForceSyncResult.AlreadyInSync`. Hash format is locked to 8 lowercase hex chars; receivers reject anything else.
@@ -112,12 +120,14 @@ The `alarm` envelope (sent with `alarm_added` / `alarm_updated`) carries:
 | `enabled` | boolean | yes | — |
 | `audioUri` | string\|null | no | phone-local content URI; watch ignores |
 | `isVibrationOnly` | boolean | no (default `false`) | — |
-| `snoozeMinutes` | number | no (default `10`) | **clamped to 1–60 on receive** |
+| `snoozeMinutes` | number | no (default `10`) | **`0` = snooze disabled (ring UI hides the button); otherwise clamped to 1–60 on receive; negatives clamp to `0`** |
 | `updatedAtEpoch` | number | yes | non-negative |
 | `relativeMinutes` | number\|null | no (default `null` = absolute alarm) | **rejected if outside 1–1440 OR if `daysOfWeek != 0`** |
 | `selfDestruct` | boolean | no (default `false`) | **rejected if `true` AND `daysOfWeek != 0`** |
 
-The receive-side parser on the phone (`WearJsonCodec`) clamps `snoozeMinutes` into `[Alarm.MIN_SNOOZE_MINUTES, Alarm.MAX_SNOOZE_MINUTES]` so a malformed peer can't push out-of-range values into the DB. The watch's `AlarmStore` stores whatever arrives; the watch's ring page applies the same range check before using the value for snooze scheduling.
+The receive-side parser on the phone (`WearJsonCodec`) clamps `snoozeMinutes` with a sentinel ladder: `<= 0` collapses to `Alarm.SNOOZE_DISABLED` (0) meaning "snooze is off", otherwise the value is coerced into `[Alarm.MIN_SNOOZE_MINUTES, Alarm.MAX_SNOOZE_MINUTES]`. A `0` flowing through the wire is preserved — it tells the watch's ring page to hide its snooze affordance. The watch's `AlarmStore` stores whatever arrives; the watch's ring page applies the same range + off-sentinel check before using the value for snooze scheduling.
+
+**Peer-snooze collapse-to-dismiss.** When the watch initiates a snooze (e.g., user taps Snooze on the watch ring page) but the local alarm record on the phone has `snoozeMinutes == 0`, the phone treats the incoming `alarm_snoozed` envelope as a dismiss (`IncomingMessageHandler.applySnooze` → `dispatchDismissFromPeer`). This guards against a 0-minute re-fire and keeps the row in a consistent state (self-destruct fires, etc.). The phone does not re-broadcast `alarm_dismissed` back to the originating watch because `fromPeer == true`, so the watch is responsible for its own UI teardown (it already navigates away on the snooze tap; `alarm_fired` would be the next message it'd see).
 
 **Reject-not-coerce** for the v4 fields (`relativeMinutes`, `selfDestruct`): when the peer sends an illegal combination (out-of-range minutes, or either field paired with `daysOfWeek != 0`), `parseAlarm` returns `null` and logs the rejection. Earlier versions silently coerced — that caused permanent divergence because the phone would re-broadcast the coerced state and overwrite the watch's intended value with both sides agreeing on the wrong outcome. Reject means the envelope is dropped and the peer's next push is expected to arrive in a valid shape.
 
@@ -143,6 +153,23 @@ Implementation requirements before real P2P is enabled:
 **Caveats:**
 - Clock skew between phone and watch can flip the winner the wrong way. Both devices stamp `updatedAtEpoch = Date.now()` (wall clock); skew tolerance budget: 60 s (one minute is the smallest user-visible alarm-time granularity). Larger skew is tracked in Phase 5b under "NTP-anchored clocks before pairing".
 - A delete is also stamped — a tombstone with `updatedAtEpoch` shipped via `alarm_deleted` MUST beat an older `alarm_updated`. Implementation requirement: the local store keeps a deletion tombstone (or at least the `updatedAtEpoch` of the deletion) for some retention window so a stale `alarm_updated` arriving later doesn't resurrect the row. Already implemented on the phone (Tombstones, 256-entry / 7-day ring buffer); needs to be re-implemented on the LiteWearable watch in plain JS against `@system.storage`.
+
+---
+
+### 2.4 Default-watch-background auxiliary envelopes (Phase 5a)
+
+The per-alarm `watchBackgroundImageUri` field was removed in db v8 (Phase 5a). The watch now shows a **single shared background image** that the phone manages via two auxiliary wire artifacts, separate from the per-alarm `alarm_added` / `alarm_updated` envelopes:
+
+| direction | kind | name / type | payload |
+| --- | --- | --- | --- |
+| phone → watch | P2P file (Wear Engine `Builder.setPayload(File)` + `.setDescription("bg_default.bin")`) | `bg_default.bin` | watch-rendered PNG (466 × 466, circular crop); cached on phone at `watch_bg_-1.bin` |
+| phone → watch | JSON envelope (`type: "watch_default_bg_cleared"`) | `watch_default_bg_cleared` | `{ "type": "watch_default_bg_cleared", "stamp": <epoch> }` — instructs the watch to delete its cached `bg_default.bin` |
+
+**Phone side** (`HuaweiWearBridge.uploadDefaultWatchBackground` + `sendDefaultWatchBackgroundCleared`): fires on `SettingsStore.defaultWatchBackgroundUri` change, gated by the watch-sync state machine (uses the same wake-and-send protocol as alarm envelopes per §2.3). The `-1L` sentinel `AlarmRepository.DEFAULT_WATCH_BG_ID` distinguishes the default-bg cache file from per-alarm ones in the phone's `WatchBackgroundCache`.
+
+**Watch side (status — KNOWN GAP, deferred to Phase 0b watch rewrite):** the current `watch-app/entry/src/main/js/MainAbility/common/wearBridge.js` **ignores all incoming file messages** (`if (data.isFileType) { Logger.i('... (ignored)'); return; }`) and `incomingHandler.js` has no case for `watch_default_bg_cleared`. The phone-side scaffolding is complete and on-wire-format-stable; the watch handlers will land with the Phase 0b LiteWearable rewrite that's already replacing `watch-app/` wholesale. Until then, the default-watch-bg feature is **phone-side-only** — the file is uploaded but never rendered on the watch, and the clear envelope is silently dropped.
+
+The wire shapes are pinned so they don't churn when the watch rewrite catches up; the phone code stays in place.
 
 ---
 

@@ -70,4 +70,15 @@
     <string name="help_pair_watch_title">Authorize Huawei watch</string>
     <string name="help_pair_watch_body">Authorize Wear Engine access so alarms can ring on a Huawei Sports Watch / GT-series device that is already paired through Huawei Health. Requires the Huawei Health app; nothing happens on devices without it.</string>
     <string name="help_pair_watch_button">Authorize watch access</string>
+    <string name="help_donate_title">Support development</string>
+    <string name="help_donate_body">GT Alarm is free and ad-free. If it\'s saving your mornings, consider buying me a coffee — it directly funds time spent on features and device support.</string>
+    <string name="help_donate_button">Buy me a coffee</string>
+    <string name="help_device_unsupported_title">Different watch?</string>
+    <string name="help_device_unsupported_body">Only Huawei GT 6 Pro is fully tested today. If your watch model isn\'t syncing or the layout looks wrong, drop me a line — donating a device for testing is the fastest way to add proper support.</string>
+    <string name="help_device_unsupported_button">Contact developer</string>
+    <string name="help_credits_title">Credits</string>
+    <string name="help_credits_icons">Icons by Pixel perfect — Flaticon</string>
+    <string name="field_snooze_off_value">Off</string>
+    <string name="field_snooze_off_chip">Off</string>
+    <string name="dialog_keep_editing">Keep editing</string>
 </resources>

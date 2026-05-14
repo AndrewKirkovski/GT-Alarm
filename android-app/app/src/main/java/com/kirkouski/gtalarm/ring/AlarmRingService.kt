@@ -78,9 +78,9 @@ class AlarmRingService : Service() {
             // User is actively editing this alarm on AlarmEditScreen. Don't
             // fire — would interrupt the edit with a full-screen alarm UI.
             // Still satisfy startForeground budget, then bail. The edit-
-            // screen exit hook (flushPendingToWatch → rescheduleAlarm) will
-            // re-arm; if computedFireEpoch has already passed by then, the
-            // scheduler fires immediately and we re-enter here cleanly.
+            // screen save hook (AlarmEditViewModel.save → rescheduleAlarm)
+            // will re-arm; if computedFireEpoch has already passed by then,
+            // the scheduler fires immediately and we re-enter here cleanly.
             Log.i(TAG, "handleRing id=$alarmId — alarm is being edited, bailing")
             startForegroundPlaceholder()
             stopForegroundAndSelf()
@@ -190,12 +190,34 @@ class AlarmRingService : Service() {
     }
 
     private fun startForegroundOnly(alarm: Alarm) {
+        // Lockscreen-penetration diagnostics. The user has hit intermittent
+        // "screen didn't wake" failures (e.g. 2nd alarm in a row sometimes
+        // misses). Capture the FSI-relevant device state at fire moment so
+        // logcat post-mortem can pin down whether the keyguard, the
+        // CAN_USE_FULL_SCREEN_INTENT appop, or the BAL gate is the blocker.
+        val km = runCatching { getSystemService(android.app.KeyguardManager::class.java) }.getOrNull()
+        val nm = runCatching { getSystemService(android.app.NotificationManager::class.java) }.getOrNull()
+        val canFsi = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            runCatching { nm?.canUseFullScreenIntent() ?: false }.getOrElse { false }
+        } else {
+            true // pre-34: FSI permission was implicit
+        }
+        Log.i(
+            TAG,
+            "FSI-fire id=${alarm.id} locked=${km?.isKeyguardLocked} " +
+                "keyguardSecure=${km?.isKeyguardSecure} canFsi=$canFsi " +
+                "sdk=${Build.VERSION.SDK_INT}",
+        )
         val notif = AlarmNotifications.buildRingingNotification(
             context = this,
             alarm = alarm,
             fullScreenIntent = AlarmNotifications.fullScreenPendingIntent(this, alarm.id),
             dismissIntent = AlarmNotifications.dismissPendingIntent(this, alarm.id),
-            snoozeIntent = AlarmNotifications.snoozePendingIntent(this, alarm.id),
+            snoozeIntent = if (alarm.isSnoozeEnabled) {
+                AlarmNotifications.snoozePendingIntent(this, alarm.id)
+            } else {
+                null
+            },
         )
         startForeground(AlarmNotifications.NOTIFICATION_ID, notif, foregroundServiceTypeForApi())
     }
@@ -344,18 +366,31 @@ class AlarmRingService : Service() {
                 // broadcast but as fire-and-forget — at risk of being
                 // killed mid-flight if the OS reaps the process).
                 val alarm = repository.getById(alarmId)
-                if (alarm != null) {
-                    val trigger = System.currentTimeMillis() + alarm.snoozeMinutes * 60_000L
-                    val acked = wearBridge.sendAlarmSnoozedAwaiting(
-                        alarmId,
-                        trigger,
-                        BROADCAST_AWAIT_MS,
-                    )
-                    Log.i(TAG, "snooze broadcast id=$alarmId acked=$acked trigger=$trigger")
-                    repository.snoozeAt(alarmId, trigger)
-                } else {
+                if (alarm == null) {
                     Log.w(TAG, "snooze id=$alarmId — row missing, skipping")
+                    stopForegroundAndSelf()
+                    return@launch
                 }
+                if (!alarm.isSnoozeEnabled) {
+                    // Snooze was disabled on this alarm — reaches here only via
+                    // a stale notification action posted before the user turned
+                    // it off. Collapse to a real dismiss so the watch stops
+                    // ringing AND self-destruct / disable / delete actions run;
+                    // otherwise the watch keeps ringing and the row stays in
+                    // an inconsistent state. handleDismiss owns its own
+                    // stopForegroundAndSelf().
+                    Log.i(TAG, "snooze id=$alarmId — snooze disabled, collapsing to dismiss")
+                    handleDismiss(alarmId, fromPeer = false)
+                    return@launch
+                }
+                val trigger = System.currentTimeMillis() + alarm.snoozeMinutes * 60_000L
+                val acked = wearBridge.sendAlarmSnoozedAwaiting(
+                    alarmId,
+                    trigger,
+                    BROADCAST_AWAIT_MS,
+                )
+                Log.i(TAG, "snooze broadcast id=$alarmId acked=$acked trigger=$trigger")
+                repository.snoozeAt(alarmId, trigger)
             }
             stopForegroundAndSelf()
         }
@@ -410,10 +445,17 @@ class AlarmRingService : Service() {
         // or snooze broadcast before tearing down the service. If we don't
         // wait, the process may be reaped before the bridge's fire-and-
         // forget send actually delivers, leaving the watch ringing.
-        // 2 s = one BT round-trip + buffer; far under the 10 s ANR budget
-        // and short enough that the user doesn't perceive lag tapping
-        // Dismiss / Snooze.
-        private const val BROADCAST_AWAIT_MS = 2_000L
+        //
+        // 12 s, bumped 2026-05-13 (was 2 s — user-reported "dismiss/snooze
+        // on Android doesn't stop watch ring"). 2 s only covered ONE
+        // round-trip; if the watch's P2P receiver was unbound (page just
+        // started or paged out) the first send returned 206 COMM_FAIL and
+        // the bridge's retry path needed up to PING_WAKE_TIMEOUT_MS=10 s
+        // + RETRY_BACKOFF_MS=1 s of inner waits. Audio is already stopped
+        // before the await begins so the user experience is identical;
+        // the service just stays in the foreground a few extra seconds
+        // while the deliverable settles.
+        private const val BROADCAST_AWAIT_MS = 12_000L
         private const val TAG = "AlarmRing"
 
         // Request-code high bit for the direct-launch PendingIntent that

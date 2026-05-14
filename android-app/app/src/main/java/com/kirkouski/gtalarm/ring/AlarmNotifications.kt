@@ -133,7 +133,9 @@ object AlarmNotifications {
         alarm: Alarm,
         fullScreenIntent: PendingIntent,
         dismissIntent: PendingIntent,
-        snoozeIntent: PendingIntent,
+        // null when the alarm has snooze disabled — the addAction call
+        // is skipped so the heads-up exposes only the Dismiss button.
+        snoozeIntent: PendingIntent?,
     ): Notification {
         // Android 14+ (API 34) requires USE_FULL_SCREEN_INTENT to actually
         // wake the screen via the full-screen intent path. Alarm apps with
@@ -168,7 +170,11 @@ object AlarmNotifications {
             .setFullScreenIntent(fullScreenIntent, true)
             .setContentIntent(fullScreenIntent)
             .addAction(0, context.getString(R.string.action_dismiss), dismissIntent)
-            .addAction(0, context.getString(R.string.action_snooze), snoozeIntent)
+            .apply {
+                if (snoozeIntent != null) {
+                    addAction(0, context.getString(R.string.action_snooze), snoozeIntent)
+                }
+            }
             .build()
     }
 

@@ -25,14 +25,14 @@ object DatabaseModule {
         Room.databaseBuilder(context, AlarmDatabase::class.java, "gt_alarm.db")
             .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             // Pre-release: v5 → v6 added Alarm.backgroundImageUri; v6 → v7
-            // added Alarm.watchBackgroundImageUri. No installs in the wild
-            // to preserve, so destructive migration on each new bump is
-            // acceptable (per project memory note `phase_3_4_landings.md`
-            // and explicit task scope). Drops the alarms table on schema
-            // mismatch; users re-create alarms on first launch after upgrade.
-            // Remove this once a real release ships and we need to preserve
-            // installed data — at which point write proper MIGRATION_5_6 /
-            // MIGRATION_6_7 helpers.
+            // added Alarm.watchBackgroundImageUri; v7 → v8 dropped that
+            // watch-bg field in favor of a single settings-level default.
+            // No installs in the wild to preserve, so destructive migration
+            // on each new bump is acceptable (per project memory note
+            // `phase_3_4_landings.md` and explicit task scope). Drops the
+            // alarms table on schema mismatch; users re-create alarms on
+            // first launch after upgrade. Remove this once a real release
+            // ships and we need to preserve installed data.
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
 

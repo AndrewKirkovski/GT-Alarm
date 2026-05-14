@@ -19,12 +19,12 @@ import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.TransformableState
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -35,8 +35,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -51,25 +55,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.drawText
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -96,8 +91,8 @@ import java.io.FileOutputStream
  *
  * Caller passes [alarmId] and a callback that receives the resulting PNG
  * `file://` URI on Save (no callback fires on cancel). Upload to the watch
- * is **not** done here — it flows via the same flushPendingToWatch path
- * as every other field edit.
+ * is **not** done here — the file lands in cacheDir and is uploaded on
+ * [AlarmEditViewModel.save] together with the alarm row push.
  *
  * # Cropping math
  *
@@ -183,26 +178,48 @@ fun WatchBackgroundPickerDialog(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surface)
-                .padding(horizontal = 16.dp, vertical = 16.dp),
+                .background(MaterialTheme.colorScheme.surface),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = stringResource(R.string.watch_bg_picker_title),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
+            // Compact app-bar style header: title left-aligned, X close on
+            // the right. The previous design centered an h5 title + 2-line
+            // helper hint across the top, eating ~120 dp of vertical space
+            // and pushing the circular preview into a cramped middle band.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = stringResource(R.string.watch_bg_picker_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.cancel),
+                    )
+                }
+            }
             Text(
                 text = stringResource(R.string.watch_bg_picker_help),
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 4.dp),
             )
 
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f, fill = false),
+                    .weight(1f)
+                    .padding(horizontal = 24.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 val viewportDp = minOf(maxWidth, maxHeight)
@@ -215,7 +232,6 @@ fun WatchBackgroundPickerDialog(
                 val bmp = sourceBitmap
                 if (bmp != null) {
                     val baseScale = computeBaseScale(bmp.width.toFloat(), bmp.height.toFloat(), viewportPx)
-                    val totalScale = baseScale * userScale
                     @Suppress("DEPRECATION")
                     // reason: the new 4-arg `rememberTransformableState` (with
                     // centroid) is a UX upgrade for "zoom around point" but
@@ -237,76 +253,92 @@ fun WatchBackgroundPickerDialog(
                         offsetX = nextOffsetX.coerceIn(-overflowX.coerceAtLeast(0f), overflowX.coerceAtLeast(0f))
                         offsetY = nextOffsetY.coerceIn(-overflowY.coerceAtLeast(0f), overflowY.coerceAtLeast(0f))
                     }
+                    // Circle clip + ContentScale.Crop for the image. The
+                    // previous design used Image.size(viewportDp) with
+                    // separate graphicsLayer scaleX/scaleY computed from
+                    // bmp.width vs bmp.height — which stretched any non-
+                    // square photo horizontally OR vertically depending
+                    // on aspect, making the preview lie about what got
+                    // saved (bug 2026-05-13, user reported "broken
+                    // proportions" + "revisit doesn't match itself").
+                    //
+                    // The fix: ContentScale.Crop handles base "cover" math
+                    // with correct aspect ratio preservation. graphicsLayer
+                    // applies only UNIFORM userScale + translate on top.
+                    // What the user sees now exactly equals what
+                    // persistCrop's inverse-map captures.
                     Box(
                         modifier = Modifier
                             .size(viewportDp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(CircleShape)
                             .background(Color.Black)
                             .transformable(transformState),
                     ) {
-                        // Bottom: the image, scaled + translated under
-                        // pinch-zoom. We use Image with explicit pixel
-                        // bounds via graphicsLayer scaleX/scaleY rather
-                        // than ContentScale so the geometry matches
-                        // exactly what persistCrop's inverse-map sees.
                         Image(
                             bitmap = bmp.asImageBitmap(),
                             contentDescription = null,
+                            contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .size(viewportDp)
                                 .graphicsLayer {
-                                    // base scale fills the viewport; user
-                                    // zoom is multiplicative on top. The
-                                    // composable shows the source bitmap
-                                    // sized to viewportPx, so its draw
-                                    // dimensions match bmp.width *
-                                    // viewportPx/bmp.width = viewportPx
-                                    // for the x axis at baseScale. The
-                                    // additional scaling = totalScale /
-                                    // (viewportPx / bmpDim) = userScale *
-                                    // baseScale * bmpDim / viewportPx.
-                                    val drawScaleX = totalScale * bmp.width / viewportPx
-                                    val drawScaleY = totalScale * bmp.height / viewportPx
-                                    scaleX = drawScaleX
-                                    scaleY = drawScaleY
+                                    scaleX = userScale
+                                    scaleY = userScale
                                     translationX = offsetX
                                     translationY = offsetY
                                 },
                         )
-                        CircularMaskCanvas(modifier = Modifier.fillMaxSize())
-                        WatchRingOverlayCanvas(modifier = Modifier.fillMaxSize())
-                    }
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(viewportDp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.watch_bg_picker_empty),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium,
+                        // Watch ring-screen UI overlay — single source-of-truth
+                        // PNG generated from .local/watch-ring-overlay.svg via
+                        // .local/render-watch-overlay.py (cairosvg). The SVG
+                        // mirrors watch ring.css + the HTML mockup; bumping
+                        // any one means re-running the render script. See
+                        // memory:watch_overlay_sync.md for the discipline.
+                        //
+                        // 0.85 alpha keeps the photo readable through the
+                        // overlay without making the watch UI feel ghostly.
+                        Image(
+                            painter = androidx.compose.ui.res.painterResource(
+                                R.drawable.watch_overlay,
+                            ),
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            alpha = OVERLAY_ASSET_ALPHA,
+                            modifier = Modifier.fillMaxSize(),
                         )
                     }
+                } else {
+                    // Empty-state placeholder — a dashed-style circle with
+                    // a centered "pick image" prompt + small icon. Renders
+                    // the watch shape from the moment the picker opens so
+                    // the user immediately reads "this is a round crop".
+                    EmptyCircle(
+                        viewportDp = viewportDp,
+                        onPick = { pickLauncher.launch(arrayOf("image/*")) },
+                    )
                 }
             }
 
+            // Compact two-button row. Pick (outlined) + Save (filled,
+            // disabled until an image loads). Dismiss removed in favor
+            // of the X close icon in the header — earlier 3-button design
+            // forced "Choose image" to wrap to 2 lines on narrow phones.
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                OutlinedButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text(stringResource(R.string.cancel))
-                }
                 OutlinedButton(
                     onClick = { pickLauncher.launch(arrayOf("image/*")) },
                     modifier = Modifier.weight(1f),
                 ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_image),
+                        contentDescription = null,
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
                     Text(stringResource(R.string.watch_bg_picker_pick))
                 }
                 Button(
@@ -339,119 +371,48 @@ fun WatchBackgroundPickerDialog(
                     Text(stringResource(R.string.action_save))
                 }
             }
-            Spacer(modifier = Modifier.size(4.dp))
         }
     }
 }
 
 /**
- * Canvas overlay drawing a semitransparent darkened region OUTSIDE the
- * inscribed circle. Achieves the "punch a circular hole through a dark
- * scrim" look using BlendMode.Clear after filling.
+ * Empty-state for the picker — a dashed circle the size of the viewport
+ * with a centered "pick image" affordance. Renders the watch's circular
+ * shape upfront so the user understands what they're about to crop. The
+ * whole circle is the tap target.
  */
 @Composable
-private fun CircularMaskCanvas(modifier: Modifier) {
-    Canvas(modifier = modifier) {
-        val side = minOf(size.width, size.height)
-        val cx = size.width / 2f
-        val cy = size.height / 2f
-        val r = side / 2f
-        drawRect(color = Color.Black.copy(alpha = SCRIM_ALPHA))
-        drawCircle(
-            color = Color.Transparent,
-            radius = r,
-            center = Offset(cx, cy),
-            blendMode = BlendMode.Clear,
-        )
-        drawCircle(
-            color = Color.White.copy(alpha = RING_ALPHA),
-            radius = r - 1f,
-            center = Offset(cx, cy),
-            style = Stroke(width = 2f),
-        )
-    }
-}
-
-/**
- * Mimics the watch's ring screen UI (`watch-app/.../pages/ring/ring.hml`)
- * drawn at semi-transparent so the underlying image shows through.
- * Proportions mirror ring.css:
- *   - time: 88 px in CSS, scaled to viewport
- *   - buttons: 180 × 88 px, gap 28 px (scaled)
- */
-// reason: single linear Canvas DSL with measured text + 2 button rects;
-// extracting helpers would scatter the geometry constants across files.
-@Suppress("LongMethod")
-@Composable
-private fun WatchRingOverlayCanvas(modifier: Modifier) {
-    val tm = rememberTextMeasurer()
-    Canvas(modifier = modifier) {
-        val side = minOf(size.width, size.height)
-        val cx = size.width / 2f
-        val cy = size.height / 2f
-        val titleStyle = TextStyle(
-            color = Color.White.copy(alpha = OVERLAY_ALPHA),
-            fontSize = TextUnit(side * TITLE_FONT_RATIO, TextUnitType.Sp),
-            fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.Center,
-        )
-        val timeStyle = TextStyle(
-            color = Color.White.copy(alpha = OVERLAY_ALPHA),
-            fontSize = TextUnit(side * TIME_FONT_RATIO, TextUnitType.Sp),
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-        )
-        val btnTextStyle = TextStyle(
-            color = Color.White.copy(alpha = OVERLAY_ALPHA),
-            fontSize = TextUnit(side * BTN_TEXT_FONT_RATIO, TextUnitType.Sp),
-            fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.Center,
-        )
-        val title = tm.measure(AnnotatedString(PREVIEW_TITLE), titleStyle)
-        drawText(
-            textLayoutResult = title,
-            topLeft = Offset(cx - title.size.width / 2f, cy - side * TITLE_OFFSET_RATIO),
-        )
-        val timeLayout = tm.measure(AnnotatedString(PREVIEW_TIME), timeStyle)
-        drawText(
-            textLayoutResult = timeLayout,
-            topLeft = Offset(cx - timeLayout.size.width / 2f, cy - timeLayout.size.height / 2f),
-        )
-        val btnWidth = side * BTN_WIDTH_RATIO
-        val btnHeight = side * BTN_HEIGHT_RATIO
-        val btnGap = side * BTN_GAP_RATIO
-        val btnRowY = cy + side * BTN_ROW_OFFSET_RATIO
-        val totalRowWidth = btnWidth * 2 + btnGap
-        val leftX = cx - totalRowWidth / 2f
-        drawRoundRect(
-            color = Color(SNOOZE_BG_COLOR).copy(alpha = OVERLAY_BTN_ALPHA),
-            topLeft = Offset(leftX, btnRowY),
-            size = Size(btnWidth, btnHeight),
-            cornerRadius = CornerRadius(btnHeight / 2f),
-        )
-        val snoozeLayout = tm.measure(AnnotatedString(PREVIEW_SNOOZE), btnTextStyle)
-        drawText(
-            textLayoutResult = snoozeLayout,
-            topLeft = Offset(
-                leftX + btnWidth / 2f - snoozeLayout.size.width / 2f,
-                btnRowY + btnHeight / 2f - snoozeLayout.size.height / 2f,
-            ),
-        )
-        val rightX = leftX + btnWidth + btnGap
-        drawRoundRect(
-            color = Color(DISMISS_BG_COLOR).copy(alpha = OVERLAY_BTN_ALPHA),
-            topLeft = Offset(rightX, btnRowY),
-            size = Size(btnWidth, btnHeight),
-            cornerRadius = CornerRadius(btnHeight / 2f),
-        )
-        val dismissLayout = tm.measure(AnnotatedString(PREVIEW_DISMISS), btnTextStyle)
-        drawText(
-            textLayoutResult = dismissLayout,
-            topLeft = Offset(
-                rightX + btnWidth / 2f - dismissLayout.size.width / 2f,
-                btnRowY + btnHeight / 2f - dismissLayout.size.height / 2f,
-            ),
-        )
+private fun EmptyCircle(
+    viewportDp: androidx.compose.ui.unit.Dp,
+    onPick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(viewportDp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .border(width = 2.dp, color = MaterialTheme.colorScheme.outline, shape = CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            IconButton(onClick = onPick) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_image),
+                    contentDescription = null,
+                    modifier = Modifier.size(40.dp),
+                    tint = Color.Unspecified,
+                )
+            }
+            Text(
+                text = stringResource(R.string.watch_bg_picker_empty),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
 
@@ -618,24 +579,22 @@ private const val PNG_QUALITY = 95
 // so we never store an out-of-range value.
 private const val USER_SCALE_MIN = 1.0f
 private const val USER_SCALE_MAX = 4.0f
-// Overlay tunings (proportional to viewport side).
-private const val SCRIM_ALPHA = 0.55f
-private const val RING_ALPHA = 0.6f
-private const val OVERLAY_ALPHA = 0.6f
-private const val OVERLAY_BTN_ALPHA = 0.45f
-private const val TIME_FONT_RATIO = 0.18f
-private const val TITLE_FONT_RATIO = 0.06f
-private const val BTN_TEXT_FONT_RATIO = 0.06f
-private const val TITLE_OFFSET_RATIO = 0.22f
-private const val BTN_WIDTH_RATIO = 0.32f
-private const val BTN_HEIGHT_RATIO = 0.15f
-private const val BTN_GAP_RATIO = 0.06f
-private const val BTN_ROW_OFFSET_RATIO = 0.18f
-// Snooze pill = #374151; Dismiss pill = #B91C1C (matches ring.css).
-private const val SNOOZE_BG_COLOR = 0xFF374151L
-private const val DISMISS_BG_COLOR = 0xFFB91C1CL
-private const val PREVIEW_TIME = "07:23"
-private const val PREVIEW_TITLE = "Alarm"
-private const val PREVIEW_SNOOZE = "Snooze"
-private const val PREVIEW_DISMISS = "Dismiss"
+// Overlay tunings. The watch's actual ring screen renders against a
+// square 466 × 466 canvas with corner pixels invisibly masked by the
+// round hardware. Cloning the literal ring.css ratios (180×88 buttons,
+// 88 px time) put the buttons + time AT the circle's edge — in the
+// picker they got clipped by `.clip(CircleShape)` and competed
+// visually with the user's photo. These tuned-down ratios pull the
+// overlay inward so it reads as a *hint* of the watch UI rather than
+// an opaque mockup. The picker's job is "preview your image with the
+// alarm UI on top"; the ring page itself is where the user reads time.
+// Picker overlay PNG alpha. Full 1.0 = the watch UI renders exactly as
+// it does on the actual watch (the watch UI is NOT transparent — the
+// arc, time, and buttons sit ON TOP of the wallpaper opaquely). 2026-
+// 05-13: previous attempts at 0.28 / 0.4 / 0.85 alpha were all wrong;
+// the user's photo can fully show through the asset's already-
+// transparent background, no need to ghost the UI itself. The overlay
+// PNG already has transparent regions outside the ring + text + pills
+// so the photo is visible where the watch UI isn't.
+private const val OVERLAY_ASSET_ALPHA = 1.0f
 private const val TAG = "WatchBgPicker"

@@ -22,9 +22,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.kirkouski.gtalarm.data.AlarmRepository
+import com.kirkouski.gtalarm.data.OnboardingState
 import com.kirkouski.gtalarm.ring.AlarmRingService
 import com.kirkouski.gtalarm.ui.edit.AlarmEditScreen
 import com.kirkouski.gtalarm.ui.help.HelpScreen
+import com.kirkouski.gtalarm.ui.help.PermissionAudit
 import com.kirkouski.gtalarm.ui.list.AlarmListScreen
 import com.kirkouski.gtalarm.ui.nav.Routes
 import com.kirkouski.gtalarm.ui.settings.SettingsScreen
@@ -45,6 +47,7 @@ class MainActivity : ComponentActivity() {
     // user-driven entry point — wired below into the HelpScreen composable.
     @Inject lateinit var wearBridge: WearBridgeService
     @Inject lateinit var alarmRepository: AlarmRepository
+    @Inject lateinit var onboardingState: OnboardingState
 
     // Tracks the user's POST_NOTIFICATIONS choice. We don't gate any
     // functionality on it (alarms still ring without notifications via
@@ -144,12 +147,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // First-run one-shot: open the system's full-screen-intent settings the
+    // first time we detect the AppOps mode is not MODE_ALLOWED. On Samsung
+    // One UI 6 the appop defaults to MODE_DEFAULT — NotificationManager
+    // .canUseFullScreenIntent() returns true for that mode but Samsung's
+    // vendor FSI-delivery layer still silently drops the op at fire time,
+    // so we MUST query AppOps directly (see PermissionAudit docs). After
+    // the one-shot fires, subsequent launches rely on the Setup banner in
+    // the alarm list — auto-launching every cold start would yank the user
+    // out of the app on devices where the default mode persists.
     private fun ensureFullScreenIntentPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
-        val nm = getSystemService(android.app.NotificationManager::class.java)
-        if (nm?.canUseFullScreenIntent() == false) {
-            openFullScreenIntentSettings()
-        }
+        if (onboardingState.fsiPromptShown()) return
+        if (PermissionAudit.checkFullScreenIntent(this) == PermissionAudit.Status.GRANTED) return
+        onboardingState.markFsiPromptShown()
+        Log.i(TAG, "first-run FSI prompt — appop not MODE_ALLOWED, deeplinking to Settings")
+        openFullScreenIntentSettings()
     }
 
     private fun openExactAlarmSettings() {

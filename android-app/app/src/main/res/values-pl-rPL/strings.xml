@@ -70,4 +70,15 @@
     <string name="help_pair_watch_title">Autoryzacja zegarka Huawei</string>
     <string name="help_pair_watch_body">Połącz sparowany wcześniej zegarek Huawei Sports Watch / GT, aby alarmy dzwoniły na nadgarstku. Wymaga aplikacji Huawei Health i zegarka już sparowanego przez nią. Na urządzeniach bez Huawei Health nic się nie stanie.</string>
     <string name="help_pair_watch_button">Autoryzuj dostęp do zegarka</string>
+    <string name="help_donate_title">Wesprzyj rozwój</string>
+    <string name="help_donate_body">GT Alarm jest darmowy i bez reklam. Jeśli ratuje Twoje poranki, postaw mi kawę — to bezpośrednio finansuje czas na nowe funkcje i wsparcie urządzeń.</string>
+    <string name="help_donate_button">Postaw kawę</string>
+    <string name="help_device_unsupported_title">Inny zegarek?</string>
+    <string name="help_device_unsupported_body">Na dziś w pełni przetestowany jest tylko Huawei GT 6 Pro. Jeśli Twój model się nie synchronizuje albo układ jest dziwny — napisz do mnie. Przekazanie urządzenia do testów to najszybsza droga do pełnego wsparcia.</string>
+    <string name="help_device_unsupported_button">Skontaktuj się z autorem</string>
+    <string name="help_credits_title">Autorzy</string>
+    <string name="help_credits_icons">Ikony autorstwa Pixel perfect — Flaticon</string>
+    <string name="field_snooze_off_value">Wył.</string>
+    <string name="field_snooze_off_chip">Wył.</string>
+    <string name="dialog_keep_editing">Wróć do edycji</string>
 </resources>

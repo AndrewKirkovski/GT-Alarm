@@ -86,17 +86,22 @@ internal object WearJsonCodec {
      * the peer's next push reach us in a valid shape (or surface a sync
      * mismatch via the hash precheck).
      *
-     * The only coercion we still do is `snoozeMinutes` clamping into
-     * [MIN_SNOOZE_MINUTES, MAX_SNOOZE_MINUTES], because that range is a
-     * UI-level constraint and out-of-range values are typically legacy
-     * data from earlier app versions where the bounds were different.
+     * The only coercion we still do is `snoozeMinutes`: SNOOZE_DISABLED (0)
+     * passes through to mean "snooze is off", anything else clamps into
+     * [MIN_SNOOZE_MINUTES, MAX_SNOOZE_MINUTES] because that range is a UI
+     * constraint and out-of-range values are typically legacy data from
+     * earlier app versions where the bounds were different.
      */
     // reason: complexity rose to 11 because each invariant check (missing-
     // required / relativeMinutes-out-of-range / relativeMinutes-with-days /
     // selfDestruct-with-days) is a distinct rejection path with its own
     // diagnostic log. Extracting into helpers would smear the same chain
     // across more functions without changing the early-return logic.
-    @Suppress("ReturnCount", "CyclomaticComplexMethod")
+    // LongMethod (~64 lines) for the same reason: the body is a single
+    // linear chain of checks + one Alarm() construction; the snoozeMinutes
+    // sentinel ladder for SNOOZE_DISABLED added a few more lines but lives
+    // inline with the rest of the field coercion.
+    @Suppress("ReturnCount", "CyclomaticComplexMethod", "LongMethod")
     private fun parseAlarm(j: JSONObject, envelopeAlarmId: Long): Alarm? {
         val missingRequired = REQUIRED_ALARM_FIELDS.any { !j.has(it) || j.isNull(it) }
         if (missingRequired) {
@@ -150,7 +155,11 @@ internal object WearJsonCodec {
             audioUri = j.optString("audioUri", "").takeIf { it.isNotEmpty() },
             audioName = null,
             isVibrationOnly = j.optBoolean("isVibrationOnly", false),
-            snoozeMinutes = rawSnooze.coerceIn(Alarm.MIN_SNOOZE_MINUTES, Alarm.MAX_SNOOZE_MINUTES),
+            snoozeMinutes = if (rawSnooze <= Alarm.SNOOZE_DISABLED) {
+                Alarm.SNOOZE_DISABLED
+            } else {
+                rawSnooze.coerceIn(Alarm.MIN_SNOOZE_MINUTES, Alarm.MAX_SNOOZE_MINUTES)
+            },
             updatedAtEpoch = j.optLong("updatedAtEpoch", 0L),
             relativeMinutes = relativeMinutes,
             selfDestruct = selfDestruct,

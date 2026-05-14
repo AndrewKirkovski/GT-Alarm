@@ -68,27 +68,45 @@ interface WearBridgeService {
     ): Boolean
 
     /**
-     * Upload a per-alarm watch-side background image to the paired watch.
+     * Upload the shared default watch-side background image to the paired
+     * watch. One image applies to every alarm (the per-alarm field was
+     * dropped in schema v8 — Settings owns the single default).
+     *
      * The file MUST be a BGRA `.bin` produced by [com.kirkouski.gtalarm.wear.WatchBackgroundEncoder]
      * — the watch's `<image>` element does not decode PNG/JPEG (see
      * memory:litewearable_images_and_files).
      *
      * Uses the Wear Engine file-transfer path (`Message.Builder.setPayload(File)`).
-     * The watch's MainAbility writes the blob into its internal sandbox at
-     * a filename addressed by [alarmId] (e.g. `bg_<alarmId>.bin`).
+     * The watch's MainAbility writes the blob into its internal sandbox as
+     * a fixed `bg_default.bin`.
      *
      * Returns true iff the watch ACKed delivery (207 = COMM_SUCCESS).
-     * Caller may treat false as transient — retry on the next sync /
-     * flushPendingToWatch / forceSync.
+     * Caller may treat false as transient — retry on the next Settings
+     * save / forceSync.
      */
-    suspend fun uploadWatchBackground(alarmId: Long, binFile: java.io.File): Boolean
+    suspend fun uploadDefaultWatchBackground(binFile: java.io.File): Boolean
 
     /**
-     * Tell the watch to drop the per-alarm background bin associated
-     * with [alarmId]. Sent on user "Clear" / alarm deletion so the watch
-     * doesn't accumulate orphaned `bg_*.bin` files.
+     * Tell the watch to drop its cached default background bin. Sent when
+     * the user clears the default in Settings so the watch deletes its
+     * `bg_default.bin` and falls back to its bundled ring UI.
      */
-    fun sendWatchBackgroundCleared(alarmId: Long)
+    fun sendDefaultWatchBackgroundCleared()
+
+    /**
+     * Push the user's display preferences to the watch. One-way: phone is
+     * the only place these are edited; watch is a thin display surface.
+     *
+     * - [use24Hour]: null = follow watch system locale; explicit true/false
+     *   overrides the watch's time formatter.
+     * - [firstDayOfWeek]: 1..7 = SUNDAY..SATURDAY per java.util.Calendar.
+     *   null = follow watch locale.
+     *
+     * Wire format: `{ type: "settings_changed", use24Hour: bool|null,
+     * firstDayOfWeek: int|null, updatedAtEpoch }`. NOT LWW — the watch
+     * unconditionally overwrites its local copy.
+     */
+    fun sendSettingsChanged(use24Hour: Boolean?, firstDayOfWeek: Int?)
 
     /** Receive-side seam. Pass `null` to detach. */
     fun setIncomingHandler(handler: IncomingMessageHandler?)

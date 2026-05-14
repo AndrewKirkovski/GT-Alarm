@@ -70,4 +70,15 @@
     <string name="help_pair_watch_title">授权华为手表</string>
     <string name="help_pair_watch_body">连接已通过华为运动健康配对的华为 Sports Watch / GT 系列设备，让闹钟在腕上响铃。需要华为运动健康应用以及通过它配对的手表。在没有华为运动健康的设备上将不执行任何操作。</string>
     <string name="help_pair_watch_button">授权手表访问</string>
+    <string name="help_donate_title">支持开发</string>
+    <string name="help_donate_body">GT Alarm 完全免费且无广告。如果它拯救了你的早晨，可以请我喝杯咖啡 — 这将直接用于新功能和设备适配的开发时间。</string>
+    <string name="help_donate_button">请我喝咖啡</string>
+    <string name="help_device_unsupported_title">其他手表型号？</string>
+    <string name="help_device_unsupported_body">目前仅完整测试了华为 GT 6 Pro。如果你的型号无法同步或界面错位，请联系我。捐赠一台测试设备是添加完整支持的最快方式。</string>
+    <string name="help_device_unsupported_button">联系开发者</string>
+    <string name="help_credits_title">致谢</string>
+    <string name="help_credits_icons">图标作者：Pixel perfect — Flaticon</string>
+    <string name="field_snooze_off_value">关闭</string>
+    <string name="field_snooze_off_chip">关闭</string>
+    <string name="dialog_keep_editing">继续编辑</string>
 </resources>

@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -22,11 +21,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,8 +45,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -58,6 +55,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.data.SettingsState
+import com.kirkouski.gtalarm.ui.edit.WatchBackgroundPickerDialog
 import com.kirkouski.gtalarm.ui.edit.rememberAudioPicker
 import com.kirkouski.gtalarm.ui.edit.rememberAudioPreview
 import com.kirkouski.gtalarm.ui.edit.rememberBackgroundBitmap
@@ -121,14 +119,47 @@ private fun BackgroundSection(state: SettingsState, vm: SettingsViewModel) {
                 onPicked = { uri -> vm.setDefaultPhoneBackground(uri) },
                 onClear = { vm.setDefaultPhoneBackground(null) },
             )
-            BackgroundRow(
-                titleRes = R.string.settings_default_watch_background,
+            WatchBackgroundRow(
                 currentUri = state.defaultWatchBackgroundUri,
                 onPicked = { uri -> vm.setDefaultWatchBackground(uri) },
                 onClear = { vm.setDefaultWatchBackground(null) },
             )
         }
     }
+}
+
+/**
+ * Watch-default variant of [BackgroundRow]. Opens the same circular-crop
+ * [WatchBackgroundPickerDialog] used for per-alarm edits so the user gets
+ * the watch-UI overlay preview here too, not just a plain SAF picker. The
+ * picker keys its cached PNG/.bin by alarm id; we pass [DEFAULT_WATCH_BG_ID]
+ * (a sentinel below Room's positive id range) so the default's cache file
+ * (`watch_bg_-1.png`) can't collide with a real alarm's crop.
+ */
+@Composable
+private fun WatchBackgroundRow(
+    currentUri: String?,
+    onPicked: (String) -> Unit,
+    onClear: () -> Unit,
+) {
+    var showPicker by remember { mutableStateOf(false) }
+    if (showPicker) {
+        WatchBackgroundPickerDialog(
+            alarmId = DEFAULT_WATCH_BG_ID,
+            initialUri = currentUri,
+            onDismiss = { showPicker = false },
+            onSaved = { uri ->
+                showPicker = false
+                onPicked(uri)
+            },
+        )
+    }
+    BackgroundRowLayout(
+        titleRes = R.string.settings_default_watch_background,
+        currentUri = currentUri,
+        onPick = { showPicker = true },
+        onClear = onClear,
+    )
 }
 
 @Composable
@@ -139,6 +170,27 @@ private fun BackgroundRow(
     onClear: () -> Unit,
 ) {
     val pick = rememberBackgroundImagePicker { uri -> onPicked(uri) }
+    BackgroundRowLayout(
+        titleRes = titleRes,
+        currentUri = currentUri,
+        onPick = pick,
+        onClear = onClear,
+    )
+}
+
+// reason: 62 lines — the layout routes a thumbnail (3 branches: bitmap /
+// fallback icon / placeholder icon), a label column with two text pieces,
+// an optional clear button, and the pick button. Splitting the thumbnail
+// out into its own composable would smear state hoisting across two more
+// callsites for zero readability gain.
+@Suppress("LongMethod")
+@Composable
+private fun BackgroundRowLayout(
+    titleRes: Int,
+    currentUri: String?,
+    onPick: () -> Unit,
+    onClear: () -> Unit,
+) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (currentUri != null) {
             val bitmapState = rememberBackgroundBitmap(currentUri)
@@ -154,21 +206,25 @@ private fun BackgroundRow(
                 )
             } else {
                 Icon(
-                    imageVector = Icons.Default.Image,
+                    painter = painterResource(R.drawable.ic_image),
                     contentDescription = null,
                     modifier = Modifier.size(56.dp).padding(8.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = Color.Unspecified,
                 )
             }
         } else {
             Icon(
-                imageVector = Icons.Default.Image,
+                painter = painterResource(R.drawable.ic_image),
                 contentDescription = null,
                 modifier = Modifier.size(56.dp).padding(8.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = Color.Unspecified,
             )
         }
-        Column(modifier = Modifier.padding(start = 12.dp).fillMaxWidth(0.55f)) {
+        Column(
+            modifier = Modifier
+                .padding(start = 12.dp)
+                .weight(1f),
+        ) {
             Text(
                 text = stringResource(titleRes),
                 style = MaterialTheme.typography.titleSmall,
@@ -183,7 +239,6 @@ private fun BackgroundRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Spacer(modifier = Modifier.weight(1f))
         if (currentUri != null) {
             IconButton(onClick = onClear) {
                 Icon(
@@ -192,7 +247,7 @@ private fun BackgroundRow(
                 )
             }
         }
-        OutlinedButton(onClick = pick) {
+        OutlinedButton(onClick = onPick) {
             Text(stringResource(R.string.field_audio_pick))
         }
     }
@@ -320,7 +375,7 @@ private fun RingtoneSection(state: SettingsState, vm: SettingsViewModel) {
                 style = MaterialTheme.typography.bodySmall,
             )
             RingtoneRow(
-                icon = Icons.Default.MusicNote,
+                iconRes = R.drawable.ic_music_note,
                 titleRes = R.string.settings_default_ringtone_absolute,
                 currentName = state.defaultAbsoluteRingtoneName,
                 currentUri = state.defaultAbsoluteRingtoneUri,
@@ -328,7 +383,7 @@ private fun RingtoneSection(state: SettingsState, vm: SettingsViewModel) {
                 onClear = { vm.setDefaultAbsoluteRingtone(null, null) },
             )
             RingtoneRow(
-                icon = Icons.Default.Timer,
+                iconRes = R.drawable.ic_timer,
                 titleRes = R.string.settings_default_ringtone_relative,
                 currentName = state.defaultRelativeRingtoneName,
                 currentUri = state.defaultRelativeRingtoneUri,
@@ -349,7 +404,7 @@ private fun RingtoneSection(state: SettingsState, vm: SettingsViewModel) {
 @Suppress("LongMethod")
 @Composable
 private fun RingtoneRow(
-    icon: ImageVector,
+    iconRes: Int,
     titleRes: Int,
     currentName: String?,
     currentUri: String?,
@@ -364,9 +419,9 @@ private fun RingtoneRow(
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                imageVector = icon,
+                painter = painterResource(iconRes),
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = Color.Unspecified,
                 modifier = Modifier
                     .padding(end = 12.dp)
                     .size(20.dp),
@@ -429,6 +484,11 @@ private fun SectionTitle(textRes: Int) {
         fontWeight = FontWeight.SemiBold,
     )
 }
+
+// Sentinel alarm id for the Settings default watch-bg crop. Negative so it
+// can never collide with a Room-assigned id (auto-generated ids start at 1).
+// Used to key `cacheDir/watch_bg_-1.png` separately from per-alarm crops.
+private const val DEFAULT_WATCH_BG_ID = -1L
 
 // Sunday-first order matches the dropdown rendering of the 7 weekdays.
 // The user can pick any day; the locale order is reflected by the

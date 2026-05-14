@@ -128,6 +128,13 @@ class HuaweiWearBridge @Inject constructor(
      * against the rare race with requestPreArm's finally-clear.
      */
     private fun handleAlarmRinging(msg: IncomingMessage.AlarmRinging) {
+        // The watch just confirmed its ring page is up — peer is
+        // definitively running and the receiver is bound. Refresh the
+        // running-cache stamp so subsequent sends in the ring window
+        // (dismiss/snooze) skip the wake-poll. Without this, the dismiss
+        // ~5+ seconds later would re-ping for no reason — user-noticed
+        // 2026-05-13: "why we need 'reconnecting' to watch to dismiss".
+        lastConfirmedRunningAtMs = System.currentTimeMillis()
         val pending = pendingAlarmRinging.get() ?: run {
             Log.d(TAG, "alarm_ringing id=${msg.alarmId} but no pending request — dropping")
             return
@@ -360,47 +367,60 @@ class HuaweiWearBridge @Inject constructor(
     //   the RuntimeException umbrella across vendor-skin variants; catching
     //   narrower would let real failures unwind into the AppScope and lose
     //   the invalidateAndMarkError() side-effect.
-    override suspend fun uploadWatchBackground(alarmId: Long, binFile: java.io.File): Boolean {
+    override suspend fun uploadDefaultWatchBackground(binFile: java.io.File): Boolean {
         if (!binFile.exists()) {
-            Log.w(TAG, "uploadWatchBackground id=$alarmId: file missing at ${binFile.absolutePath}")
+            Log.w(TAG, "uploadDefaultWatchBackground: file missing at ${binFile.absolutePath}")
             return false
         }
         if (binFile.length() == 0L) {
-            Log.w(TAG, "uploadWatchBackground id=$alarmId: file empty")
+            Log.w(TAG, "uploadDefaultWatchBackground: file empty")
             return false
         }
         val device = ensurePairedDevice() ?: return false
         if (!ensurePeerAppRunning(device)) {
-            Log.w(TAG, "uploadWatchBackground id=$alarmId: peer not running")
+            Log.w(TAG, "uploadDefaultWatchBackground: peer not running")
             return false
         }
         val msg = Message.Builder()
             .setPayload(binFile)
-            .setDescription("bg_$alarmId.bin")
+            .setDescription("bg_default.bin")
             .build()
         val ok = try {
             sendOnce(device, msg)
         } catch (e: RuntimeException) {
-            Log.w(TAG, "uploadWatchBackground id=$alarmId threw: ${e.message}", e)
+            Log.w(TAG, "uploadDefaultWatchBackground threw: ${e.message}", e)
             invalidateAndMarkError()
             false
         }
         if (ok) {
-            Log.i(TAG, "uploadWatchBackground id=$alarmId delivered (${binFile.length()}B)")
+            Log.i(TAG, "uploadDefaultWatchBackground delivered (${binFile.length()}B)")
         } else {
-            Log.w(TAG, "uploadWatchBackground id=$alarmId NOT delivered")
+            Log.w(TAG, "uploadDefaultWatchBackground NOT delivered")
             invalidateAndMarkError()
         }
         return ok
     }
 
-    override fun sendWatchBackgroundCleared(alarmId: Long) {
+    override fun sendDefaultWatchBackgroundCleared() {
         val now = System.currentTimeMillis()
-        if (!validateStamp("sendWatchBackgroundCleared", now)) return
+        if (!validateStamp("sendDefaultWatchBackgroundCleared", now)) return
         sendJson(JSONObject().apply {
-            put("type", "watch_bg_cleared")
-            put("alarmId", alarmId)
+            put("type", "watch_default_bg_cleared")
             put("updatedAtEpoch", now)
+        })
+    }
+
+    override fun sendSettingsChanged(use24Hour: Boolean?, firstDayOfWeek: Int?) {
+        val now = System.currentTimeMillis()
+        if (!validateStamp("sendSettingsChanged", now)) return
+        sendJson(JSONObject().apply {
+            put("type", "settings_changed")
+            put("updatedAtEpoch", now)
+            // null is sent as JSON null so the watch can distinguish "follow
+            // system" (null) from a Boolean false override. JSONObject.put
+            // with null erases the key; use JSONObject.NULL for explicit null.
+            put("use24Hour", if (use24Hour == null) JSONObject.NULL else use24Hour)
+            put("firstDayOfWeek", if (firstDayOfWeek == null) JSONObject.NULL else firstDayOfWeek)
         })
     }
 
@@ -626,6 +646,15 @@ class HuaweiWearBridge @Inject constructor(
             val task: Task<Void> = p2pClient.send(device, msg, object : SendCallback {
                 override fun onSendResult(resultCode: Int) {
                     Log.d(TAG, "send onSendResult code=$resultCode (207=ok 206=fail)")
+                    if (resultCode == COMM_SUCCESS) {
+                        // Successful delivery = peer is definitely up + receiver
+                        // bound. Refresh the running cache so subsequent sends
+                        // in the same burst (or shortly after) skip the wake-
+                        // poll. The 30 s window in PEER_RUNNING_CACHE_MS lets a
+                        // typical alarm-ring → user-react → dismiss flow proceed
+                        // without re-pinging mid-flow.
+                        lastConfirmedRunningAtMs = System.currentTimeMillis()
+                    }
                     if (cont.isActive) cont.resumeWith(Result.success(resultCode == COMM_SUCCESS))
                 }
 
@@ -988,12 +1017,19 @@ class HuaweiWearBridge @Inject constructor(
         const val PING_WAKE_TIMEOUT_MS = 10_000L
         const val PING_WAKE_POLL_DELAY_MS = 400L
 
-        // Cache "peer is 202 RUNNING" for this long so a burst of sends
-        // (forceSync, sync-on-fire) doesn't re-ping per message. The watch's
-        // receiver tends to stay bound for tens of seconds after registration;
-        // 5 s is the conservative lower bound and means at most one extra
-        // ping per burst. Invalidated on any 206 or send-throw.
-        const val PEER_RUNNING_CACHE_MS = 5_000L
+        // Cache "peer is 202 RUNNING" for this long so the dismiss / snooze
+        // path doesn't re-poll just because a few seconds passed since fire.
+        //
+        // 30 s, bumped 2026-05-13 (was 5 s). The cache is also refreshed on
+        // every successful onSendResult 207 and on every `alarm_ringing`
+        // receive, so as long as the watch keeps confirming it's reachable
+        // the cache stays warm indefinitely. Any 206 (COMM_FAIL) or send
+        // throw immediately invalidates it — never wedged stale.
+        //
+        // User-noticed: "why we need 'reconnecting' to watch to dismiss?" —
+        // 5 s was too short for a ring window where the user often takes
+        // 10–20 s to react before tapping Dismiss on the phone.
+        const val PEER_RUNNING_CACHE_MS = 30_000L
 
         // On 206 (COMM_FAIL) the watch's JS receiver is either still
         // launching or has detached. Wait between retries so the receiver

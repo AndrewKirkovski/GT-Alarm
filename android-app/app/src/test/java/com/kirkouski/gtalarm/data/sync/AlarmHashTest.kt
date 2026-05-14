@@ -105,11 +105,11 @@ class AlarmHashTest {
 
     @Test
     fun `backgroundImageUri is NOT part of the hash (device-local, doesn't round-trip)`() {
-        // Per AlarmHash §canonicalize, bg URIs (phone + watch) are
-        // intentionally excluded — they're device-local file:// / content://
-        // paths that never round-trip. Including them in the hash would
-        // break the AlreadyInSync short-circuit on every sync. Code-review
-        // pass 1 (2026-05-13) caught the original inclusion.
+        // Per AlarmHash §canonicalize, the phone bg URI is intentionally
+        // excluded — it's a device-local content:// path that never
+        // round-trips. Including it in the hash would break the
+        // AlreadyInSync short-circuit on every sync. Code-review pass 1
+        // (2026-05-13) caught the original inclusion.
         val base = Alarm(
             id = 7L, label = "Wake", hour = 7, minute = 0, daysOfWeek = 0, enabled = true,
             audioUri = null, audioName = null, isVibrationOnly = false, snoozeMinutes = 10,
@@ -117,10 +117,8 @@ class AlarmHashTest {
             backgroundImageUri = null,
         )
         val withPhoneBg = base.copy(backgroundImageUri = "content://media/external/images/media/42")
-        val withWatchBg = base.copy(watchBackgroundImageUri = "file:///data/.../watch_bg_7.png")
         val baseHex = AlarmHash.compute(listOf(base))
         assertEquals(baseHex, AlarmHash.compute(listOf(withPhoneBg)))
-        assertEquals(baseHex, AlarmHash.compute(listOf(withWatchBg)))
     }
 
     @Test

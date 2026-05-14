@@ -26,15 +26,42 @@ import kotlinx.coroutines.withContext
  * worth the AGP-config + KSP-config churn. BitmapFactory.decodeStream is
  * sufficient for full-screen ring-screen rendering — the bitmap is
  * decoded once on Activity create and held for the whole ring session.
+ *
+ * **Cache invalidation on file-content change** — the watch-bg picker
+ * writes the cropped PNG back to the same path (`watch_bg_<id>.png`),
+ * so the URI string stays identical across re-crops. Without keying on
+ * file modification time we'd return the previously decoded bitmap and
+ * the editor thumbnail would lag behind the user's new crop (user-
+ * reported bug 2026-05-13: "Watch bg preview in alarm editor is not
+ * respecting how we positioned the image"). For non-file URIs (SAF
+ * content://) lastModified is unavailable and the URI-only key is fine
+ * because the picker produces a fresh URI for each pick.
  */
 @Composable
 fun rememberBackgroundBitmap(uriString: String?): State<ImageBitmap?> {
     val context = LocalContext.current
-    val bitmapState = remember(uriString) { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(uriString, context) {
+    val cacheKey = remember(uriString) { computeCacheKey(uriString) }
+    val bitmapState = remember(cacheKey) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(cacheKey, context) {
         bitmapState.value = uriString?.let { loadImageBitmap(context, it) }
     }
     return bitmapState
+}
+
+/**
+ * Build a cache key that combines the URI string with file
+ * lastModified when the URI is a file://. lastModified bumps on every
+ * picker save, so a re-crop forces re-decode. Falls back to URI-only
+ * for content://, http(s)://, and any unparseable path.
+ */
+private fun computeCacheKey(uriString: String?): String {
+    uriString ?: return ""
+    val filePath = runCatching { uriString.toUri() }.getOrNull()
+        ?.takeIf { it.scheme == "file" }
+        ?.path
+        ?: return uriString
+    val mtime = runCatching { java.io.File(filePath).lastModified() }.getOrDefault(0L)
+    return "$uriString#mtime=$mtime"
 }
 
 /**

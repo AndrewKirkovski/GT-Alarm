@@ -147,13 +147,24 @@ class WearJsonCodecTest {
         }) as IncomingMessage.AlarmAdded
         assertEquals(Alarm.MAX_SNOOZE_MINUTES, high.alarm.snoozeMinutes)
 
-        val payloadLow = JSONObject().apply {
+        // 0 = SNOOZE_DISABLED is a valid sentinel and passes through.
+        val payloadOff = JSONObject().apply {
             put("id", 5L); put("hour", 7); put("minute", 0); put("enabled", true); put("snoozeMinutes", 0)
         }
-        val low = WearJsonCodec.parseIncoming(JSONObject().apply {
-            put("type", "alarm_added"); put("alarmId", 5L); put("updatedAtEpoch", 1L); put("alarm", payloadLow)
+        val off = WearJsonCodec.parseIncoming(JSONObject().apply {
+            put("type", "alarm_added"); put("alarmId", 5L); put("updatedAtEpoch", 1L); put("alarm", payloadOff)
         }) as IncomingMessage.AlarmAdded
-        assertEquals(Alarm.MIN_SNOOZE_MINUTES, low.alarm.snoozeMinutes)
+        assertEquals(Alarm.SNOOZE_DISABLED, off.alarm.snoozeMinutes)
+
+        // Negative values still clamp to SNOOZE_DISABLED rather than the
+        // enabled minimum — there's no semantic where "<0" means "1 min".
+        val payloadNeg = JSONObject().apply {
+            put("id", 5L); put("hour", 7); put("minute", 0); put("enabled", true); put("snoozeMinutes", -3)
+        }
+        val neg = WearJsonCodec.parseIncoming(JSONObject().apply {
+            put("type", "alarm_added"); put("alarmId", 5L); put("updatedAtEpoch", 1L); put("alarm", payloadNeg)
+        }) as IncomingMessage.AlarmAdded
+        assertEquals(Alarm.SNOOZE_DISABLED, neg.alarm.snoozeMinutes)
     }
 
     @Test

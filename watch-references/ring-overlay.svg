@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  GT-Alarm watch ring-page overlay. Drawn against the watch's 466 × 466
+  native canvas (GT 6 Pro). Source-of-truth for:
+    • the actual watch's ring.css (mirrored geometrically)
+    • the .local/watch-ui-preview.html mockup
+    • the Android picker's "what your photo will look like under the
+      alarm UI" overlay (rendered to PNG via render-watch-overlay.py)
+
+  Background is fully transparent so the picker can composite this on
+  top of the user's pinch-zoomed photo.
+
+  Geometry comes from .local/watch-ui-preview.html .ring-* classes:
+    - ring-arc:    radius 222, stroke 6, color #FCA5A5
+    - ring-title:  font 22, #FCA5A5, centered, y ≈ 173
+    - ring-time:   font 84, #F1F5F9, centered, y ≈ 246
+    - buttons:     140 × 76, gap 20, y ≈ 326, snooze #374151 / dismiss #B91C1C
+    - btn-text:    font 22, #F1F5F9
+
+  Position centers vertically based on flex layout in the HTML:
+    bell(48) + 6 + title(28) + 8 + time(100) + 8 + label(28) + 20 + actions(76)
+    = 322 px of content centered in 466 = 72 px top padding.
+    With label omitted in the overlay (alarm label is per-alarm, not part
+    of the picker's preview), content height = 274, top padding = 96.
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="466" height="466"
+     viewBox="0 0 466 466"
+     fill="none"
+     font-family="sans-serif">
+
+  <!-- Red progress arc around the perimeter. Stroke is centered on
+       radius=222 path, so visible radius spans 219..225 (6 px thick). -->
+  <circle cx="233" cy="233" r="222" stroke="#FCA5A5" stroke-width="6"/>
+
+  <!-- "Alarm" title — red-300, 22 px. Baseline = visual center + ~font*0.35.
+       Visual center 187 → baseline 195. -->
+  <text x="233" y="195"
+        font-size="22"
+        font-weight="500"
+        text-anchor="middle"
+        fill="#FCA5A5">Alarm</text>
+
+  <!-- Big time "07:30" — slate-100, 84 px, bold so it reads cleanly on
+       low-density rasterization (cairosvg's light-weight rendering
+       turned out outline-y at font-weight 300). Visual center 246 →
+       baseline 246 + 84*0.35 = 275. -->
+  <text x="233" y="275"
+        font-size="84"
+        font-weight="600"
+        text-anchor="middle"
+        fill="#F1F5F9">07:30</text>
+
+  <!-- Snooze button — slate-700 pill, 140 × 76, centered at (153, 354).
+       Text y = baseline; for a 22 px font centered in 76 px pill
+       (y=316..392), baseline ≈ pill_center + font_size * 0.35
+       = 354 + 22 * 0.35 ≈ 362. cairosvg's `dominant-baseline=middle`
+       is unreliable so we set the baseline explicitly. -->
+  <rect x="83" y="316"
+        width="140" height="76"
+        rx="38" ry="38"
+        fill="#374151"/>
+  <text x="153" y="362"
+        font-size="22"
+        font-weight="500"
+        text-anchor="middle"
+        fill="#F1F5F9">Snooze</text>
+
+  <!-- Dismiss button — red-700 pill, 140 × 76, centered at (313, 354). -->
+  <rect x="243" y="316"
+        width="140" height="76"
+        rx="38" ry="38"
+        fill="#B91C1C"/>
+  <text x="313" y="362"
+        font-size="22"
+        font-weight="500"
+        text-anchor="middle"
+        fill="#F1F5F9">Dismiss</text>
+
+</svg>

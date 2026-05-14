@@ -170,25 +170,25 @@ class AlarmRepository @Inject constructor(
     }
 
     /**
-     * Upload the per-alarm watch-side background `.bin` to the paired
-     * watch. The picker writes `watch_bg_<id>.bin` next to the PNG in
-     * [Context.getCacheDir]; we look it up by alarm id. If the file is
-     * missing (user cleared the watch bg or never picked one) we send
-     * the watch a clearance envelope instead so it cleans up its own
-     * `bg_<id>.bin` file. Caller is responsible for setting the alarm
-     * row's `watchBackgroundImageUri` first; this method only deals
-     * with the on-disk cache + the wire transfer.
+     * Upload the shared watch-side default background `.bin` to the paired
+     * watch. The picker writes `watch_bg_<DEFAULT_WATCH_BG_ID>.bin` next to
+     * the PNG in [Context.getCacheDir]; we look it up by that sentinel id.
+     * If the file is missing (user cleared the default or never picked one)
+     * we send the watch a clearance envelope instead so it deletes its own
+     * cached default. Caller is responsible for updating the SettingsStore
+     * URI first; this method only deals with the on-disk cache + the wire
+     * transfer of the BGRA blob.
      */
-    fun uploadWatchBackground(id: Long) {
+    fun uploadDefaultWatchBackground() {
         appScope.launch {
-            val binFile = java.io.File(appContext.cacheDir, "watch_bg_$id.bin")
+            val binFile = java.io.File(appContext.cacheDir, "watch_bg_${DEFAULT_WATCH_BG_ID}.bin")
             if (!binFile.exists()) {
-                Log.i(TAG, "uploadWatchBackground id=$id — bin missing, sending cleared envelope")
-                wearBridge.sendWatchBackgroundCleared(id)
+                Log.i(TAG, "uploadDefaultWatchBackground — bin missing, sending cleared envelope")
+                wearBridge.sendDefaultWatchBackgroundCleared()
                 return@launch
             }
-            val ok = wearBridge.uploadWatchBackground(id, binFile)
-            Log.i(TAG, "uploadWatchBackground id=$id ok=$ok size=${binFile.length()}")
+            val ok = wearBridge.uploadDefaultWatchBackground(binFile)
+            Log.i(TAG, "uploadDefaultWatchBackground ok=$ok size=${binFile.length()}")
         }
     }
 
@@ -232,6 +232,13 @@ class AlarmRepository @Inject constructor(
     suspend fun snooze(id: Long, minutesOverride: Int? = null): Long? {
         val alarm = dao.getById(id)?.toDomain() ?: return null
         val minutes = minutesOverride ?: alarm.snoozeMinutes
+        if (minutes <= Alarm.SNOOZE_DISABLED) {
+            // Guards against a 0-minute re-fire when the alarm has snooze
+            // disabled and the caller forgot to supply an override. Without
+            // this, scheduleAt(now) would fire the alarm immediately again.
+            Log.w(TAG, "snooze id=$id refused — minutes=$minutes (alarm has snooze disabled and no override)")
+            return null
+        }
         val trigger = System.currentTimeMillis() + minutes * 60_000L
         scheduler.scheduleAt(alarm, trigger)
         // Persist the snooze trigger so the list UI shows the actual next-
@@ -340,6 +347,12 @@ class AlarmRepository @Inject constructor(
             daysOfWeek = 0,
             enabled = true,
             updatedAtEpoch = now,
+            // Match scheduleTestFireInOneMinute: 1-min snooze + self-destruct so
+            // the dev loop iterates at the same fast tempo and the row doesn't
+            // linger in the list after dismiss. Default 10-min snooze made
+            // verification useless on the instant-fire path.
+            snoozeMinutes = Alarm.MIN_SNOOZE_MINUTES,
+            selfDestruct = true,
         )
         val newId = dao.upsert(draft.toEntity())
         wearBridge.sendAlarmAdded(draft.copy(id = newId))
@@ -409,5 +422,11 @@ class AlarmRepository @Inject constructor(
     private companion object {
         const val TAG = "AlarmRepo"
         const val ONE_MINUTE_MS = 60_000L
+        // Sentinel "alarm id" used as the cache-file key for the shared
+        // watch-default background (`watch_bg_-1.png` / `watch_bg_-1.bin`).
+        // Matches the constant the Settings picker passes to
+        // WatchBackgroundPickerDialog. Room ids are auto-generated positive
+        // longs, so -1 can never collide with a real alarm.
+        const val DEFAULT_WATCH_BG_ID = -1L
     }
 }

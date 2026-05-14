@@ -85,7 +85,7 @@ object PermissionAudit {
     // reason: 4 returns reflect 4 distinct fallthrough states (pre-API-34
     // shortcut, missing service, missing op string, op-mode result). A
     // result-variable rewrite would be longer and harder to read.
-    private fun checkFullScreenIntent(context: Context): Status {
+    fun checkFullScreenIntent(context: Context): Status {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return Status.GRANTED
         val aom = context.getSystemService(AppOpsManager::class.java) ?: return Status.DENIED
         // OPSTR_USE_FULL_SCREEN_INTENT is @SystemApi (not public), so resolve

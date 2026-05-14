@@ -254,6 +254,11 @@ dependencies {
 
     implementation(libs.androidx.datastore.preferences)
 
+    // PickTime-Compose — wheel/odometer time picker. Apache-2.0. Hosted on
+    // JitPack (group `com.github.anhaki`) — repo scope in settings.gradle.kts
+    // restricts JitPack to that group only so this isn't a supply-chain hole.
+    implementation(libs.picktime.compose)
+
     // Huawei Wear Engine SDK — phone-side P2P transport to Sports Watch / Lite
     // Wearable. Resolved against the Huawei Maven repo declared in
     // settings.gradle.kts dependencyResolutionManagement.

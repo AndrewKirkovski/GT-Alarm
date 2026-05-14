@@ -11,8 +11,10 @@ data class Alarm(
     val audioName: String? = null,
     val isVibrationOnly: Boolean = false,
     // Per-alarm snooze duration. Used by AlarmRingService when the user
-    // taps Snooze. Range constrained by [MIN_SNOOZE_MINUTES, MAX_SNOOZE_MINUTES]
-    // — the edit screen enforces, the receive-side wire parser clamps.
+    // taps Snooze. SNOOZE_DISABLED (0) means "snooze is off" — the ring UI
+    // hides the Snooze button entirely. Otherwise constrained to
+    // [MIN_SNOOZE_MINUTES, MAX_SNOOZE_MINUTES]; the edit screen enforces,
+    // the receive-side wire parser clamps.
     val snoozeMinutes: Int = DEFAULT_SNOOZE_MINUTES,
     val updatedAtEpoch: Long = 0L,
     // Relative "in N minutes" alarms: null for absolute (clock-time) alarms;
@@ -45,20 +47,12 @@ data class Alarm(
     // currently ignores it, but the field is preserved for future use
     // and so two devices stay in sync on alarm equality).
     val backgroundImageUri: String? = null,
-    // Per-alarm watch-side background image. Resolved at picker time:
-    // the source image is cropped to a centered circular region and
-    // scaled to WATCH_BG_NATIVE_PX (466 × 466 for GT 6 Pro), written to
-    // the app cache as a PNG, and the local file:// URI of the cropped
-    // PNG is stored here. The parallel BGRA `.bin` is what the watch
-    // consumes via the file-transfer path. Null means "no watch
-    // background — watch uses its default ring UI". Included in
-    // AlarmHash so both sides agree on field count + ordering; the
-    // watch JS currently renders this slot as empty (no copy of the
-    // phone-side URI) — reconciliation of bg presence is via the
-    // file-transfer path.
-    val watchBackgroundImageUri: String? = null,
 ) {
     init {
+        require(snoozeMinutes == SNOOZE_DISABLED || snoozeMinutes in MIN_SNOOZE_MINUTES..MAX_SNOOZE_MINUTES) {
+            "snoozeMinutes=$snoozeMinutes invalid — must be SNOOZE_DISABLED (0) or in " +
+                "[$MIN_SNOOZE_MINUTES, $MAX_SNOOZE_MINUTES]"
+        }
         if (relativeMinutes != null) {
             require(relativeMinutes in MIN_RELATIVE_MINUTES..MAX_RELATIVE_MINUTES) {
                 "relativeMinutes=$relativeMinutes out of range " +
@@ -78,11 +72,15 @@ data class Alarm(
     /** True if this is a "in N minutes" relative-time alarm. */
     val isRelative: Boolean get() = relativeMinutes != null
 
+    /** True when snooze is set up — the ring UI shows a Snooze button only in this case. */
+    val isSnoozeEnabled: Boolean get() = snoozeMinutes > 0
+
     /** Fire time for relative alarms. Undefined for absolute — caller must check `isRelative`. */
     fun computedFireEpoch(): Long = updatedAtEpoch + (relativeMinutes ?: 0) * 60_000L
 
     companion object {
         const val DEFAULT_SNOOZE_MINUTES = 10
+        const val SNOOZE_DISABLED = 0
         const val MIN_SNOOZE_MINUTES = 1
         const val MAX_SNOOZE_MINUTES = 60
         const val MIN_RELATIVE_MINUTES = 1

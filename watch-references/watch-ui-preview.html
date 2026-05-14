@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GT-Alarm watch UI preview</title>
+<style>
+  body {
+    margin: 0;
+    padding: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #1A1A1F;
+    color: #E5E7EB;
+  }
+  h1 { margin: 0 0 8px 0; font-size: 18px; font-weight: 500; }
+  .legend { color: #9CA3AF; font-size: 13px; margin-bottom: 16px; }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+  }
+  .panel { display: flex; flex-direction: column; align-items: center; }
+  .panel-label {
+    font-size: 14px;
+    margin-bottom: 6px;
+    color: #9CA3AF;
+  }
+  /* Round display container — clips to 466×466 circle. */
+  .watch {
+    width: 466px;
+    height: 466px;
+    border-radius: 50%;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 0 0 4px #2C2C36, 0 8px 32px rgba(0,0,0,0.6);
+  }
+
+  /* ---------------- INDEX page CSS ---------------- */
+  .container {
+    width: 466px;
+    height: 466px;
+    background-color: #0F0F23;
+  }
+  .content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 466px;
+    height: 466px;
+    background-color: #0F0F23;
+  }
+  .title {
+    width: 280px;
+    height: 30px;
+    text-align: center;
+    color: #F1F5F9;
+    font-size: 22px;
+    margin-top: 38px;  /* lower start — round chord at y=8 was too narrow */
+    margin-bottom: 6px;
+    line-height: 30px;
+    box-sizing: border-box;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .alarm-list {
+    width: 466px;
+    background-color: #0F0F23;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .alarm-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    width: 390px;            /* shrunk from 410 to fit chord at edge rows */
+    height: 56px;
+    margin-bottom: 6px;
+    padding-left: 18px;
+    padding-right: 18px;
+    background-color: #1F1F2A;
+    border: 1px solid #2D2D3F;
+    border-radius: 16px;
+    box-sizing: border-box;
+  }
+  .alarm-row-dim {
+    background-color: #14141C;
+    border-color: #1E1E2C;
+  }
+  /* Status dot: 10px green when enabled, slim grey ring when disabled. */
+  .status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 6px;
+    background-color: #22C55E;
+    margin-right: 12px;
+    flex-shrink: 0;
+  }
+  .status-dot-off {
+    background-color: transparent;
+    border: 2px solid #4B5563;
+    width: 8px;
+    height: 8px;
+    border-radius: 5px;
+  }
+  .alarm-time {
+    color: #F1F5F9;
+    font-size: 28px;
+    line-height: 32px;
+    flex: 1;
+  }
+  .alarm-time-dim { color: #818CB0; }
+  /* Right side: 7-day grid (letter above dot) OR text fallback. */
+  .alarm-days-grid {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    height: 38px;
+  }
+  .day-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 14px;
+    margin-left: 2px;
+  }
+  .day-cell-letter {
+    font-size: 11px;
+    line-height: 14px;
+    color: #6B7280;
+    height: 14px;
+    text-align: center;
+    margin-bottom: 4px;
+  }
+  .day-cell-letter-dim { color: #3F4756; }
+  .day-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 5px;
+    background-color: #2D2D3F;
+  }
+  .day-dot-on { background-color: #6366F1; }
+  .day-dot-on-dim { background-color: #3B3F66; }
+  .alarm-days-text {
+    color: #A5B4CB;
+    font-size: 16px;
+    line-height: 16px;
+  }
+  .alarm-days-text-dim { color: #5C6582; }
+
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 466px;
+    height: 160px;
+    background-color: #0F0F23;
+  }
+  .empty-title {
+    color: #F1F5F9;
+    font-size: 32px;
+    height: 40px;
+    line-height: 40px;
+    margin-bottom: 8px;
+    text-align: center;
+  }
+  .empty-hint {
+    color: #818CB0;
+    font-size: 22px;
+    height: 28px;
+    line-height: 28px;
+    text-align: center;
+  }
+  .btn-ping {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 220px;
+    height: 38px;
+    margin: 6px auto 0;
+    background-color: #4338CA;
+    border-radius: 19px;
+    border: 1px solid #6366F1;
+    box-sizing: border-box;
+  }
+  .btn-ping-text {
+    color: #F1F5F9;
+    font-size: 16px;
+    line-height: 22px;
+    text-align: center;
+  }
+  .diag-line {
+    width: 320px;
+    height: 16px;
+    line-height: 16px;
+    margin: 2px auto 0;
+    text-align: center;
+    color: #6B7280;
+    font-size: 12px;
+  }
+
+  /* ---------------- RING page CSS ---------------- */
+  .ring {
+    width: 466px;
+    height: 466px;
+    background-color: #150A12;
+    position: relative;
+  }
+  .ring-arc {
+    position: absolute;
+    width: 452px;
+    height: 452px;
+    top: 7px;
+    left: 7px;
+    border-radius: 50%;
+    border: 6px solid #FCA5A5;
+    box-sizing: border-box;
+    pointer-events: none;
+  }
+  .ring-content {
+    width: 466px;
+    height: 466px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .ring-bell {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 6px;
+    background: radial-gradient(circle, #FCA5A5 22%, transparent 23%);
+  }
+  .ring-title {
+    width: 280px;
+    color: #FCA5A5;
+    font-size: 22px;
+    height: 28px;
+    line-height: 28px;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .ring-time {
+    width: 466px;
+    color: #F1F5F9;
+    font-size: 84px;
+    height: 100px;
+    line-height: 100px;
+    text-align: center;
+    margin-bottom: 8px;
+    font-weight: 200;
+  }
+  .ring-label {
+    width: 320px;
+    color: #A5B4CB;
+    font-size: 22px;
+    height: 28px;
+    line-height: 28px;
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  .ring-actions {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    width: 466px;
+    height: 76px;
+    margin-top: 8px;
+  }
+  .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 140px;       /* shrunk from 180 — fits chord at button row */
+    height: 76px;       /* shrunk from 88 to widen vertical room */
+    border-radius: 38px;
+    margin: 0 10px;     /* tighter than 14 */
+    box-sizing: border-box;
+  }
+  .btn-text {
+    color: #F1F5F9;
+    font-size: 22px;
+    text-align: center;
+  }
+  .btn-snooze   { background-color: #374151; }
+  .btn-dismiss  { background-color: #B91C1C; }
+</style>
+</head>
+<body>
+
+<h1>GT-Alarm — watch UI preview (466 × 466)</h1>
+<div class="legend">
+  Round clip mocks the GT 6 Pro display. Time on left, day-grid (7 dots) on right.
+  Green dot = enabled, grey ring = disabled. Non-recurring shows text ("Once" / "Timer").
+  Day order Monday-first (M T W T F S S) per user pref (task #68 will make this configurable).
+</div>
+
+<div class="row">
+  <!-- ============================================================== -->
+  <div class="panel">
+    <div class="panel-label">Index — no alarms</div>
+    <div class="watch">
+      <div class="container">
+        <div class="content">
+          <div class="title">GT Alarm · 0.1.0</div>
+          <div class="btn-ping">
+            <div class="btn-ping-text">PING PHONE</div>
+          </div>
+          <div class="empty">
+            <div class="empty-title">No alarms</div>
+            <div class="empty-hint">Add one on phone</div>
+          </div>
+          <div class="diag-line">Last sync: never</div>
+          <div class="diag-line">store rd:0 wr:0</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <div class="panel">
+    <div class="panel-label">Index — 1 alarm (recurring)</div>
+    <div class="watch">
+      <div class="container">
+        <div class="content">
+          <div class="title">GT Alarm · 0.1.0</div>
+          <div class="btn-ping">
+            <div class="btn-ping-text">PING PHONE</div>
+          </div>
+          <div class="alarm-list">
+            <div class="alarm-row">
+              <div class="status-dot"></div>
+              <div class="alarm-time">07:30</div>
+              <div class="alarm-days-grid">
+                <div class="day-cell"><div class="day-cell-letter">M</div><div class="day-dot day-dot-on"></div></div>
+                <div class="day-cell"><div class="day-cell-letter">T</div><div class="day-dot day-dot-on"></div></div>
+                <div class="day-cell"><div class="day-cell-letter">W</div><div class="day-dot day-dot-on"></div></div>
+                <div class="day-cell"><div class="day-cell-letter">T</div><div class="day-dot day-dot-on"></div></div>
+                <div class="day-cell"><div class="day-cell-letter">F</div><div class="day-dot day-dot-on"></div></div>
+                <div class="day-cell"><div class="day-cell-letter">S</div><div class="day-dot"></div></div>
+                <div class="day-cell"><div class="day-cell-letter">S</div><div class="day-dot"></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="diag-line">Last sync: 12 min ago</div>
+          <div class="diag-line">store rd:1 wr:0</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <div class="panel">
+    <div class="panel-label">Index — many alarms</div>
+    <div class="watch">
+      <div class="container">
+        <div class="content">
+          <div class="title">GT Alarm · 0.1.0</div>
+          <div class="btn-ping">
+            <div class="btn-ping-text">PING PHONE</div>
+          </div>
+          <div class="alarm-list">
+            <!-- enabled, every weekday (M T W T F on, S S off) -->
+            <div class="alarm-row">
+              <div class="status-dot"></div>
+              <div class="alarm-time">06:45</div>
+              <div class="alarm-days-grid">
+                <div class="day-cell"><div class="day-cell-letter">M</div><div class="day-dot day-dot-on"></div></div>
+                <div class="day-cell"><div class="day-cell-letter">T</div><div class="day-dot day-dot-on"></div></div>
+                <div class="day-cell"><div class="day-cell-letter">W</div><div class="day-dot day-dot-on"></div></div>
+                <div class="day-cell"><div class="day-cell-letter">T</div><div class="day-dot day-dot-on"></div></div>
+                <div class="day-cell"><div class="day-cell-letter">F</div><div class="day-dot day-dot-on"></div></div>
+                <div class="day-cell"><div class="day-cell-letter">S</div><div class="day-dot"></div></div>
+                <div class="day-cell"><div class="day-cell-letter">S</div><div class="day-dot"></div></div>
+              </div>
+            </div>
+            <!-- enabled, one-shot timer -->
+            <div class="alarm-row">
+              <div class="status-dot"></div>
+              <div class="alarm-time">09:00</div>
+              <div class="alarm-days-text">Timer</div>
+            </div>
+            <!-- disabled, weekends (Sat + Sun on, weekdays off) -->
+            <div class="alarm-row alarm-row-dim">
+              <div class="status-dot status-dot-off"></div>
+              <div class="alarm-time alarm-time-dim">22:00</div>
+              <div class="alarm-days-grid">
+                <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">M</div><div class="day-dot"></div></div>
+                <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">T</div><div class="day-dot"></div></div>
+                <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">W</div><div class="day-dot"></div></div>
+                <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">T</div><div class="day-dot"></div></div>
+                <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">F</div><div class="day-dot"></div></div>
+                <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">S</div><div class="day-dot day-dot-on-dim"></div></div>
+                <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">S</div><div class="day-dot day-dot-on-dim"></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="diag-line">Last sync: 1 min ago</div>
+          <div class="diag-line">store rd:3 wr:0</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <div class="panel">
+    <div class="panel-label">Ring page</div>
+    <div class="watch">
+      <div class="ring">
+        <div class="ring-arc"></div>
+        <div class="ring-content">
+          <div class="ring-bell"></div>
+          <div class="ring-title">Alarm</div>
+          <div class="ring-time">07:30</div>
+          <div class="ring-label">Wake up</div>
+          <div class="ring-actions">
+            <div class="btn btn-snooze"><div class="btn-text">Snooze 10m</div></div>
+            <div class="btn btn-dismiss"><div class="btn-text">Dismiss</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -15,14 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.filled.Watch
-import androidx.compose.material.icons.filled.WatchOff
-import androidx.compose.material.icons.outlined.AlarmOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ElevatedCard
@@ -52,6 +45,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -119,14 +114,16 @@ fun AlarmListScreen(
                 actions = {
                     IconButton(onClick = onOpenSettings) {
                         Icon(
-                            imageVector = Icons.Default.Settings,
+                            painter = painterResource(R.drawable.ic_settings),
                             contentDescription = stringResource(R.string.action_open_settings),
+                            tint = Color.Unspecified,
                         )
                     }
                     IconButton(onClick = onOpenHelp) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.HelpOutline,
+                            painter = painterResource(R.drawable.ic_help),
                             contentDescription = stringResource(R.string.action_open_help),
+                            tint = Color.Unspecified,
                         )
                     }
                 },
@@ -134,7 +131,10 @@ fun AlarmListScreen(
         },
         floatingActionButton = {
             FloatingActionButton(onClick = onAdd) {
-                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.add_alarm))
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = stringResource(R.string.add_alarm),
+                )
             }
         },
     ) { padding ->
@@ -181,10 +181,10 @@ fun AlarmListScreen(
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
-                            imageVector = Icons.Outlined.AlarmOff,
+                            painter = painterResource(R.drawable.ic_alarm_off),
                             contentDescription = null,
                             modifier = Modifier.size(72.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = Color.Unspecified,
                         )
                         Spacer(Modifier.height(12.dp))
                         Text(stringResource(R.string.no_alarms))
@@ -228,7 +228,7 @@ private fun WatchSyncCard(
         WatchSyncStatus.CONNECTED -> R.string.watch_status_card_connected
         WatchSyncStatus.ERROR -> R.string.watch_status_card_error
     }
-    val icon = if (status == WatchSyncStatus.CONNECTED) Icons.Default.Watch else Icons.Default.WatchOff
+    val iconRes = if (status == WatchSyncStatus.CONNECTED) R.drawable.ic_watch else R.drawable.ic_watch_off
     ElevatedCard(
         modifier = Modifier
             .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -240,10 +240,10 @@ private fun WatchSyncCard(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = icon,
+                    painter = painterResource(iconRes),
                     contentDescription = null,
                     modifier = Modifier.size(24.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = Color.Unspecified,
                 )
                 Spacer(Modifier.size(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -312,9 +312,9 @@ private fun SetupNeededBanner(onOpenSetup: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                imageVector = Icons.Default.Warning,
+                painter = painterResource(R.drawable.ic_warning),
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.error,
+                tint = Color.Unspecified,
                 modifier = Modifier.size(28.dp),
             )
             Column(
@@ -380,11 +380,9 @@ private fun BatteryOptRationaleCard(
     }
 }
 
-// reason: row composable grew past 60 lines because the swipe-to-delete
-// confirm dialog and the auto-reset-on-cancel LaunchedEffect both belong
-// in the same composable as the SwipeToDismissBox they coordinate with
-// (extracting them would require threading the dismissState through more
-// composable boundaries for no readability gain).
+// reason: the confirm-dialog declaration and the SwipeToDismissBox it
+// coordinates with both live in this composable so the showConfirm state
+// doesn't have to be threaded across composable boundaries.
 @Suppress("LongMethod")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -395,18 +393,30 @@ private fun SwipeToDeleteRow(
     onClick: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val dismissState = rememberSwipeToDismissBoxState()
     var showConfirm by remember { mutableStateOf(false) }
-    LaunchedEffect(dismissState.currentValue) {
-        if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart ||
-            dismissState.currentValue == SwipeToDismissBoxValue.StartToEnd
-        ) {
-            // Open confirm dialog instead of deleting immediately. The row
-            // stays visually swiped while the dialog is up; cancel snaps it
-            // back, confirm tombstones the alarm.
-            showConfirm = true
-        }
-    }
+    // reason: returning `false` from confirmValueChange on a dismiss value
+    // prevents M3 from settling the row into the dismissed anchor — the box
+    // animates back to Settled on its own. We trigger the confirm dialog
+    // from inside the callback. Previous approach (let it settle then call
+    // reset() from a LaunchedEffect) sometimes left the row "half stuck"
+    // because snapTo mid-state didn't reliably re-lay-out the inner row.
+    // reason: confirmValueChange was deprecated in M3 1.4 in favor of dynamic
+    // anchor sets, but SwipeToDismissBox doesn't expose anchor configuration —
+    // the only escape would be rewriting on AnchoredDraggable. Keep the
+    // deprecated API until M3 ships a first-class hook for "veto dismiss".
+    @Suppress("DEPRECATION")
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.EndToStart,
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    showConfirm = true
+                    false
+                }
+                SwipeToDismissBoxValue.Settled -> true
+            }
+        },
+    )
     if (showConfirm) {
         AlertDialog(
             onDismissRequest = {
@@ -434,18 +444,6 @@ private fun SwipeToDeleteRow(
             },
         )
     }
-    // When the dialog closes without a confirm (showConfirm flipped back to
-    // false while currentValue is still settled-to-EndToStart), snap the
-    // row back to its resting position. .reset() is suspend so wrap in a
-    // LaunchedEffect keyed on the dialog-shown flag.
-    LaunchedEffect(showConfirm, dismissState.currentValue) {
-        if (!showConfirm &&
-            (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart ||
-                dismissState.currentValue == SwipeToDismissBoxValue.StartToEnd)
-        ) {
-            dismissState.reset()
-        }
-    }
     // reason: pad the SwipeToDismissBox externally so the errorContainer
     // backgroundContent paints in the same bounds as the AlarmRow Card. If the
     // padding lives on the inner Card, the bg leaks 8dp on each side at rest.
@@ -463,9 +461,10 @@ private fun SwipeToDeleteRow(
                 contentAlignment = Alignment.CenterEnd,
             ) {
                 Icon(
-                    imageVector = Icons.Default.Delete,
+                    painter = painterResource(R.drawable.ic_delete),
                     contentDescription = stringResource(R.string.delete_alarm),
-                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    tint = Color.Unspecified,
+                    modifier = Modifier.size(28.dp),
                 )
             }
         },
@@ -567,23 +566,42 @@ private fun subtitleLine(alarm: Alarm, firstDayOverride: Int?): String {
 //   > 60 s remaining: refresh every 30 s
 //   ≤ 60 s remaining: refresh every 1 s (so user sees seconds counting down
 //                     on the final approach)
-// Stops ticking 5 s past fire time, OR immediately if the alarm is disabled
-// (toggle off should freeze the displayed countdown — we use the last
-// computed value without further ticking).
+// Stops ticking 5 s past fire time, OR immediately if the alarm is disabled.
+//
+// Disabled relative alarms: show the configured duration as a static
+// label (e.g. "5 min timer · off") rather than a live countdown. The
+// previous implementation froze `now` at the moment of disable but kept
+// `target` derived from `updatedAtEpoch` (which setEnabled() bumps to
+// `now`) — so `target` always landed in the user's future at disable,
+// and as wall-clock advanced, `remaining` went negative and the row
+// silently flipped to "firing now" (bug #93 2026-05-13). Showing the
+// configured duration matches the watch's intent: a disabled "N min
+// timer" is identified by its duration, not by a stale target moment.
+//
+// reason: complexity is 12 because the function combines two distinct
+// modes (disabled → static label; enabled → tick loop + 4-way countdown
+// switch). Splitting into two composables would force the parent to
+// branch on `alarm.enabled` for every relative row — same branch count
+// just hoisted up one frame. Keeping both modes here keeps the disabled
+// fix co-located with the bug it addresses.
+@Suppress("CyclomaticComplexMethod")
 @Composable
 private fun rememberRelativeCountdownText(alarm: Alarm): String {
+    if (!alarm.enabled) {
+        val rel = alarm.relativeMinutes ?: 0
+        return if (rel >= 60) {
+            stringResource(R.string.list_relative_off_hr_min, rel / 60, rel % 60)
+        } else {
+            stringResource(R.string.list_relative_off_min, rel)
+        }
+    }
     val target = alarm.computedFireEpoch()
-    val enabled = alarm.enabled
-    // mutableLongStateOf keyed on target+enabled so we restart the tick if
-    // the user edits the duration (which bumps updatedAtEpoch → new target)
-    // or toggles the enabled state. When enabled flips false, the new
-    // LaunchedEffect body short-circuits the loop and the displayed value
-    // freezes at the last tick.
-    var now by remember(alarm.id, target, enabled) {
+    // mutableLongStateOf keyed on target so we restart the tick if the
+    // user edits the duration (which bumps updatedAtEpoch → new target).
+    var now by remember(alarm.id, target) {
         mutableLongStateOf(System.currentTimeMillis())
     }
-    LaunchedEffect(alarm.id, target, enabled) {
-        if (!enabled) return@LaunchedEffect
+    LaunchedEffect(alarm.id, target) {
         while (true) {
             val remaining = target - System.currentTimeMillis()
             if (remaining < -COUNTDOWN_STOP_GRACE_MS) break

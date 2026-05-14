@@ -12,6 +12,7 @@ package com.kirkouski.gtalarm.ui.help
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,9 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,7 +49,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -181,9 +182,51 @@ fun HelpScreen(
                 onClick = onPairWatch,
             )
 
+            // ----- Device-not-supported / contact dev (problem-first) -----
+            val contactUrl = stringResource(R.string.help_device_unsupported_url)
+            ActionCard(
+                titleRes = R.string.help_device_unsupported_title,
+                bodyRes = R.string.help_device_unsupported_body,
+                buttonLabelRes = R.string.help_device_unsupported_button,
+                onClick = { openExternalUrl(context, contactUrl) },
+            )
+
+            // ----- Support development (ko-fi donate) -----
+            val donateUrl = stringResource(R.string.help_donate_url)
+            ActionCard(
+                titleRes = R.string.help_donate_title,
+                bodyRes = R.string.help_donate_body,
+                buttonLabelRes = R.string.help_donate_button,
+                onClick = { openExternalUrl(context, donateUrl) },
+            )
+
             // ----- Debug card (English-only / translatable=false) -----
             DebugCard(onScheduleTestAlarm, onFireAlarmNow)
+
+            // ----- Credits / attribution footer -----
+            CreditsFooter()
         }
+    }
+}
+
+@Composable
+private fun CreditsFooter() {
+    val context = LocalContext.current
+    val url = stringResource(R.string.help_credits_flaticon_url)
+    Column(modifier = Modifier.padding(top = 8.dp)) {
+        Text(
+            text = stringResource(R.string.help_credits_title),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = stringResource(R.string.help_credits_icons),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .padding(top = 4.dp)
+                .clickable { openExternalUrl(context, url) },
+        )
     }
 }
 
@@ -242,17 +285,26 @@ private fun PermissionRow(
 
 @Composable
 private fun StatusDot(granted: Boolean, skipped: Boolean) {
-    val (icon, tint) = when {
-        skipped -> Icons.Default.RadioButtonUnchecked to MaterialTheme.colorScheme.outline
-        granted -> Icons.Default.CheckCircle to Color(0xFF2E7D32)
-        else -> Icons.Default.Warning to MaterialTheme.colorScheme.error
+    when {
+        skipped -> Icon(
+            imageVector = Icons.Default.RadioButtonUnchecked,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(24.dp),
+        )
+        granted -> Icon(
+            imageVector = Icons.Default.CheckCircle,
+            contentDescription = null,
+            tint = Color(0xFF2E7D32),
+            modifier = Modifier.size(24.dp),
+        )
+        else -> Icon(
+            painter = painterResource(R.drawable.ic_warning),
+            contentDescription = null,
+            tint = Color.Unspecified,
+            modifier = Modifier.size(24.dp),
+        )
     }
-    Icon(
-        imageVector = icon,
-        contentDescription = null,
-        tint = tint,
-        modifier = Modifier.size(24.dp),
-    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -323,24 +375,33 @@ private fun BrandTipsCard() {
 
 @Composable
 private fun VoiceStatusBanner(status: DefaultAlarmDetector.DefaultStatus) {
-    val primary = MaterialTheme.colorScheme.primary
-    val error = MaterialTheme.colorScheme.error
+    // reason: rememberVectorPainter wraps a Material ImageVector so the Material
+    // success state shares the same Painter type as the colored PNG drawables.
+    // Lets BannerSpec carry one icon type for the whole when{}.
+    val checkCirclePainter = rememberVectorPainter(Icons.Default.CheckCircle)
+    val infoPainter = painterResource(R.drawable.ic_info)
+    val warningPainter = painterResource(R.drawable.ic_warning)
     val spec = when (status) {
         is DefaultAlarmDetector.DefaultStatus.WeAreDefault ->
-            BannerSpec(Icons.Default.CheckCircle, Color(0xFF2E7D32), R.string.help_status_default, null)
+            BannerSpec(checkCirclePainter, Color(0xFF2E7D32), R.string.help_status_default, null)
         is DefaultAlarmDetector.DefaultStatus.Disambiguator ->
-            BannerSpec(Icons.Default.Info, primary, R.string.help_status_disambiguator, null)
+            BannerSpec(infoPainter, Color.Unspecified, R.string.help_status_disambiguator, null)
         is DefaultAlarmDetector.DefaultStatus.OtherIsDefault ->
-            BannerSpec(Icons.Default.Info, primary, R.string.help_status_other, status.displayName)
+            BannerSpec(infoPainter, Color.Unspecified, R.string.help_status_other, status.displayName)
         is DefaultAlarmDetector.DefaultStatus.NoHandlers ->
-            BannerSpec(Icons.Default.Warning, error, R.string.help_status_none, null)
+            BannerSpec(warningPainter, Color.Unspecified, R.string.help_status_none, null)
     }
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(spec.icon, contentDescription = null, tint = spec.tint, modifier = Modifier.size(28.dp))
+            Icon(
+                painter = spec.icon,
+                contentDescription = null,
+                tint = spec.tint,
+                modifier = Modifier.size(28.dp),
+            )
             Text(
                 text = if (spec.arg != null) stringResource(spec.textRes, spec.arg) else stringResource(spec.textRes),
                 modifier = Modifier
@@ -353,7 +414,7 @@ private fun VoiceStatusBanner(status: DefaultAlarmDetector.DefaultStatus) {
 }
 
 private data class BannerSpec(
-    val icon: ImageVector,
+    val icon: Painter,
     val tint: Color,
     val textRes: Int,
     val arg: String?,
@@ -442,6 +503,14 @@ private fun openDefaultAppsSettings(context: Context) {
                     android.util.Log.w(TAG, "ACTION_SETTINGS fallback also failed: ${secondary.message}")
                 }
         }
+}
+
+private fun openExternalUrl(context: Context, url: String) {
+    val intent = Intent(Intent.ACTION_VIEW, url.toUri()).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    runCatching { context.startActivity(intent) }
+        .onFailure { android.util.Log.w(TAG, "openExternalUrl failed for $url: ${it.message}") }
 }
 
 private fun startActivitySafely(context: Context, intent: Intent) {

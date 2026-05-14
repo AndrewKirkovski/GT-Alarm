@@ -13,14 +13,14 @@ import java.util.Collections
  * fire it until I'm done."
  *
  * Contract:
- *   - AlarmEditViewModel calls [setEditing] in `load()` (existing alarm) and
- *     in `applyLocal` once a new draft is assigned a row id.
- *   - AlarmEditViewModel calls [clearEditing] in `flushPendingToWatch()`,
- *     `delete()`, `discardNewDraft()`, and `onCleared()`. flushPendingToWatch
- *     is the central exit hook (every back/save/X path routes through it).
+ *   - AlarmEditViewModel calls [setEditing] only on `load()` of an existing
+ *     alarm. New drafts don't have a row id yet and can't be the target of
+ *     a fire trigger, so no flag is needed during the draft session.
+ *   - AlarmEditViewModel calls [clearEditing] in `save()`, `cancel()`,
+ *     `delete()`, and `onCleared()` (defense-in-depth for process death).
  *   - AlarmRingService.handleRing calls [isEditing] and bails (without
- *     ringing) if true. The reschedule path on edit-screen exit kicks the
- *     alarm back into the queue if its computed next-fire is still in the
+ *     ringing) if true. The reschedule path on save() kicks the alarm
+ *     back into the queue if its computed next-fire is still in the
  *     future, or fires it immediately if it has passed.
  *
  * Singleton lifetime is fine for our needs: a process-death wipes the set,

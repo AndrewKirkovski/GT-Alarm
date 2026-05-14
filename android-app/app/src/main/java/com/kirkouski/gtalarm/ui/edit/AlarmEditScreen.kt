@@ -24,21 +24,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Label
-import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Watch
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Snooze
-import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -54,23 +43,32 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
+import com.anhaki.picktime.PickHourMinute
+import com.anhaki.picktime.utils.PickTimeFocusIndicator
+import com.anhaki.picktime.utils.PickTimeTextStyle
+import com.anhaki.picktime.utils.TimeFormat
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -81,7 +79,6 @@ import com.kirkouski.gtalarm.domain.DaysOfWeek
 import com.kirkouski.gtalarm.util.TimeFormatter
 import com.kirkouski.gtalarm.util.rememberOrderedDayBits
 import com.kirkouski.gtalarm.util.shortLabelResForDayBit
-import kotlinx.coroutines.flow.distinctUntilChanged
 
 // reason: Compose top-level screen composables are inherently long because
 // they declare a tree of layout, state hoisting, and side-effects in one
@@ -110,37 +107,31 @@ fun AlarmEditScreen(
     val settings by vm.settings.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    // Wrap onDone so every exit path (back gesture, X button, system nav)
-    // flushes the pending edits to the watch ONCE before navigating. The
-    // VM's onCleared() is a backstop for process-death paths.
-    val exit: () -> Unit = remember(onDone, vm) {
-        {
-            vm.flushPendingToWatch()
-            onDone()
-        }
-    }
-
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showDiscardConfirm by remember { mutableStateOf(false) }
-    var showWatchBgPicker by remember { mutableStateOf(false) }
+    var showUnsavedConfirm by remember { mutableStateOf(false) }
 
-    BackHandler { exit() }
-
-    val timeState = rememberTimePickerState(
-        initialHour = state.hour,
-        initialMinute = state.minute,
-        // 24h vs 12h: explicit Settings override wins; otherwise follows the
-        // device locale (matches TimeFormatter on the list screen so the
-        // user doesn't see one format here and a different one in the
-        // subtitle).
-        is24Hour = TimeFormatter.resolveUses24HourFormat(context, settings.use24Hour),
-    )
-
-    LaunchedEffect(timeState) {
-        snapshotFlow { timeState.hour to timeState.minute }
-            .distinctUntilChanged()
-            .collect { (h, m) -> vm.updateTime(h, m) }
+    // Cancel path. Routing on dirty + alarm-source:
+    //   new draft + dirty   → "Discard new alarm?" (row never existed)
+    //   existing + dirty    → "Discard changes?" (row stays at pre-edit state)
+    //   anything + !dirty   → silent exit
+    // The VM's onCleared() is a backstop that clears the editing-registry
+    // flag if the screen is destroyed without an explicit Save/Cancel.
+    val cancel: () -> Unit = remember(onDone, vm) {
+        {
+            val s = vm.state.value
+            when {
+                !s.dirty -> { vm.cancel(); onDone() }
+                s.isExistingAlarm -> showUnsavedConfirm = true
+                else -> showDiscardConfirm = true
+            }
+        }
     }
+    val save: () -> Unit = remember(onDone, vm) {
+        { vm.save { onDone() } }
+    }
+
+    BackHandler { cancel() }
 
     val audioPreview = rememberAudioPreview()
     val pickAudio = rememberAudioPicker { picked ->
@@ -153,22 +144,6 @@ fun AlarmEditScreen(
         vm.updateBackgroundImage(uri)
     }
 
-    if (showWatchBgPicker) {
-        // The picker writes a 466 × 466 cropped PNG to cacheDir keyed by
-        // alarm id. We feed that file:// URI back into the alarm row via
-        // [AlarmEditViewModel.updateWatchBackgroundImage]; the parallel
-        // BGRA `.bin` (also written by the picker) is uploaded to the
-        // watch on screen exit via flushPendingToWatch.
-        WatchBackgroundPickerDialog(
-            alarmId = state.id,
-            initialUri = state.watchBackgroundImageUri,
-            onDismiss = { showWatchBgPicker = false },
-            onSaved = { uri ->
-                showWatchBgPicker = false
-                vm.updateWatchBackgroundImage(uri)
-            },
-        )
-    }
     if (showDeleteConfirm) {
         DeleteConfirmDialog(
             onConfirm = {
@@ -183,16 +158,23 @@ fun AlarmEditScreen(
         DiscardConfirmDialog(
             onConfirm = {
                 showDiscardConfirm = false
-                vm.discardNewDraft()
+                vm.cancel()
                 onDone()
             },
             onDismiss = { showDiscardConfirm = false },
         )
     }
+    if (showUnsavedConfirm) {
+        UnsavedChangesDialog(
+            onConfirm = {
+                showUnsavedConfirm = false
+                vm.cancel()
+                onDone()
+            },
+            onDismiss = { showUnsavedConfirm = false },
+        )
+    }
 
-    // Existing alarm has an openSnapshot in the VM -> Revert button works.
-    // New draft has no snapshot -> the destructive top-bar action becomes
-    // "discard" (delete the in-progress row) instead of "delete".
     val isNewDraft = !state.isExistingAlarm
 
     Scaffold(
@@ -207,45 +189,28 @@ fun AlarmEditScreen(
                     Text(stringResource(title))
                 },
                 navigationIcon = {
-                    IconButton(onClick = exit) {
+                    IconButton(onClick = cancel) {
                         Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cancel))
                     }
                 },
                 actions = {
-                    // Revert button: shown when there are unsaved changes
-                    // since the screen opened. Semantics depend on source:
-                    //   existing dirty → restore openSnapshot, stay on screen
-                    //   new draft dirty → confirm discard, delete row + exit
-                    // Both flows are non-destructive of explicitly-final
-                    // state: existing edits can be redone; the new draft's
-                    // only consumer is the user who's about to throw it away.
-                    if (state.dirty) {
-                        IconButton(onClick = {
-                            if (isNewDraft) showDiscardConfirm = true else vm.revert()
-                        }) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Undo,
-                                contentDescription = stringResource(R.string.action_revert),
-                            )
-                        }
-                    }
                     // Delete (existing alarms only): confirms then deletes
-                    // the row + writes a tombstone. New drafts use Revert
-                    // (above) for the same outcome — no second destructive
-                    // affordance needed.
+                    // the row + writes a tombstone. New drafts cancel via
+                    // the X close icon — no DB row exists yet to delete.
                     if (state.isExistingAlarm) {
                         IconButton(onClick = { showDeleteConfirm = true }) {
                             Icon(
-                                imageVector = Icons.Default.Delete,
+                                painter = painterResource(R.drawable.ic_delete),
                                 contentDescription = stringResource(R.string.delete),
+                                tint = Color.Unspecified,
+                                modifier = Modifier.size(24.dp),
                             )
                         }
                     }
-                    // Save: visually reassuring "commit" affordance. Does
-                    // exactly the same as the X button or system back — the
-                    // reverse-save model has already persisted every edit;
-                    // this just flushes the pending watch push and exits.
-                    IconButton(onClick = exit) {
+                    // Save: commits the in-memory edits to Room, pushes to
+                    // watch, and exits. Disabled until loaded (state.id is
+                    // still 0 and label is empty so a tap would write garbage).
+                    IconButton(onClick = save, enabled = state.loaded) {
                         Icon(
                             imageVector = Icons.Default.Check,
                             contentDescription = stringResource(R.string.action_save),
@@ -275,16 +240,52 @@ fun AlarmEditScreen(
             }
 
             if (state.mode == AlarmMode.ABSOLUTE) {
+                // Wheel/odometer time picker (PickTime-Compose, Apache-2.0).
+                // 24h vs 12h follows the Settings override; the picker rolls
+                // its own AM/PM column in 12h mode. We re-mount on state.id
+                // change so the picker's initial values track an alarm load
+                // (the lib's `initial*` params are remembered internally).
+                val is24h = TimeFormatter.resolveUses24HourFormat(context, settings.use24Hour)
                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    TimePicker(state = timeState)
+                    key(state.id, is24h) {
+                        PickHourMinute(
+                            initialHour = state.hour,
+                            onHourChange = { h -> vm.updateTime(h, state.minute) },
+                            initialMinute = state.minute,
+                            onMinuteChange = { m -> vm.updateTime(state.hour, m) },
+                            timeFormat = if (is24h) TimeFormat.HOUR_24 else TimeFormat.HOUR_12,
+                            isLooping = true,
+                            extraRow = 2,
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            selectedTextStyle = PickTimeTextStyle(
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 28.sp,
+                                fontFamily = FontFamily.Default,
+                                fontWeight = FontWeight.Bold,
+                            ),
+                            unselectedTextStyle = PickTimeTextStyle(
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 18.sp,
+                                fontFamily = FontFamily.Default,
+                                fontWeight = FontWeight.Normal,
+                            ),
+                            focusIndicator = PickTimeFocusIndicator(
+                                enabled = true,
+                                widthFull = false,
+                                background = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(20.dp),
+                                border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
+                            ),
+                        )
+                    }
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.Repeat,
+                        painter = painterResource(R.drawable.ic_repeat),
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(end = 8.dp),
+                        tint = Color.Unspecified,
+                        modifier = Modifier.padding(end = 8.dp).size(24.dp),
                     )
                     Text(
                         text = stringResource(R.string.field_repeat),
@@ -308,7 +309,14 @@ fun AlarmEditScreen(
                 onValueChange = vm::updateLabel,
                 label = { Text(stringResource(R.string.field_label)) },
                 placeholder = { Text(stringResource(R.string.field_label_placeholder)) },
-                leadingIcon = { Icon(Icons.AutoMirrored.Filled.Label, contentDescription = null) },
+                leadingIcon = {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_label),
+                        contentDescription = null,
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(24.dp),
+                    )
+                },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
@@ -318,10 +326,10 @@ fun AlarmEditScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    imageVector = Icons.Default.MusicNote,
+                    painter = painterResource(R.drawable.ic_music_note),
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(end = 12.dp),
+                    tint = Color.Unspecified,
+                    modifier = Modifier.padding(end = 12.dp).size(24.dp),
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(stringResource(R.string.field_audio))
@@ -354,27 +362,15 @@ fun AlarmEditScreen(
                 onClear = { vm.updateBackgroundImage(null) },
             )
 
-            // Per-alarm watch-side background image. Distinct from the
-            // phone bg because it must be cropped to a circular 466 × 466
-            // region with a watch-UI preview overlay (the watch's <image>
-            // element renders a BGRA blob — see WatchBackgroundEncoder).
-            // The picker writes both the PNG (for re-display) + .bin (for
-            // upload) into cacheDir; we only persist the PNG URI here.
-            WatchBackgroundImageRow(
-                uri = state.watchBackgroundImageUri,
-                onEdit = { showWatchBgPicker = true },
-                onClear = { vm.updateWatchBackgroundImage(null) },
-            )
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    imageVector = Icons.Default.Vibration,
+                    painter = painterResource(R.drawable.ic_vibration),
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(end = 12.dp),
+                    tint = Color.Unspecified,
+                    modifier = Modifier.padding(end = 12.dp).size(24.dp),
                 )
                 Text(
                     text = stringResource(R.string.field_vibration_only),
@@ -432,10 +428,10 @@ private fun RelativeRow(minutes: Int, onChange: (Int) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                imageVector = Icons.Default.Timer,
+                painter = painterResource(R.drawable.ic_timer),
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(end = 8.dp),
+                tint = Color.Unspecified,
+                modifier = Modifier.padding(end = 8.dp).size(24.dp),
             )
             Text(
                 text = stringResource(R.string.field_relative_minutes),
@@ -494,10 +490,10 @@ private fun SelfDestructRow(checked: Boolean, onToggle: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            imageVector = Icons.Default.DeleteForever,
+            painter = painterResource(R.drawable.ic_delete_forever),
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(end = 12.dp),
+            tint = Color.Unspecified,
+            modifier = Modifier.padding(end = 12.dp).size(24.dp),
         )
         Text(
             text = stringResource(R.string.field_self_destruct),
@@ -517,15 +513,19 @@ private fun SnoozeRow(value: Int, onChange: (Int) -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            imageVector = Icons.Default.Snooze,
+            painter = painterResource(R.drawable.ic_snooze),
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(end = 12.dp),
+            tint = Color.Unspecified,
+            modifier = Modifier.padding(end = 12.dp).size(24.dp),
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(stringResource(R.string.field_snooze_minutes))
             Text(
-                text = stringResource(R.string.field_snooze_minutes_value, value),
+                text = if (value <= Alarm.SNOOZE_DISABLED) {
+                    stringResource(R.string.field_snooze_off_value)
+                } else {
+                    stringResource(R.string.field_snooze_minutes_value, value)
+                },
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -549,6 +549,7 @@ private fun SnoozeRow(value: Int, onChange: (Int) -> Unit) {
 private fun SnoozeChip(minutes: Int, selected: Boolean, onClick: () -> Unit) {
     val bg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
     val fg = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+    val label = if (minutes <= Alarm.SNOOZE_DISABLED) stringResource(R.string.field_snooze_off_chip) else "$minutes"
     Box(
         modifier = Modifier
             .size(width = 44.dp, height = 36.dp)
@@ -557,14 +558,15 @@ private fun SnoozeChip(minutes: Int, selected: Boolean, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = "$minutes", color = fg, style = MaterialTheme.typography.labelMedium)
+        Text(text = label, color = fg, style = MaterialTheme.typography.labelMedium)
     }
 }
 
-// Compact preset list: 1 (debug-friendly), 5, 10 (legacy default), 30.
+// Compact preset list: 0 ("Off"), 1 (debug-friendly), 5, 10 (legacy default), 30.
 // Values outside this list still flow through the wire format / migration —
 // SnoozeRow's "$value min" text always reflects the actual state.
 private val SNOOZE_PRESETS = listOf(
+    Alarm.SNOOZE_DISABLED,
     Alarm.MIN_SNOOZE_MINUTES,
     5,
     Alarm.DEFAULT_SNOOZE_MINUTES,
@@ -603,7 +605,26 @@ private fun DiscardConfirmDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
+                Text(stringResource(R.string.dialog_keep_editing))
+            }
+        },
+    )
+}
+
+@Composable
+private fun UnsavedChangesDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.unsaved_changes_title)) },
+        text = { Text(stringResource(R.string.unsaved_changes_body)) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.unsaved_changes_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.dialog_keep_editing))
             }
         },
     )
@@ -635,59 +656,6 @@ private fun DayRow(mask: Int, firstDayOverride: Int?, onToggle: (Int) -> Unit) {
 }
 
 @Composable
-private fun WatchBackgroundImageRow(
-    uri: String?,
-    onEdit: () -> Unit,
-    onClear: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = Icons.Default.Watch,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(end = 12.dp),
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(stringResource(R.string.field_watch_background_image))
-            val bitmapState = rememberBackgroundBitmap(uri)
-            val bm = bitmapState.value
-            if (uri != null && bm != null) {
-                // Circular thumbnail — matches how the bg ends up
-                // rendered on the watch's circular display.
-                FoundationImage(
-                    bitmap = bm,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .padding(top = 4.dp)
-                        .size(48.dp)
-                        .clip(CircleShape),
-                )
-            } else {
-                Text(
-                    text = stringResource(R.string.field_watch_background_image_none),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
-        if (uri != null) {
-            IconButton(onClick = onClear) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = stringResource(R.string.field_watch_background_image_clear),
-                )
-            }
-        }
-        OutlinedButton(onClick = onEdit) {
-            Text(stringResource(R.string.field_watch_background_image_edit))
-        }
-    }
-}
-
-@Composable
 private fun BackgroundImageRow(
     uri: String?,
     onPick: () -> Unit,
@@ -698,10 +666,10 @@ private fun BackgroundImageRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            imageVector = Icons.Default.Image,
+            painter = painterResource(R.drawable.ic_image),
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(end = 12.dp),
+            tint = Color.Unspecified,
+            modifier = Modifier.padding(end = 12.dp).size(24.dp),
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(stringResource(R.string.field_background_image))

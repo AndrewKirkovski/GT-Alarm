@@ -2,18 +2,57 @@ import storage from '@system.storage';
 import file from '@system.file';
 import prompt from '@system.prompt';
 import AlarmStore from '../../common/alarmStore.js';
+import SettingsStore from '../../common/settingsStore.js';
 import WearBridge from '../../common/wearBridge.js';
 import Logger from '../../common/logger.js';
 
 var DAY_BITS = [1, 2, 4, 8, 16, 32, 64];
 
-// Display order for the day-dot grid. Indexed slot 0..6 ↔ DAY_BITS[i].
-// Monday-first per user pref (task #68 will make this configurable);
-// for now hardcoded to Mon Tue Wed Thu Fri Sat Sun → bits 2,4,8,16,32,64,1.
-var DAY_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+// Default display order — Monday-first. Recomputed per-refresh from
+// SettingsStore.snapshot().firstDayOfWeek when the user picked a
+// different week-start on the phone Settings screen. Indices into
+// DAY_BITS: 0=SUN .. 6=SAT.
+var DEFAULT_DAY_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
 function pad2(n) {
     return (n < 10 ? '0' : '') + n;
+}
+
+/**
+ * Compute the day-display order from a phone-sourced firstDayOfWeek
+ * (java.util.Calendar values: 1=SUNDAY .. 7=SATURDAY) or null = follow
+ * the Monday-first default. Returns an array of 7 indices into
+ * DAY_BITS — slot i shows the day at bit DAY_BITS[result[i]].
+ */
+function computeDayOrder(firstDayOfWeek) {
+    if (typeof firstDayOfWeek !== 'number' || !isFinite(firstDayOfWeek)) {
+        return DEFAULT_DAY_DISPLAY_ORDER;
+    }
+    var start = Math.floor(firstDayOfWeek) - 1; // 0=SUN..6=SAT
+    if (start < 0 || start > 6) return DEFAULT_DAY_DISPLAY_ORDER;
+    var out = [0, 0, 0, 0, 0, 0, 0];
+    for (var i = 0; i < 7; i++) out[i] = (start + i) % 7;
+    return out;
+}
+
+/**
+ * Format an `hour:minute` pair honoring the phone-pushed 12/24h pref.
+ *  - use24Hour=true  → "HH:MM" (24-hour, zero-padded)
+ *  - use24Hour=false → "h:MM AM" / "h:MM PM" (12-hour, no leading
+ *    zero on hours per common watch-face convention)
+ *  - use24Hour=null  → default 24-hour (matches pre-pref baseline)
+ *
+ * `ampmAM` / `ampmPM` are the localized "AM"/"PM" suffixes — index.js
+ * pulls them from i18n once in onInit, ring.js does the same.
+ */
+function formatHHMM(hour, minute, use24Hour, ampmAM, ampmPM) {
+    if (use24Hour === false) {
+        var h = hour % 12;
+        if (h === 0) h = 12;
+        var suffix = hour < 12 ? ampmAM : ampmPM;
+        return h + ':' + pad2(minute) + ' ' + suffix;
+    }
+    return pad2(hour) + ':' + pad2(minute);
 }
 
 /**
@@ -41,16 +80,43 @@ function relativeFireEpoch(alarm) {
 }
 
 /**
- * Format the visible "HH:MM" string for an alarm row. Branches on
- * relativeMinutes per relativeFireEpoch's contract.
+ * Format a "+Nm" / "+NhMm" duration label for a disabled relative
+ * alarm. The enabled-relative branch of formatAlarmTime shows the
+ * computed clock-time fire moment (e.g. "14:35"). Disabled rows can't
+ * meaningfully display that — `updatedAtEpoch` got bumped on toggle-off
+ * (phone's setEnabled stamps it) so the previously-rendered HH:MM is a
+ * stale future moment that drifts into the past as wall-clock passes
+ * (bug #93 2026-05-13). Switching to a duration label matches the
+ * row's identity ("this is a 10-minute timer") and survives the toggle
+ * without lying about the next fire moment.
  */
-function formatAlarmTime(alarm) {
+function formatRelativeDuration(rel) {
+    if (typeof rel !== 'number' || !isFinite(rel) || rel < 1) return '';
+    if (rel < 60) return '+' + rel + 'm';
+    var h = Math.floor(rel / 60);
+    var m = rel % 60;
+    return m > 0 ? '+' + h + 'h' + m + 'm' : '+' + h + 'h';
+}
+
+/**
+ * Format the visible "HH:MM" string for an alarm row. Branches on
+ * relativeMinutes per relativeFireEpoch's contract, and honors the
+ * phone-pushed 12/24h pref via formatHHMM. For DISABLED relative
+ * alarms, returns a duration label ("+10m") instead of a clock-time —
+ * see formatRelativeDuration JSDoc for the rationale.
+ */
+function formatAlarmTime(alarm, use24Hour, ampmAM, ampmPM) {
+    var rel = alarm.relativeMinutes;
+    var hasRel = typeof rel === 'number' && isFinite(rel) && rel >= 1;
+    if (hasRel && !alarm.enabled) {
+        return formatRelativeDuration(rel);
+    }
     var fireEpoch = relativeFireEpoch(alarm);
     if (fireEpoch !== null) {
         var d = new Date(fireEpoch);
-        return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+        return formatHHMM(d.getHours(), d.getMinutes(), use24Hour, ampmAM, ampmPM);
     }
-    return pad2(alarm.hour) + ':' + pad2(alarm.minute);
+    return formatHHMM(alarm.hour, alarm.minute, use24Hour, ampmAM, ampmPM);
 }
 
 /**
@@ -77,12 +143,15 @@ function formatRow(self, alarm) {
     var isRecurring = !!alarm.daysOfWeek && alarm.daysOfWeek !== 0;
     var daysText = isRecurring ? '' : nonRecurringLabel(self, alarm);
 
-    // 7 day-dot booleans in display order (Monday-first per user pref,
-    // see DAY_DISPLAY_ORDER + task #68). dN points at the bit slot
-    // visible in column N; the HML template binds dNOn / dNOff.
+    // 7 day-dot booleans in display order — computed per-refresh from
+    // SettingsStore.snapshot().firstDayOfWeek into self._dayOrder so a
+    // phone-pushed week-start change re-renders without restarting the
+    // page. dN points at the bit slot visible in column N; HML binds
+    // dNOn / dNOff.
+    var order = self._dayOrder || DEFAULT_DAY_DISPLAY_ORDER;
     var dayBits = [false, false, false, false, false, false, false];
     for (var i = 0; i < 7; i++) {
-        var bitIdx = DAY_DISPLAY_ORDER[i];
+        var bitIdx = order[i];
         dayBits[i] = (alarm.daysOfWeek & DAY_BITS[bitIdx]) !== 0;
     }
 
@@ -91,7 +160,7 @@ function formatRow(self, alarm) {
     // in English, "Пн Вт Ср..." → "П В С..." in Russian, etc. Stored
     // per-row because templates inside <list-item for=> may not see
     // parent-scope variables reliably on ACE Lite.
-    var dayLetters = letterArrayFromSelf(self);
+    var dayLetters = letterArrayFromSelf(self, order);
 
     return {
         id: alarm.id,
@@ -99,7 +168,8 @@ function formatRow(self, alarm) {
         // minute (default 07:00 from the phone's picker UI) to the actual
         // fire clock-time using updatedAtEpoch + relativeMinutes. Absolute
         // alarms use the literal hour/minute. See relativeFireEpoch JSDoc.
-        time: formatAlarmTime(alarm),
+        // 12/24h pref pulled from self._use24Hour (cached by refresh()).
+        time: formatAlarmTime(alarm, self._use24Hour, self.ampmAM, self.ampmPM),
         enabled: enabled,
         // Lite Wearable if= directive does NOT coerce truthy values
         // (gotcha #8 in memory). Expose the negation pre-computed so
@@ -130,11 +200,12 @@ function formatRow(self, alarm) {
  * decorate each dot in the grid; recomputed per row (cheap — 7 chars
  * per call) for template-scope safety on ACE Lite.
  */
-function letterArrayFromSelf(self) {
+function letterArrayFromSelf(self, order) {
     var twoChar = [self.d0, self.d1, self.d2, self.d3, self.d4, self.d5, self.d6];
     var out = ['', '', '', '', '', '', ''];
+    var ord = order || DEFAULT_DAY_DISPLAY_ORDER;
     for (var i = 0; i < 7; i++) {
-        var idx = DAY_DISPLAY_ORDER[i];
+        var idx = ord[i];
         var label = twoChar[idx] || '';
         out[i] = label.length > 0 ? label.charAt(0) : '';
     }
@@ -224,7 +295,18 @@ export default {
         repeatWeekdays: '',
         repeatWeekends: '',
         d0: '', d1: '', d2: '', d3: '', d4: '', d5: '', d6: '',
+        ampmAM: '',
+        ampmPM: '',
         _refreshTimer: null,
+        // NOTE: cached display prefs (use24Hour / dayOrder) are NOT
+        // declared inside `data:`. They're read by formatRow and folded
+        // into the per-row state via self.alarms reassignment — that is
+        // what triggers re-render, not the prefs themselves. Putting
+        // them in data was found 2026-05-13 to break the dirty-check
+        // observer for the whole page (no list, no empty-state). Pages
+        // accept arbitrary `this.*` props alongside the data block; we
+        // set `this._use24Hour` / `this._dayOrder` straight in onInit
+        // and refresh().
 
         // Debug diagnostics — shown under the PING PHONE button to give
         // user direct visibility into watch→phone P2P health AND the
@@ -275,6 +357,15 @@ export default {
         this.d4 = this.$t('strings.day_thu');
         this.d5 = this.$t('strings.day_fri');
         this.d6 = this.$t('strings.day_sat');
+        this.ampmAM = this.$t('strings.ampm_am');
+        this.ampmPM = this.$t('strings.ampm_pm');
+        // Prime the SettingsStore cache so the first refresh tick already
+        // has 12/24h + week-start values without an extra render pass.
+        var self = this;
+        SettingsStore.get(function (s) {
+            self._use24Hour = s.use24Hour;
+            self._dayOrder = computeDayOrder(s.firstDayOfWeek);
+        });
         // Probe @system.file health on first load. Writes/reads a 2 KB
         // sentinel to internal://app/, plus tracks a last-run timestamp
         // across launches so we can see if files survive page navigation
@@ -492,6 +583,13 @@ export default {
 
     refresh: function () {
         var self = this;
+        // Re-pull settings every tick so a phone-pushed settings_changed
+        // envelope re-renders the next refresh cycle without restart.
+        // SettingsStore.get is cache-fast after first call.
+        SettingsStore.get(function (s) {
+            self._use24Hour = s.use24Hour;
+            self._dayOrder = computeDayOrder(s.firstDayOfWeek);
+        });
         AlarmStore.getAll(function (items) {
             // ACE Lite uses dirty-check reactivity (Angular 1-style), NOT
             // Vue 2-style array-mutator hooks. Full reassignment of a new

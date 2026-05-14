@@ -147,6 +147,14 @@ class IncomingMessageHandler @Inject constructor(
             Log.d(TAG, "ignore snooze id=$alarmId — unknown row")
             return
         }
+        if (!local.isSnoozeEnabled) {
+            // Peer asked us to snooze an alarm whose local config has snooze
+            // disabled. Phone owns the duration, so the request is ambiguous
+            // — collapse to a dismiss so we don't schedule a phantom re-fire.
+            Log.i(TAG, "peer snooze id=$alarmId ignored — snooze disabled locally, dispatching dismiss instead")
+            dispatchDismissFromPeer(alarmId)
+            return
+        }
         // Phone owns the snooze duration — peer carries the action only.
         val trigger = System.currentTimeMillis() + local.snoozeMinutes * 60_000L
         Log.d(TAG, "peer snooze id=$alarmId +${local.snoozeMinutes}min trigger=$trigger stamp=$incomingEpoch")

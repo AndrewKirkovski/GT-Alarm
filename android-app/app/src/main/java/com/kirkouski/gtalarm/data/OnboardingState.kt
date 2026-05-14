@@ -26,6 +26,13 @@ class OnboardingState @Inject constructor(
         prefs.edit { putBoolean(KEY_BATTERY_OPT_CARD_DISMISSED, true) }
     }
 
+    fun fsiPromptShown(): Boolean =
+        prefs.getBoolean(KEY_FSI_PROMPT_SHOWN, false)
+
+    fun markFsiPromptShown() {
+        prefs.edit { putBoolean(KEY_FSI_PROMPT_SHOWN, true) }
+    }
+
     companion object {
         // Pure decision helper extracted for unit testing without a Context.
         // The card shows iff the user hasn't dismissed it AND the system says
@@ -37,5 +44,12 @@ class OnboardingState @Inject constructor(
 
         private const val PREFS_FILE = "onboarding_v1"
         private const val KEY_BATTERY_OPT_CARD_DISMISSED = "battery_opt_card_dismissed"
+        // One-shot flag: auto-launch the system's full-screen-intent settings
+        // page on first detection that the appop is not MODE_ALLOWED. After
+        // it fires once, subsequent launches rely on the Setup banner in the
+        // alarm list to nudge — auto-launching every cold start would yank
+        // the user out of the app repeatedly on Samsung One UI where the
+        // appop defaults to MODE_DEFAULT.
+        private const val KEY_FSI_PROMPT_SHOWN = "fsi_prompt_shown_v1"
     }
 }

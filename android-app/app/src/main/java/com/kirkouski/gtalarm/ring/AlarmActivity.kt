@@ -97,11 +97,20 @@ class AlarmActivity : ComponentActivity() {
             // "render the existing black background" — preserves legacy
             // behavior for users who haven't picked an image.
             val effectiveBgUri = alarm?.backgroundImageUri ?: defaultBgUri
+            // Hide the Snooze button entirely when the alarm has snooze
+            // disabled (snoozeMinutes == 0). Passing null is the explicit
+            // "no button" signal so AlarmRingScreen can drop the slot
+            // without secondary state.
+            val snoozeAction = if (alarm?.isSnoozeEnabled == true) {
+                { sendAction(AlarmRingService.ACTION_SNOOZE, alarmId) }
+            } else {
+                null
+            }
             AlarmRingScreen(
                 alarm = alarm,
                 backgroundImageUri = effectiveBgUri,
                 onDismiss = { sendAction(AlarmRingService.ACTION_DISMISS, alarmId) },
-                onSnooze = { sendAction(AlarmRingService.ACTION_SNOOZE, alarmId) },
+                onSnooze = snoozeAction,
             )
         }
     }
@@ -164,7 +173,7 @@ private fun AlarmRingScreen(
     alarm: Alarm?,
     backgroundImageUri: String?,
     onDismiss: () -> Unit,
-    onSnooze: () -> Unit,
+    onSnooze: (() -> Unit)?,
 ) {
     Box(
         modifier = Modifier
@@ -245,16 +254,18 @@ private fun AlarmRingScreen(
                     fontSize = 18.sp,
                 )
             }
-            Spacer(Modifier.height(12.dp))
-            OutlinedButton(
-                onClick = onSnooze,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    text = androidx.compose.ui.res.stringResource(R.string.action_snooze),
-                    color = Color.White,
-                    fontSize = 18.sp,
-                )
+            if (onSnooze != null) {
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = onSnooze,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = androidx.compose.ui.res.stringResource(R.string.action_snooze),
+                        color = Color.White,
+                        fontSize = 18.sp,
+                    )
+                }
             }
         }
     }

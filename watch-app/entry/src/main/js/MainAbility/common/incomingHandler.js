@@ -14,6 +14,7 @@
 // All apply paths are tombstone-aware and LWW-resolved.
 import storage from '@system.storage';
 import AlarmStore from './alarmStore.js';
+import SettingsStore from './settingsStore.js';
 import Tombstones from './tombstones.js';
 import Lww from './lwwResolver.js';
 import Logger from './logger.js';
@@ -189,6 +190,23 @@ export default {
                 var hash = AlarmHash.compute(items);
                 Logger.i('incoming.sync_check responding hash=' + hash + ' n=' + items.length);
                 WearBridge.sendSyncHash(hash);
+            });
+            return;
+        }
+        // settings_changed: phone is the sole editor of display prefs;
+        // watch overwrites unconditionally (no LWW). Envelope carries
+        // `use24Hour` (bool|null) and `firstDayOfWeek` (int|null where
+        // 1..7 = SUNDAY..SATURDAY per java.util.Calendar). null on either
+        // means "follow watch system locale".
+        if (msg && msg.type === 'settings_changed') {
+            bumpInboundDiag('settings_changed');
+            var u = (msg.use24Hour === true || msg.use24Hour === false) ? msg.use24Hour : null;
+            var d = (typeof msg.firstDayOfWeek === 'number' && isFinite(msg.firstDayOfWeek))
+                ? msg.firstDayOfWeek : null;
+            SettingsStore.apply(u, d, function (ok) {
+                Logger.i('incoming.settings_changed applied ok=' + ok +
+                    ' use24Hour=' + u + ' firstDow=' + d);
+                bumpLastSync();
             });
             return;
         }

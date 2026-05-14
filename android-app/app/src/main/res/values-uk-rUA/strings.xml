@@ -70,4 +70,15 @@
     <string name="help_pair_watch_title">Авторизація годинника Huawei</string>
     <string name="help_pair_watch_body">Підключіть уже сполучений годинник Huawei Sports Watch / GT, щоб будильники дзвонили на зап\'ясті. Потрібна програма Huawei Health і годинник, уже сполучений через неї. На пристроях без Huawei Health нічого не станеться.</string>
     <string name="help_pair_watch_button">Авторизувати доступ до годинника</string>
+    <string name="help_donate_title">Підтримати розробку</string>
+    <string name="help_donate_body">GT Alarm безкоштовний і без реклами. Якщо він рятує ваші ранки, можете пригостити мене кавою — це напряму оплачує час на нові функції та підтримку пристроїв.</string>
+    <string name="help_donate_button">Пригостити кавою</string>
+    <string name="help_device_unsupported_title">Інша модель годинника?</string>
+    <string name="help_device_unsupported_body">На сьогодні повністю протестований лише Huawei GT 6 Pro. Якщо ваша модель не синхронізується або верстка з\'їжджає — напишіть мені. Передача пристрою на тести — найшвидший шлях до повної підтримки.</string>
+    <string name="help_device_unsupported_button">Зв\'язатися з розробником</string>
+    <string name="help_credits_title">Автори</string>
+    <string name="help_credits_icons">Іконки від Pixel perfect — Flaticon</string>
+    <string name="field_snooze_off_value">Вимк.</string>
+    <string name="field_snooze_off_chip">Вимк.</string>
+    <string name="dialog_keep_editing">Продовжити редагування</string>
 </resources>

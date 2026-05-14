@@ -30,57 +30,38 @@ data class AlarmEditUiState(
     val audioUri: String? = null,
     val audioName: String? = null,
     val isVibrationOnly: Boolean = false,
-    // Per-alarm phone-side background image URI. null = fall back to the
-    // SettingsStore default (which itself may be null = legacy black bg).
     val backgroundImageUri: String? = null,
-    // Per-alarm watch-side background image URI. file:// to a cached
-    // 466 × 466 cropped PNG (WatchBackgroundEncoder.WATCH_BG_NATIVE_PX).
-    // null = "no watch background — use watch's default ring UI".
-    // Companion BGRA `.bin` is uploaded over P2P file-transfer at the
-    // next forceSync / flushPendingToWatch — see WatchBackgroundUploader.
-    val watchBackgroundImageUri: String? = null,
     val snoozeMinutes: Int = Alarm.DEFAULT_SNOOZE_MINUTES,
     val mode: AlarmMode = AlarmMode.ABSOLUTE,
     val relativeMinutes: Int = 15,
-    // Default self-destruct ON for new one-shot absolute + all relative; OFF
-    // for recurring. Recomputed on mode/daysOfWeek transitions unless the
-    // user has explicitly toggled (tracked by `selfDestructUserSet`).
     val selfDestruct: Boolean = true,
     val selfDestructUserSet: Boolean = false,
-    // True when the loaded alarm is an existing row (editing). Mode toggle
-    // is hidden in that case — to switch types, user deletes + recreates.
     val isExistingAlarm: Boolean = false,
     val loaded: Boolean = false,
-    // True if at least one field has been changed since the screen opened.
-    // Drives Revert button visibility (revert is meaningful only when dirty
-    // and the screen is editing an existing alarm with a snapshot).
     val dirty: Boolean = false,
 )
 
 /**
- * Reverse-save edit model:
+ * Explicit save/cancel edit model:
  *
- *   1. On open, capture an immutable [openSnapshot] of the alarm (or null
- *      for a brand-new draft).
- *   2. Every field mutation writes to local DB immediately via
- *      [AlarmRepository.saveLocalOnly]. Watch is NOT notified per-keystroke.
- *   3. On exit ([flushPendingToWatch]), the latest state is broadcast once
- *      to the watch.
- *   4. [revert] restores the snapshot (re-writes original state to DB);
- *      [discardNewDraft] removes the in-progress new-alarm row.
+ *   1. On open, captures the loaded alarm into [_state]. New drafts start
+ *      with default values (no DB row exists yet).
+ *   2. Every field mutation updates [_state] only. Nothing is written to
+ *      Room and nothing is pushed to the watch until [save] is called.
+ *   3. [save] writes the alarm once (insert for new, update for existing),
+ *      pushes to the watch, clears the editing-registry flag, and
+ *      reschedules.
+ *   4. [cancel] discards in-memory state. New-draft alarms vanish (no DB
+ *      row was ever created); existing alarms remain at their pre-edit
+ *      state in Room.
+ *   5. [delete] is an explicit destructive action — bypasses save/cancel
+ *      and removes the row immediately.
  *
- * Why: keeps the watch's notification feed silent during a multi-second
- * edit and avoids N redundant P2P pushes per alarm. Phone is the source
- * of truth either way, so a process kill mid-edit just leaves the watch
- * one sync behind — the next force-sync hash compare will catch it.
+ * Watch-background image is owned solely by Settings (one shared default
+ * for all alarms). The alarm edit screen does NOT pick a per-alarm watch
+ * background — Settings → Default watch background is the single entry
+ * point. See [com.kirkouski.gtalarm.ui.settings.SettingsViewModel.setDefaultWatchBackground].
  */
-// reason: function count crossed 15 because each user-facing field has its
-// own mutator (updateTime, updateLabel, toggleDay, updateAudio,
-// toggleVibrationOnly, updateSnoozeMinutes, updateMode, updateRelativeMinutes,
-// toggleSelfDestruct) plus the reverse-save lifecycle helpers (load, applyLocal,
-// revert, delete, discardNewDraft, flushPendingToWatch, onCleared, buildAlarm,
-// stateFromAlarm). Splitting into helper objects would just route the same
-// state through more indirection without changing logic.
 @Suppress("TooManyFunctions")
 @HiltViewModel
 class AlarmEditViewModel @Inject constructor(
@@ -91,55 +72,31 @@ class AlarmEditViewModel @Inject constructor(
     private val _state = MutableStateFlow(AlarmEditUiState())
     val state: StateFlow<AlarmEditUiState> = _state.asStateFlow()
 
-    /** Effective user-settings snapshot. Drives 12h/24h on the TimePicker
-     *  and first-day-of-week ordering on the DayRow. */
     val settings: StateFlow<SettingsState> = settingsStore.state.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(STATE_TIMEOUT_MS), SettingsState(),
     )
-
-    // Snapshot of the alarm as it existed when the screen opened. null for
-    // a new draft. Used by [revert] to undo all in-session edits.
-    private var openSnapshot: Alarm? = null
-
-    // Set of alarm ids whose state has been mutated locally since the last
-    // flush. On exit we broadcast each one to the watch. A Set (not single
-    // id) because [revert] can change the id (no, ids are stable — but the
-    // set also covers the case where a future "swap alarm" UX exists).
-    private val pendingWatchPushIds = mutableSetOf<Long>()
-
-    // Alarm ids whose watch-side background image has changed since the
-    // last flush. We track these separately from pendingWatchPushIds
-    // because the watch-bg upload is a file-transfer (separate Wear
-    // Engine code path from JSON alarm envelopes) and we don't want to
-    // upload a new bin every time the user toggles any unrelated field.
-    private val pendingWatchBgUploadIds = mutableSetOf<Long>()
 
     fun load(id: Long?) {
         if (_state.value.loaded && _state.value.id == (id ?: 0L)) return
         viewModelScope.launch {
             val alarm = id?.let { repository.getById(it) }
             if (alarm == null) {
-                openSnapshot = null
                 _state.value = AlarmEditUiState(loaded = true, isExistingAlarm = false)
             } else {
-                openSnapshot = alarm
                 _state.value = stateFromAlarm(alarm).copy(loaded = true)
                 // Mark this alarm as "being edited" so AlarmRingService bails
                 // if its fire trigger arrives while we're on this screen.
-                // Cleared by flushPendingToWatch / delete / discardNewDraft.
+                // Cleared by save() / delete() / cancel().
                 EditingAlarmRegistry.setEditing(alarm.id)
             }
         }
     }
 
-    fun updateTime(hour: Int, minute: Int) = applyLocal { it.copy(hour = hour, minute = minute) }
-    fun updateLabel(label: String) = applyLocal { it.copy(label = label) }
+    fun updateTime(hour: Int, minute: Int) = mutate { it.copy(hour = hour, minute = minute) }
+    fun updateLabel(label: String) = mutate { it.copy(label = label) }
 
-    fun toggleDay(day: Int) = applyLocal {
+    fun toggleDay(day: Int) = mutate {
         val newDays = DaysOfWeek.toggle(it.daysOfWeek, day)
-        // Self-destruct is illegal with recurring (per spec). When the user
-        // turns the alarm recurring, force-clear selfDestruct AND reset the
-        // user-set flag so a later return to one-shot re-applies the default.
         val newSelfDestruct = if (newDays != 0) false else it.selfDestruct
         val newUserSet = if (newDays != 0) false else it.selfDestructUserSet
         it.copy(
@@ -149,49 +106,35 @@ class AlarmEditViewModel @Inject constructor(
         )
     }
 
-    fun updateAudio(uri: String?, name: String?) = applyLocal {
+    fun updateAudio(uri: String?, name: String?) = mutate {
         it.copy(audioUri = uri, audioName = name)
     }
 
-    fun updateBackgroundImage(uri: String?) = applyLocal {
+    fun updateBackgroundImage(uri: String?) = mutate {
         it.copy(backgroundImageUri = uri)
     }
 
-    fun updateWatchBackgroundImage(uri: String?) {
-        // Same persist-locally pattern as applyLocal, but ALSO marks this
-        // alarm for a watch-bg upload on flush. We can't reuse applyLocal
-        // because that doesn't know about the parallel `.bin` file the
-        // picker dropped in cacheDir; the upload is its own pending set.
-        _state.update { it.copy(watchBackgroundImageUri = uri, dirty = true) }
-        viewModelScope.launch {
-            val alarm = buildAlarm(_state.value)
-            val savedId = repository.saveLocalOnly(alarm)
-            if (_state.value.id == 0L) {
-                _state.update { it.copy(id = savedId) }
-            }
-            pendingWatchPushIds.add(savedId)
-            pendingWatchBgUploadIds.add(savedId)
-            EditingAlarmRegistry.setEditing(savedId)
+    fun toggleVibrationOnly() = mutate { it.copy(isVibrationOnly = !it.isVibrationOnly) }
+
+    fun updateSnoozeMinutes(minutes: Int) = mutate {
+        // SNOOZE_DISABLED (0) is a sentinel meaning "snooze is off"; anything
+        // else clamps into the enabled range so a stray slider tick can't
+        // produce an invalid duration.
+        val clamped = if (minutes <= Alarm.SNOOZE_DISABLED) {
+            Alarm.SNOOZE_DISABLED
+        } else {
+            minutes.coerceIn(Alarm.MIN_SNOOZE_MINUTES, Alarm.MAX_SNOOZE_MINUTES)
         }
+        it.copy(snoozeMinutes = clamped)
     }
 
-    fun toggleVibrationOnly() = applyLocal { it.copy(isVibrationOnly = !it.isVibrationOnly) }
-
-    fun updateSnoozeMinutes(minutes: Int) = applyLocal {
-        it.copy(snoozeMinutes = minutes.coerceIn(Alarm.MIN_SNOOZE_MINUTES, Alarm.MAX_SNOOZE_MINUTES))
-    }
-
-    fun updateMode(mode: AlarmMode) = applyLocal {
-        // Switching to RELATIVE forces daysOfWeek=0 (relative is always
-        // one-shot). Default selfDestruct=true unless user explicitly opted out.
+    fun updateMode(mode: AlarmMode) = mutate {
         val newDays = if (mode == AlarmMode.RELATIVE) 0 else it.daysOfWeek
         val newSelfDestruct = if (it.selfDestructUserSet) {
             it.selfDestruct
         } else {
             mode == AlarmMode.RELATIVE || newDays == 0
         }
-        // Reset relativeMinutes to its default when leaving RELATIVE mode so
-        // a later return to RELATIVE doesn't pick up a stale custom value.
         val newRelativeMinutes = if (mode == AlarmMode.ABSOLUTE) DEFAULT_RELATIVE_MINUTES else it.relativeMinutes
         it.copy(
             mode = mode,
@@ -201,7 +144,7 @@ class AlarmEditViewModel @Inject constructor(
         )
     }
 
-    fun updateRelativeMinutes(minutes: Int) = applyLocal {
+    fun updateRelativeMinutes(minutes: Int) = mutate {
         it.copy(
             relativeMinutes = minutes.coerceIn(
                 Alarm.MIN_RELATIVE_MINUTES,
@@ -210,9 +153,7 @@ class AlarmEditViewModel @Inject constructor(
         )
     }
 
-    fun toggleSelfDestruct() = applyLocal {
-        // Recurring + self-destruct is illegal. Defensive guard at the VM
-        // layer in addition to the UI hiding the toggle in that mode.
+    fun toggleSelfDestruct() = mutate {
         if (it.mode == AlarmMode.ABSOLUTE && it.daysOfWeek != 0) {
             it.copy(selfDestruct = false, selfDestructUserSet = true)
         } else {
@@ -221,119 +162,69 @@ class AlarmEditViewModel @Inject constructor(
     }
 
     /**
-     * Apply a state mutation, persist to DB, and mark the row for watch
-     * flush on exit. Common path for every field-edit handler.
+     * In-memory state mutator. Sets `dirty = true` only if the transform
+     * actually changes state — otherwise the TimePicker's initial
+     * snapshotFlow emit (which arrives after load with the loaded hour /
+     * minute) would falsely flip dirty on a freshly-opened pristine alarm.
      *
-     * **Note:** does NOT flip `isExistingAlarm` to true after the first
-     * edit on a new draft. The flag tracks "was this opened as an edit?"
-     * (used to gate the mode toggle and Revert vs Discard semantics) —
-     * NOT "does the row exist in the DB?" (which is determined by `id != 0`).
-     * Earlier versions conflated the two, which broke the new-draft Revert
-     * flow because openSnapshot was null but isExistingAlarm was true.
+     * **Bug #92 loaded gate** still applies as defense-in-depth: pre-load
+     * emits get dropped entirely, never reaching the comparison.
      */
-    private fun applyLocal(transform: (AlarmEditUiState) -> AlarmEditUiState) {
-        _state.update { transform(it).copy(dirty = true) }
+    private fun mutate(transform: (AlarmEditUiState) -> AlarmEditUiState) {
+        if (!_state.value.loaded) return
+        _state.update {
+            val next = transform(it)
+            if (next == it) it else next.copy(dirty = true)
+        }
+    }
+
+    /**
+     * Commit the current in-memory state to Room, push to watch,
+     * reschedule, and clear the editing flag. Caller is responsible for
+     * invoking only when state.loaded is true.
+     */
+    fun save(onComplete: () -> Unit = {}) {
         viewModelScope.launch {
-            val alarm = buildAlarm(_state.value)
+            val snapshot = _state.value
+            val alarm = buildAlarm(snapshot)
             val savedId = repository.saveLocalOnly(alarm)
-            if (_state.value.id == 0L) {
-                // First mutation on a new draft assigned a row id — keep it
-                // so subsequent mutations upsert in place instead of
-                // creating duplicate rows.
-                _state.update { it.copy(id = savedId) }
-            }
-            pendingWatchPushIds.add(savedId)
-            // Cover the new-draft case: load() registered nothing because id
-            // was 0; the first applyLocal here assigns a real id. Register
-            // now so the alarm can't fire while still in this edit session.
-            EditingAlarmRegistry.setEditing(savedId)
+            EditingAlarmRegistry.clearEditing(savedId)
+            repository.rescheduleAlarm(savedId)
+            repository.pushAlarmToWatch(savedId)
+            onComplete()
         }
     }
 
     /**
-     * Restore the original alarm state captured at screen open. No-op for a
-     * brand-new draft (nothing to revert to — use [discardNewDraft] instead).
+     * Discard in-memory edits and clear the editing flag. New drafts vanish
+     * (no DB row was created). Existing alarms remain at their pre-edit Room
+     * state. Safe to call multiple times.
      */
-    fun revert() {
-        val snap = openSnapshot ?: return
-        viewModelScope.launch {
-            // saveLocalOnly will re-stamp updatedAtEpoch — that's correct,
-            // because the local DB needs a fresh stamp for LWW resolution
-            // when the watch eventually receives this state.
-            repository.saveLocalOnly(snap)
-            _state.value = stateFromAlarm(snap).copy(loaded = true)
-            pendingWatchPushIds.add(snap.id)
-        }
+    fun cancel() {
+        val id = _state.value.id
+        if (id > 0L) EditingAlarmRegistry.clearEditing(id)
     }
 
     /**
-     * Delete the alarm (discrete user action — pushes immediately to watch).
-     * Caller is responsible for showing a confirmation dialog before invoking.
+     * Delete the alarm (existing-only). Confirms via caller dialog. Pushes
+     * the deletion to the watch via the repository's regular sync path.
      */
     fun delete() = viewModelScope.launch {
         val id = _state.value.id
         if (id != 0L) {
             repository.delete(id)
-            pendingWatchPushIds.remove(id)
             EditingAlarmRegistry.clearEditing(id)
-        }
-    }
-
-    /**
-     * Discard a brand-new draft that was committed to DB on first edit but
-     * which the user no longer wants. Skips watch broadcast since the watch
-     * never learned the alarm existed.
-     */
-    fun discardNewDraft() = viewModelScope.launch {
-        val id = _state.value.id
-        if (id != 0L && openSnapshot == null) {
-            repository.deleteLocalOnly(id)
-            pendingWatchPushIds.remove(id)
-            EditingAlarmRegistry.clearEditing(id)
-        }
-    }
-
-    /**
-     * Flush any pending watch pushes for alarms touched in this session.
-     * Called on user-driven exit (back, save, X, navigation) BEFORE
-     * navigation completes so the bridge sees the latest state. Also
-     * invoked by [onCleared] as the final safety net when the VM dies.
-     */
-    fun flushPendingToWatch() {
-        // Clear the editing flag FIRST so the reschedule below can fire-now
-        // if the alarm's computed next-trigger is already past (e.g., user
-        // edited a "fire in 1 min" alarm for 90 s and the original schedule
-        // already passed). Without clearing first, AlarmRingService would
-        // bail again on the immediate-fire that scheduler.schedule queues.
-        val currentId = _state.value.id
-        if (currentId > 0L) {
-            EditingAlarmRegistry.clearEditing(currentId)
-            // Re-schedule once from the final DB state. saveLocalOnly
-            // intentionally skips scheduling per keystroke (would bump fire
-            // forward for relative alarms); this is the catch-up call.
-            viewModelScope.launch { repository.rescheduleAlarm(currentId) }
-        }
-        if (pendingWatchPushIds.isNotEmpty()) {
-            val snapshot = pendingWatchPushIds.toList()
-            pendingWatchPushIds.clear()
-            snapshot.forEach { repository.pushAlarmToWatch(it) }
-        }
-        // Upload watch-side background bins for any alarm whose
-        // watchBackgroundImageUri changed in this edit session. Repo
-        // handles both the "bin present" (upload) and "bin missing"
-        // (send cleared envelope) cases.
-        if (pendingWatchBgUploadIds.isNotEmpty()) {
-            val bgSnapshot = pendingWatchBgUploadIds.toList()
-            pendingWatchBgUploadIds.clear()
-            bgSnapshot.forEach { repository.uploadWatchBackground(it) }
         }
     }
 
     override fun onCleared() {
-        // Final safety net: if the screen is being destroyed (process death,
-        // task removal) before the UI got a chance to call flushPendingToWatch,
-        // dispatch via the repository's appScope so the push survives our death.
-        flushPendingToWatch()
+        // Defense-in-depth: clear the editing-registry flag in case the VM
+        // is destroyed without an explicit save/cancel/delete (process death,
+        // task removal). No DB writes here — the explicit save/cancel model
+        // means undismissed VMs lose their in-memory edits, which is the
+        // intended contract.
+        val id = _state.value.id
+        if (id > 0L) EditingAlarmRegistry.clearEditing(id)
         super.onCleared()
     }
 
@@ -355,11 +246,14 @@ class AlarmEditViewModel @Inject constructor(
             audioUri = s.audioUri,
             audioName = s.audioName,
             isVibrationOnly = s.isVibrationOnly,
-            snoozeMinutes = s.snoozeMinutes.coerceIn(Alarm.MIN_SNOOZE_MINUTES, Alarm.MAX_SNOOZE_MINUTES),
+            snoozeMinutes = if (s.snoozeMinutes <= Alarm.SNOOZE_DISABLED) {
+                Alarm.SNOOZE_DISABLED
+            } else {
+                s.snoozeMinutes.coerceIn(Alarm.MIN_SNOOZE_MINUTES, Alarm.MAX_SNOOZE_MINUTES)
+            },
             relativeMinutes = relativeMinutes,
             selfDestruct = selfDestruct,
             backgroundImageUri = s.backgroundImageUri,
-            watchBackgroundImageUri = s.watchBackgroundImageUri,
         )
     }
 
@@ -374,13 +268,10 @@ class AlarmEditViewModel @Inject constructor(
         audioName = alarm.audioName,
         isVibrationOnly = alarm.isVibrationOnly,
         backgroundImageUri = alarm.backgroundImageUri,
-        watchBackgroundImageUri = alarm.watchBackgroundImageUri,
         snoozeMinutes = alarm.snoozeMinutes,
         mode = if (alarm.isRelative) AlarmMode.RELATIVE else AlarmMode.ABSOLUTE,
         relativeMinutes = alarm.relativeMinutes ?: DEFAULT_RELATIVE_MINUTES,
         selfDestruct = alarm.selfDestruct,
-        // selfDestructUserSet=false on a fresh load so mode/days transitions
-        // re-apply the default; UI sets it true on explicit user toggle.
         selfDestructUserSet = false,
         isExistingAlarm = true,
         loaded = true,
