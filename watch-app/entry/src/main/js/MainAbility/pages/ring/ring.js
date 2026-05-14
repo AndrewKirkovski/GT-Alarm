@@ -272,10 +272,21 @@ export default {
         var explicit = this._explicitAction;
         var alarmId = Number(this.alarmId);
         // Whatever the close reason — local tap, side button, peer-ended —
-        // the ring screen is transient. Self-terminate after the action
-        // bursts (notify ack, storage callback, auto-disable) settle.
+        // the ring screen is transient. Hard-cap is the floor; paths
+        // that issue a notify (dismiss/snooze/implicit-snooze) expedite
+        // via the ack callback, paths that don't (peer-ended,
+        // invalid-alarmId) expedite directly below.
         scheduleTerminate('onHide');
-        if (explicit || !isFinite(alarmId) || alarmId <= 0) return;
+        if (explicit) {
+            // Dismiss/snooze handlers already issued notify + expedite cb;
+            // hard-cap is just the backstop if their ack never lands.
+            return;
+        }
+        if (!isFinite(alarmId) || alarmId <= 0) {
+            // Nothing to ack — close fast.
+            expediteTerminate('onHide-no-alarm');
+            return;
+        }
         // Async storage read for the peer-ended marker. We're already
         // exiting the page; the read happens off the lifecycle path
         // and dispatches notifySnoozed in its success/fail tail.
@@ -289,6 +300,8 @@ export default {
                 if (t > 0 && ageMs >= 0 && ageMs < PEER_END_WINDOW_MS) {
                     Logger.i('ring.onHide peer-ended ' + ageMs +
                         'ms ago — suppress implicit snooze id=' + alarmId);
+                    // Phone already handled the close; no notify to wait on.
+                    expediteTerminate('peer-ended');
                     return;
                 }
                 Logger.i('ring.onHide implicit-snooze (side button?) id=' + alarmId);
