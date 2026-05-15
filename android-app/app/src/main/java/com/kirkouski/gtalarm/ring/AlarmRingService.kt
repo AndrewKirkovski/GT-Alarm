@@ -21,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
@@ -106,11 +107,20 @@ class AlarmRingService : Service() {
         // FSI Activity launch was silently suppressed on every other fire
         // (alternating-fire bug, verified on S24 Ultra 2026-05-14).
         //
-        // Room non-suspend reads are <50 ms — well inside the 5 s
-        // startForeground deadline. If the row is missing (deleted in a
-        // narrow window between schedule and fire) we still post the
-        // placeholder so the FG contract holds, then tear down.
-        val alarm = repository.getByIdSync(alarmId)
+        // runBlocking on the main thread is deliberate: the suspend
+        // `getById` dispatches the actual SQLite hit to Room's query
+        // executor (a background thread), so Room's assertNotMainThread
+        // check passes — a non-suspend DAO query would crash here because
+        // Room asserts even for those. The main thread blocks ~10-50 ms
+        // waiting, well inside the 5 s startForeground deadline. This
+        // matches FossifyOrg/Clock's synchronous-load-in-onStartCommand
+        // pattern (they use a raw SQLiteOpenHelper that has no assertion;
+        // we use Room so runBlocking is the equivalent).
+        //
+        // If the row is missing (deleted in a narrow window between
+        // schedule and fire) we still post the placeholder so the FG
+        // contract holds, then tear down.
+        val alarm = runBlocking { repository.getById(alarmId) }
         if (alarm == null) {
             Log.w(TAG, "no alarm found for id=$alarmId — placeholder + tear down")
             startForegroundPlaceholder()
