@@ -35,6 +35,13 @@ var client = null;
 var incomingHandler = null;
 var receiverRegistered = false;
 
+// Handler for inbound P2P FILE messages (as opposed to JSON text). Set
+// by the page via setFileHandler. Wear Engine delivers a received file
+// as `{ isFileType: true, name: <on-watch path> }`; we hand that path
+// to the page so it can try referencing it directly (e.g. as a
+// background <image src>). null = files ignored.
+var fileHandler = null;
+
 // Per-bundle page tag (e.g. 'app', 'index', 'ring', 'syncing'). Set by
 // each page via setPageTag before it wires its receiver. Lite Wearable
 // isolates page bundles (gotcha #11), so this module + its receiver
@@ -163,7 +170,14 @@ function installReceiver() {
             bumpRawRx(len);
             if (data && data.isFileType) {
                 Logger.i('wearBridge[' + pageTag + '].onReceiveMessage file=' +
-                    data.name + ' (ignored)');
+                    data.name);
+                if (fileHandler) {
+                    try {
+                        fileHandler(data.name);
+                    } catch (e) {
+                        Logger.err('wearBridge.fileHandler', e);
+                    }
+                }
                 return;
             }
             Logger.i('wearBridge[' + pageTag + '].onReceiveMessage len=' + len);
@@ -345,6 +359,13 @@ export default {
     // Per-bundle page tag for diagnostics — call before setIncomingHandler.
     setPageTag: function (tag) {
         pageTag = tag;
+    },
+
+    // Register a handler for inbound P2P FILE messages. `fn(path)` gets
+    // the on-watch path Wear Engine saved the received file to. Used by
+    // the background-image test: the page points an <image src> at it.
+    setFileHandler: function (fn) {
+        fileHandler = fn;
     },
 
     // Receiver registration state for this bundle: { result, atMs }.

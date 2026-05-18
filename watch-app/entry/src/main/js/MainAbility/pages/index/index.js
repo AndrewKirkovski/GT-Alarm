@@ -15,7 +15,14 @@ import Logger from '../../common/logger.js';
 
 // Bump per hardware-test build so the on-screen tag confirms the new
 // HAP actually replaced the old one.
-var BUILD_TAG = 'single-page/05-18';
+var BUILD_TAG = 'bg-hasbg/05-18';
+
+// @system.storage key holding the on-watch path of the last P2P-received
+// background file. The file itself persists in the app sandbox across
+// restarts; this remembers WHERE so a relaunch can re-point <image> at
+// it without waiting for another upload. Path is ~36 B, well under the
+// 128 B storage cap.
+var BG_PATH_KEY = 'bg_path';
 
 var DAY_BITS = [1, 2, 4, 8, 16, 32, 64];
 var DEFAULT_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -26,7 +33,9 @@ var PEER_FLASH_MS = 1200;
 // Ring auto-terminate. The watch was woken for the alarm; once the
 // action settles, close the app instead of sitting on the watch face.
 var TERMINATE_HARD_CAP_MS = 6000;
-var TERMINATE_AFTER_ACK_MS = 600;
+// Long enough that the ring's DISMISSED/SNOOZED confirmation (shown for
+// PEER_FLASH_MS) stays visible before the watch auto-closes.
+var TERMINATE_AFTER_ACK_MS = 1400;
 var _terminateScheduled = false;
 var _terminateTimer = null;
 // Side-button-during-ring guard: set by the peer-ended handler so the
@@ -223,6 +232,19 @@ export default {
         diagLine1: 'rx:--',
         diagLine2: '',
 
+        // --- background photo ---
+        // bgSrc: on-watch path of a P2P-received PNG, fed straight into
+        // the full-screen <image src> with NO decode/copy. showScrim
+        // gates the 50% dimming layer (list/sync screens only — the ring
+        // screen shows the photo at full strength). bgDiag is an
+        // always-rendered debug line refreshed by the 2 s poll.
+        bgSrc: '',
+        // hasBg MUST be a real boolean — HML `if=` does NOT coerce a
+        // truthy string, so `if="{{bgSrc}}"` never rendered the <image>.
+        hasBg: false,
+        bgDiag: 'bg:none',
+        showScrim: false,
+
         // --- sync screen ---
         syncTitle: '',
         syncSubtitle: '',
@@ -236,8 +258,11 @@ export default {
         labelDismiss: '',
         snoozePressed: false,
         dismissPressed: false,
-        peerDismissed: false,
-        peerBannerText: '',
+        // `ended` — set once the alarm is dismissed/snoozed (by phone OR
+        // watch). Swaps the arc green and replaces the action buttons
+        // with the `endedText` confirmation (DISMISSED / SNOOZED).
+        ended: false,
+        endedText: '',
         ringDiagText: 'snt:-- rx:--',
 
         // --- i18n bag (read by helpers via `self`) ---
@@ -317,6 +342,7 @@ export default {
         IncomingHandler.setOnSyncWake(function () {
             if (self.screen === 'list') {
                 self.screen = 'sync';
+                self.updateScrim();
                 Logger.i('index.screen=sync (wake-by-sync)');
             }
         });
@@ -329,6 +355,21 @@ export default {
             self._use24Hour = s.use24Hour;
             self._dayOrder = computeDayOrder(s.firstDayOfWeek);
         });
+
+        // Restore a previously-received background path so a relaunch
+        // shows the image without re-uploading from the phone.
+        storage.get({
+            key: BG_PATH_KEY,
+            default: '',
+            success: function (v) {
+                if (v) {
+                    self.bgSrc = '' + v;
+                    self.hasBg = true;
+                    Logger.i('index.bgPath restored=' + v);
+                }
+            },
+            fail: function () {},
+        });
     },
 
     onShow: function () {
@@ -338,6 +379,26 @@ export default {
         // (idempotent) so a background/foreground cycle re-points the
         // global Wear Engine subscription at this live callback.
         WearBridge.setPageTag('m');
+        // Background-image test: a P2P-received file is handed back as an
+        // on-watch path. Reference it directly via <image src> — no
+        // decode, no copy — and surface the path on-screen so a failed
+        // render is still self-diagnosing.
+        WearBridge.setFileHandler(function (path) {
+            Logger.i('index.bgFile path=' + path);
+            self.bgSrc = '' + path;
+            self.hasBg = true;
+            // Persist the path so a relaunch restores it (the file itself
+            // already survives in the sandbox).
+            storage.set({
+                key: BG_PATH_KEY,
+                value: '' + path,
+                success: function () {},
+                fail: function () {},
+            });
+            // The 2 s poll (refresh) surfaces bgSrc into bgDiag + the
+            // bg-box gate — no reliance on if=/async reactivity here.
+            self.refresh();
+        });
         WearBridge.setIncomingHandler(function (msg) {
             try {
                 if (msg && msg.type) {
@@ -418,11 +479,24 @@ export default {
                 rows.push(formatRow(self, sorted[i]));
             }
             self.alarms = rows;
+            // Background photo debug line + scrim gate. bgSrc is a plain
+            // field set by the P2P file handler; the poll surfaces it
+            // reliably even if if=/async reactivity is not.
+            self.hasBg = !!self.bgSrc;
+            self.bgDiag = self.bgSrc ? ('bg:' + self.bgSrc) : 'bg:none';
+            self.updateScrim();
             AlarmStore.getLastSyncEpoch(function (epoch) {
                 self.diagLine2 = 'st:' + items.length + ' on:' + on +
                     ' ' + formatLastSync(self, epoch) + ' b:' + BUILD_TAG;
             });
         });
+    },
+
+    // Scrim shows on the list + sync screens (dims the photo so white
+    // text stays legible); the ring screen shows the photo at full
+    // strength. Recomputed on every screen change + the 2 s poll.
+    updateScrim: function () {
+        this.showScrim = !!this.bgSrc && this.screen !== 'ring';
     },
 
     onRowTap: function (id) {
@@ -496,11 +570,12 @@ export default {
         var self = this;
         this._alarmId = alarmId;
         this._explicitAction = null;
-        this.peerDismissed = false;
-        this.peerBannerText = '';
+        this.ended = false;
+        this.endedText = '';
         this.ringLabel = '';
         cancelTerminate();
         this.screen = 'ring';
+        this.updateScrim();
 
         // Ring time is always "now" — the wake-up instant the user sees.
         var now = new Date();
@@ -579,14 +654,22 @@ export default {
         var self = this;
         this._explicitAction = 'dismiss';
         this.stopVibrate();
+        // Show the green DISMISSED confirmation in place of the buttons,
+        // then leave the ring after the same flash window the phone-
+        // initiated path uses.
+        this.ended = true;
+        this.endedText = 'DISMISSED';
         var alarmId = this._alarmId;
         WearBridge.notifyDismissed(alarmId, function (ok, reason) {
             Logger.i('index.dismiss-ack ok=' + ok + ' r=' + reason);
             expediteTerminate('dismiss');
         });
         scheduleTerminate('dismiss');
-        this.screen = 'list';
-        this.refresh();
+        setTimeout(function () {
+            self.screen = 'list';
+            self.updateScrim();
+            self.refresh();
+        }, PEER_FLASH_MS);
         // Best-effort one-shot auto-disable for non-recurring alarms.
         AlarmStore.getAll(function (items) {
             for (var i = 0; i < items.length; i++) {
@@ -606,15 +689,21 @@ export default {
 
     onSnooze: function () {
         Logger.i('index.onSnooze id=' + this._alarmId);
+        var self = this;
         this._explicitAction = 'snooze';
         this.stopVibrate();
+        this.ended = true;
+        this.endedText = 'SNOOZED';
         WearBridge.notifySnoozed(this._alarmId, function (ok, reason) {
             Logger.i('index.snooze-ack ok=' + ok + ' r=' + reason);
             expediteTerminate('snooze');
         });
         scheduleTerminate('snooze');
-        this.screen = 'list';
-        this.refresh();
+        setTimeout(function () {
+            self.screen = 'list';
+            self.updateScrim();
+            self.refresh();
+        }, PEER_FLASH_MS);
     },
 
     // Phone reported the alarm dismissed/snoozed on its side — the
@@ -626,14 +715,16 @@ export default {
         if (this.screen !== 'ring') {
             // No ring up — nothing to flash; just make sure we are home.
             this.screen = 'list';
+            this.updateScrim();
             return;
         }
         this._explicitAction = 'peer-ended';
         _peerEndedAtMs = Date.now();
-        this.peerBannerText = (type === 'alarm_snoozed') ? 'PHONE SNOOZED' : 'PHONE DISMISSED';
-        this.peerDismissed = true;
+        this.endedText = (type === 'alarm_snoozed') ? 'SNOOZED' : 'DISMISSED';
+        this.ended = true;
         setTimeout(function () {
             self.screen = 'list';
+            self.updateScrim();
             self.refresh();
             scheduleTerminate('peer-ended');
         }, PEER_FLASH_MS);

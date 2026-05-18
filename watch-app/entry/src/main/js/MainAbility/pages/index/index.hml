@@ -4,10 +4,16 @@
 <stack class="root">
 
     <!-- ================= LIST screen ================= -->
-    <div class="content" if="{{screen === 'list'}}">
+    <!-- Each screen is its own <stack> with a full-screen background
+         <image> as the bottom layer. A bg <image> placed directly under
+         the ROOT <stack> did NOT render; the ring stack proves a NESTED
+         <stack> composites a layer behind its content. -->
+    <stack class="screen" if="{{screen === 'list'}}">
+        <image class="bg-full" src="{{bgSrc}}" if="{{hasBg}}"></image>
+        <div class="content">
         <text class="title">{{title}}</text>
-        <text class="diag-line">{{diagLine1}}</text>
         <text class="diag-line">{{diagLine2}}</text>
+        <text class="diag-line">{{bgDiag}}</text>
 
         <list class="alarm-list" if="{{alarms.length > 0}}">
             <list-item class="alarm-list-row" for="{{alarms}}" tid="id"
@@ -103,28 +109,36 @@
             <text class="empty-title">{{emptyText}}</text>
             <text class="empty-hint">{{emptyHint}}</text>
         </div>
-    </div>
+        </div>
+    </stack>
 
     <!-- ================= SYNC screen ================= -->
-    <div class="content" if="{{screen === 'sync'}}">
-        <text class="title">{{syncTitle}}</text>
-        <text class="sync-sub">{{syncSubtitle}}</text>
-        <text class="live-line">{{liveLine}}</text>
-        <text class="diag-line">{{diagLine1}}</text>
-        <text class="diag-line">{{diagLine2}}</text>
-    </div>
+    <stack class="screen" if="{{screen === 'sync'}}">
+        <image class="bg-full" src="{{bgSrc}}" if="{{hasBg}}"></image>
+        <div class="content">
+            <text class="title">{{syncTitle}}</text>
+            <text class="sync-sub">{{syncSubtitle}}</text>
+            <text class="live-line">{{liveLine}}</text>
+            <text class="diag-line">{{diagLine1}}</text>
+            <text class="diag-line">{{diagLine2}}</text>
+        </div>
+    </stack>
 
     <!-- ================= RING screen ================= -->
     <stack class="ring" if="{{screen === 'ring'}}" onswipe="onSwipe">
-        <progress type="arc" percent="100" class="ring-arc" if="{{!peerDismissed}}"></progress>
-        <progress type="arc" percent="100" class="ring-arc-green" if="{{peerDismissed}}"></progress>
+        <image class="bg-full" src="{{bgSrc}}" if="{{hasBg}}"></image>
+        <progress type="arc" percent="100" class="ring-arc" if="{{!ended}}"></progress>
+        <progress type="arc" percent="100" class="ring-arc-green" if="{{ended}}"></progress>
         <div class="ring-content">
-            <text class="ring-banner" if="{{peerDismissed}}">{{peerBannerText}}</text>
             <image src="common/bell.png" class="ring-bell"></image>
             <text class="ring-title">{{ringTitle}}</text>
             <text class="ring-time">{{ringTime}}</text>
             <text class="ring-label" if="{{ringLabel}}">{{ringLabel}}</text>
-            <div class="ring-actions">
+            <!-- Action row: the two buttons OR, once ended (dismiss /
+                 snooze, by phone or watch), the green DISMISSED/SNOOZED
+                 confirmation in the SAME slot — same width/height/margin
+                 as .ring-actions so the Y position is identical. -->
+            <div class="ring-actions" if="{{!ended}}">
                 <div class="btn btn-snooze" if="{{!snoozePressed}}"
                      onclick="onSnooze" ontouchstart="onSnoozeDown" ontouchend="onSnoozeUp">
                     <text class="btn-text">{{labelSnooze}}</text>
@@ -142,6 +156,7 @@
                     <text class="btn-text">{{labelDismiss}}</text>
                 </div>
             </div>
+            <text class="ring-ended" if="{{ended}}">{{endedText}}</text>
             <text class="ring-diag">{{ringDiagText}}</text>
         </div>
     </stack>

@@ -46,7 +46,37 @@
     align-items: center;
     width: 466px;
     height: 466px;
-    background-color: #0F0F23;
+    /* No background-color — .container backdrop / .bg-full photo shows. */
+    position: relative;
+    z-index: 2;
+  }
+  /* Per-screen wrapper — layers the bg photo beneath the content. */
+  .screen {
+    position: relative;
+    width: 466px;
+    height: 466px;
+  }
+  /* P2P-received background photo, full screen. The watch uses a real
+     <image>; the mockup stands in with a gradient. */
+  .bg-full {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 466px;
+    height: 466px;
+    z-index: 0;
+    background: linear-gradient(135deg, #3B2F6E 0%, #6D5BC8 45%, #C77DC2 100%);
+  }
+  /* 50% dark scrim — list/sync screens only (omitted on ring). */
+  .scrim {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 466px;
+    height: 466px;
+    z-index: 1;
+    background-color: #000000;
+    opacity: 0.5;
   }
   .title {
     width: 280px;
@@ -68,7 +98,6 @@
     width: 466px;
     height: 320px;
     overflow-y: auto;
-    background-color: #0F0F23;
   }
   /* Native <list-item> wrapper — on device it MUST carry an explicit
      width + height or the row collapses. Each .alarm-row sits inside one. */
@@ -194,8 +223,8 @@
   .ring {
     width: 466px;
     height: 466px;
-    background-color: #150A12;
     position: relative;
+    z-index: 2;
   }
   .ring-arc {
     position: absolute;
@@ -291,18 +320,17 @@
     box-sizing: border-box;
     pointer-events: none;
   }
-  .ring-banner {
+  /* Ended-state confirmation — replaces .ring-actions in place. */
+  .ring-ended {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 360px;
-    height: 44px;
-    border-radius: 22px;
-    background-color: #15803D;
-    color: #FFFFFF;
-    font-size: 24px;
+    width: 466px;
+    height: 88px;
+    margin-top: 6px;
+    color: #22C55E;
+    font-size: 40px;
     text-align: center;
-    margin-bottom: 8px;
   }
   .ring-diag {
     width: 420px;
@@ -429,6 +457,66 @@
 
   <!-- ============================================================== -->
   <div class="panel">
+    <div class="panel-label">Index — list w/ background photo (nested-stack, no scrim)</div>
+    <div class="watch">
+      <div class="container">
+        <div class="screen">
+        <div class="bg-full"></div>
+        <div class="content">
+          <div class="title">GT Alarm · 0.1.0</div>
+          <div class="diag-line">rx:ok@4s raw:5 in:5 alarm_added@4s</div>
+          <div class="diag-line">st:1 on:1 Synced 2 min ago b:bg-nest/05-18</div>
+          <div class="diag-line">bg:internal://app/watch_bg_png_full.png</div>
+          <div class="alarm-list">
+            <div class="alarm-list-row">
+              <div class="alarm-row">
+                <div class="status-dot"></div>
+                <div class="alarm-time">07:30</div>
+                <div class="alarm-days-grid">
+                  <div class="day-cell"><div class="day-cell-letter">M</div><div class="day-dot day-dot-on"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">T</div><div class="day-dot day-dot-on"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">W</div><div class="day-dot day-dot-on"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">T</div><div class="day-dot day-dot-on"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">F</div><div class="day-dot day-dot-on"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">S</div><div class="day-dot"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">S</div><div class="day-dot"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <div class="panel">
+    <div class="panel-label">Ring — w/ background photo (full, no scrim)</div>
+    <div class="watch">
+      <div class="container">
+        <div class="screen">
+        <div class="bg-full"></div>
+        <div class="ring">
+          <div class="ring-arc"></div>
+          <div class="ring-content">
+            <div class="ring-bell">&#128276;</div>
+            <div class="ring-title">Alarm</div>
+            <div class="ring-time">07:30</div>
+            <div class="ring-label">Wake up!</div>
+            <div class="ring-actions">
+              <div class="btn btn-snooze"><div class="btn-text">Snooze 10m</div></div>
+              <div class="btn btn-dismiss"><div class="btn-text">Dismiss</div></div>
+            </div>
+          </div>
+        </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <div class="panel">
     <div class="panel-label">Index — many alarms</div>
     <div class="watch">
       <div class="container">
@@ -522,20 +610,16 @@
 
   <!-- ============================================================== -->
   <div class="panel">
-    <div class="panel-label">Ring page — phone dismissed (green flash)</div>
+    <div class="panel-label">Ring page — ended (green, DISMISSED replaces buttons)</div>
     <div class="watch">
       <div class="ring">
         <div class="ring-arc-green"></div>
         <div class="ring-content">
-          <div class="ring-banner">PHONE DISMISSED</div>
           <div class="ring-bell"></div>
           <div class="ring-title">Alarm</div>
           <div class="ring-time">07:30</div>
           <div class="ring-label">Wake up</div>
-          <div class="ring-actions">
-            <div class="btn btn-snooze"><div class="btn-text">Snooze 10m</div></div>
-            <div class="btn btn-dismiss"><div class="btn-text">Dismiss</div></div>
-          </div>
+          <div class="ring-ended">DISMISSED</div>
           <div class="ring-diag">snt:207 rx:ok@27s raw:6 in:5</div>
         </div>
       </div>

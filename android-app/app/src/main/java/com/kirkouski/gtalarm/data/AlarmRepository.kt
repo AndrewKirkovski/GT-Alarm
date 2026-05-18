@@ -149,25 +149,29 @@ class AlarmRepository @Inject constructor(
     }
 
     /**
-     * Upload the shared watch-side default background `.bin` to the paired
-     * watch. The picker writes `watch_bg_<DEFAULT_WATCH_BG_ID>.bin` next to
-     * the PNG in [Context.getCacheDir]; we look it up by that sentinel id.
-     * If the file is missing (user cleared the default or never picked one)
-     * we send the watch a clearance envelope instead so it deletes its own
-     * cached default. Caller is responsible for updating the SettingsStore
-     * URI first; this method only deals with the on-disk cache + the wire
-     * transfer of the BGRA blob.
+     * Upload the shared watch-side default background to the paired watch.
+     * The picker writes `watch_bg_<DEFAULT_WATCH_BG_ID>.png` in
+     * [Context.getCacheDir]; [com.kirkouski.gtalarm.wear.WatchBgTestEncoder]
+     * derives the actual file to send (a hardware experiment over JPG/PNG/
+     * BGRA formats — see that class). If the source PNG is missing (user
+     * cleared the default or never picked one) we send the watch a
+     * clearance envelope instead.
      */
     fun uploadDefaultWatchBackground() {
         appScope.launch {
-            val binFile = java.io.File(appContext.cacheDir, "watch_bg_${DEFAULT_WATCH_BG_ID}.bin")
-            if (!binFile.exists()) {
-                Log.i(TAG, "uploadDefaultWatchBackground — bin missing, sending cleared envelope")
+            val srcPng = java.io.File(appContext.cacheDir, "watch_bg_${DEFAULT_WATCH_BG_ID}.png")
+            if (!srcPng.exists()) {
+                Log.i(TAG, "uploadDefaultWatchBackground — source png missing, sending cleared envelope")
                 wearBridge.sendDefaultWatchBackgroundCleared()
                 return@launch
             }
-            val ok = wearBridge.uploadDefaultWatchBackground(binFile)
-            Log.i(TAG, "uploadDefaultWatchBackground ok=$ok size=${binFile.length()}")
+            val bgFile = com.kirkouski.gtalarm.wear.WatchBgTestEncoder.prepare(srcPng, appContext.cacheDir)
+            if (bgFile == null) {
+                Log.w(TAG, "uploadDefaultWatchBackground — test encode failed, skipping")
+                return@launch
+            }
+            val ok = wearBridge.uploadDefaultWatchBackground(bgFile)
+            Log.i(TAG, "uploadDefaultWatchBackground ok=$ok file=${bgFile.name} size=${bgFile.length()}")
         }
     }
 

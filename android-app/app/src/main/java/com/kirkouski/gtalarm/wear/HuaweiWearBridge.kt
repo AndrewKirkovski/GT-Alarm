@@ -537,13 +537,13 @@ class HuaweiWearBridge @Inject constructor(
 
     // File-transfer path for the shared default watch background.
     // Differs from the normal data-Message path in two ways:
-    //   1. Builder.setPayload(byte[]) — Wear Engine routes any non-string
+    //   1. Builder.setPayload(File) — Wear Engine routes any non-string
     //      payload to the watch's file-receive handler instead of the
     //      byte-msg Receiver.
-    //   2. Builder.setDescription("bg_default.bin") — the watch reads the
-    //      description to know what file name to save under. Per
-    //      memory:wear_engine_lite_facts §setdesc-fix, setDescription
-    //      takes a String (setPayload(String) was a known footgun).
+    //   2. Builder.setDescription(bgFile.name) — the description carries
+    //      the file name (incl. extension), so the watch's <image src>
+    //      sees the right format. Per memory:wear_engine_lite_facts
+    //      §setdesc-fix, setDescription takes a String.
     @Suppress("ReturnCount", "TooGenericExceptionCaught")
     // reason: ReturnCount — 5 returns reflect 5 distinct early-out states
     //   (file missing, file empty, no device, peer not running, send result),
@@ -554,12 +554,12 @@ class HuaweiWearBridge @Inject constructor(
     //   the RuntimeException umbrella across vendor-skin variants; catching
     //   narrower would let real failures unwind into the AppScope and lose
     //   the invalidateAndMarkError() side-effect.
-    override suspend fun uploadDefaultWatchBackground(binFile: java.io.File): Boolean {
-        if (!binFile.exists()) {
-            Log.w(TAG, "uploadDefaultWatchBackground: file missing at ${binFile.absolutePath}")
+    override suspend fun uploadDefaultWatchBackground(bgFile: java.io.File): Boolean {
+        if (!bgFile.exists()) {
+            Log.w(TAG, "uploadDefaultWatchBackground: file missing at ${bgFile.absolutePath}")
             return false
         }
-        if (binFile.length() == 0L) {
+        if (bgFile.length() == 0L) {
             Log.w(TAG, "uploadDefaultWatchBackground: file empty")
             return false
         }
@@ -569,8 +569,8 @@ class HuaweiWearBridge @Inject constructor(
             return false
         }
         val msg = Message.Builder()
-            .setPayload(binFile)
-            .setDescription("bg_default.bin")
+            .setPayload(bgFile)
+            .setDescription(bgFile.name)
             .build()
         val ok = try {
             sendOnce(device, msg)
@@ -580,7 +580,7 @@ class HuaweiWearBridge @Inject constructor(
             false
         }
         if (ok) {
-            Log.i(TAG, "uploadDefaultWatchBackground delivered (${binFile.length()}B)")
+            Log.i(TAG, "uploadDefaultWatchBackground delivered ${bgFile.name} (${bgFile.length()}B)")
         } else {
             Log.w(TAG, "uploadDefaultWatchBackground NOT delivered")
             invalidateAndMarkError()

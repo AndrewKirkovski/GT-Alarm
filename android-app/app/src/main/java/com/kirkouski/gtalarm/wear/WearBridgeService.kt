@@ -72,19 +72,20 @@ interface WearBridgeService {
      * watch. One image applies to every alarm (the per-alarm field was
      * dropped in schema v8 — Settings owns the single default).
      *
-     * The file MUST be a BGRA `.bin` produced by [com.kirkouski.gtalarm.wear.WatchBackgroundEncoder]
-     * — the watch's `<image>` element does not decode PNG/JPEG (see
-     * memory:litewearable_images_and_files).
+     * [bgFile] is the exact file to transfer; its format is decided by
+     * [com.kirkouski.gtalarm.wear.WatchBgTestEncoder] — a hardware
+     * experiment probing whether the watch `<image>` can render a plain
+     * JPG/PNG or still needs the BGRA `.bin` (see that class).
      *
      * Uses the Wear Engine file-transfer path (`Message.Builder.setPayload(File)`).
-     * The watch's MainAbility writes the blob into its internal sandbox as
-     * a fixed `bg_default.bin`.
+     * The watch receives the file at a runtime path and references it
+     * directly via `<image src>`.
      *
      * Returns true iff the watch ACKed delivery (207 = COMM_SUCCESS).
      * Caller may treat false as transient — retry on the next Settings
      * save / forceSync.
      */
-    suspend fun uploadDefaultWatchBackground(binFile: java.io.File): Boolean
+    suspend fun uploadDefaultWatchBackground(bgFile: java.io.File): Boolean
 
     /**
      * Tell the watch to drop its cached default background bin. Sent when

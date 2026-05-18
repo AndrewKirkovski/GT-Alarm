@@ -9,14 +9,41 @@
     background-color: #0F0F23;
 }
 
-/* List + sync screens share this flex-column container. */
+/* Per-screen wrapper <stack> — layers the background <image> beneath the
+   screen content. (A bg <image> directly under .root did not render.) */
+.screen {
+    width: 466px;
+    height: 466px;
+}
+
+/* List + sync screens share this flex-column container. MUST be
+   `transparent` — it is the TOP layer of the per-screen <stack>, over
+   the .bg-full photo. A no-background-color <div> renders OPAQUE on
+   this device (hardware-verified), so without an explicit `transparent`
+   it fully covers the photo. */
 .content {
     display: flex;
     flex-direction: column;
     align-items: center;
     width: 466px;
     height: 466px;
-    background-color: #0F0F23;
+    background-color: transparent;
+}
+
+/* P2P-received background photo (PNG), full screen — first (bottom)
+   child of each per-screen <stack>. */
+.bg-full {
+    width: 466px;
+    height: 466px;
+}
+
+/* 50% dark scrim over the photo — keeps white text/rows legible on the
+   list + sync screens. The ring screen omits it (full photo). */
+.scrim {
+    width: 466px;
+    height: 466px;
+    background-color: #000000;
+    opacity: 0.5;
 }
 
 .title {
@@ -53,7 +80,7 @@
     width: 466px;
     height: 340px;
     margin-top: 4px;
-    background-color: #0F0F23;
+    background-color: transparent;
 }
 
 /* ACELite requires an explicit width + height on every <list-item>. */
@@ -233,7 +260,7 @@
     justify-content: center;
     width: 466px;
     height: 200px;
-    background-color: #0F0F23;
+    background-color: transparent;
 }
 
 .empty-title {
@@ -280,10 +307,12 @@
 }
 
 /* ---- Ring screen ---- */
+/* Ring screen — no background-color so the .bg-full photo shows at full
+   strength (no scrim on the ring, per design). Falls back to the .root
+   backdrop when no photo is set. */
 .ring {
     width: 466px;
     height: 466px;
-    background-color: #150A12;
 }
 
 .ring-arc {
@@ -310,6 +339,8 @@
     start-angle: 0deg;
 }
 
+/* Transparent — top layer of the .ring <stack>, over the .bg-full
+   photo. A no-background-color <div> renders opaque on this device. */
 .ring-content {
     width: 466px;
     height: 466px;
@@ -317,21 +348,23 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    background-color: transparent;
 }
 
-.ring-banner {
+/* Ended-state confirmation — replaces .ring-actions in place. Same
+   width / height / margin-top as .ring-actions so DISMISSED / SNOOZED
+   sits at exactly the Y the buttons occupied. */
+.ring-ended {
     display: flex;
     flex-direction: row;
     align-items: center;
     justify-content: center;
-    width: 360px;
-    height: 44px;
-    border-radius: 22px;
-    background-color: #15803D;
-    color: #FFFFFF;
-    font-size: 24px;
+    width: 466px;
+    height: 88px;
+    margin-top: 6px;
+    color: #22C55E;
+    font-size: 40px;
     text-align: center;
-    margin-bottom: 8px;
 }
 
 .ring-bell {
