@@ -27,7 +27,7 @@
         "repeat_oneoff": "One-off",
         "section_upcoming": "Upcoming",
         "section_others": "Others",
-        "edit_on_phone": "Edit on phone",
+        "edit_on_phone": "Alarms are only editable in phone companion app",
         "sync_never": "Not synced yet",
         "sync_just_now": "Synced just now",
         "sync_min_ago": "Synced {n} min ago",

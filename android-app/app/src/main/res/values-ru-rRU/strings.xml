@@ -43,6 +43,8 @@
     <string name="repeats_every_day">Каждый день</string>
     <string name="repeats_weekdays">Будни</string>
     <string name="repeats_weekends">Выходные</string>
+    <string name="repeats_timer">Таймер</string>
+    <string name="repeats_oneoff">Одноразовый</string>
     <string name="delete_alarm">Удалить будильник</string>
 
     <string name="battery_opt_card_title">Чтобы будильники были надёжными</string>

@@ -43,6 +43,8 @@
     <string name="repeats_every_day">Codziennie</string>
     <string name="repeats_weekdays">Dni robocze</string>
     <string name="repeats_weekends">Weekendy</string>
+    <string name="repeats_timer">Stoper</string>
+    <string name="repeats_oneoff">Jednorazowy</string>
     <string name="delete_alarm">Usuń alarm</string>
 
     <string name="battery_opt_card_title">Niech alarmy będą niezawodne</string>

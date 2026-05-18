@@ -1,7 +1,8 @@
 /* GT 6 round watch (466 x 466). Single-page UI — list / sync / ring
    screens share this one stylesheet. Strictly within documented Lite
    Wearable CSS: no `background:` shorthand, no gradients, no
-   border-style, no :active, no `transform`. */
+   border-style, no :active, no `transform`. User-facing text is sized
+   ~1.5x larger than the original compact layout. */
 
 .root {
     width: 466px;
@@ -17,10 +18,9 @@
 }
 
 /* List + sync screens share this flex-column container. MUST be
-   `transparent` — it is the TOP layer of the per-screen <stack>, over
-   the .bg-full photo. A no-background-color <div> renders OPAQUE on
-   this device (hardware-verified), so without an explicit `transparent`
-   it fully covers the photo. */
+   `transparent` — top layer of the per-screen <stack>, over the
+   .bg-full photo. A no-background-color <div> renders OPAQUE on this
+   device, so the explicit `transparent` is required. */
 .content {
     display: flex;
     flex-direction: column;
@@ -37,13 +37,37 @@
     height: 466px;
 }
 
-/* 50% dark scrim over the photo — keeps white text/rows legible on the
-   list + sync screens. The ring screen omits it (full photo). */
+/* 20% dark scrim over the photo — keeps text/rows legible on the list +
+   sync screens. The ring screen omits it (full photo). */
 .scrim {
     width: 466px;
     height: 466px;
-    background-color: #000000;
-    opacity: 0.5;
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+/* Tap hint — full-screen transparent overlay (top layer of the list
+   <stack>) holding a centered message bubble. Shown ~2.6 s when the
+   user taps a row. */
+.tap-hint {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 466px;
+    height: 466px;
+    background-color: transparent;
+}
+
+.tap-hint-text {
+    width: 360px;
+    height: 170px;
+    padding-left: 22px;
+    padding-right: 22px;
+    background-color: rgba(0, 0, 0, 0.82);
+    border-radius: 26px;
+    color: #FFFFFF;
+    font-size: 26px;
+    text-align: center;
 }
 
 .title {
@@ -51,23 +75,21 @@
     flex-direction: row;
     align-items: center;
     justify-content: center;
-    width: 300px;
-    height: 30px;
+    width: 420px;
+    height: 46px;
     text-align: center;
     color: #FFFFFF;
-    font-size: 22px;
-    margin-top: 38px;
+    font-size: 33px;
+    margin-top: 30px;
     margin-bottom: 4px;
 }
 
-/* Diagnostic strip — bright on purpose (debug build, must be readable
-   on the dim panel). Sits directly under the title, in the round
-   display's readable band. */
+/* Diagnostic strip — debug instrumentation, kept compact (not scaled). */
 .diag-line {
-    width: 380px;
+    width: 400px;
     height: 20px;
-    margin-left: 43px;
-    margin-right: 43px;
+    margin-left: 33px;
+    margin-right: 33px;
     margin-top: 1px;
     text-align: center;
     color: #D6DCE8;
@@ -75,18 +97,22 @@
 }
 
 /* `<list>` is a native scroll component — it MUST carry an explicit
-   height (a flex/no-height layout collapses it to ~1px on GT 6). */
+   height (a flex/no-height layout collapses it to ~1px on GT 6).
+   padding-top/-bottom give over-scroll headroom so the first and last
+   rows can scroll clear of the round display's top/bottom chord. */
 .alarm-list {
     width: 466px;
-    height: 340px;
+    height: 320px;
     margin-top: 4px;
+    padding-top: 24px;
+    padding-bottom: 56px;
     background-color: transparent;
 }
 
 /* ACELite requires an explicit width + height on every <list-item>. */
 .alarm-list-row {
     width: 466px;
-    height: 62px;
+    height: 92px;
 }
 
 .alarm-row {
@@ -94,15 +120,13 @@
     flex-direction: row;
     align-items: center;
     width: 390px;
-    height: 56px;
+    height: 84px;
     margin-left: 38px;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
     padding-left: 18px;
     padding-right: 18px;
-    background-color: #1F1F2A;
-    border-width: 1px;
-    border-color: #2D2D3F;
-    border-radius: 16px;
+    background-color: rgba(31, 31, 42, 0.5);
+    border-radius: 20px;
 }
 
 .alarm-row-dim {
@@ -110,15 +134,13 @@
     flex-direction: row;
     align-items: center;
     width: 390px;
-    height: 56px;
+    height: 84px;
     margin-left: 38px;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
     padding-left: 18px;
     padding-right: 18px;
-    background-color: #14141C;
-    border-width: 1px;
-    border-color: #1E1E2C;
-    border-radius: 16px;
+    background-color: rgba(20, 20, 28, 0.5);
+    border-radius: 20px;
 }
 
 .status-dot {
@@ -148,8 +170,8 @@
     align-items: center;
     width: 200px;
     color: #FFFFFF;
-    font-size: 28px;
-    height: 32px;
+    font-size: 42px;
+    height: 48px;
 }
 
 .alarm-time-dim {
@@ -158,24 +180,24 @@
     align-items: center;
     width: 200px;
     color: #9AA4C0;
-    font-size: 28px;
-    height: 32px;
+    font-size: 42px;
+    height: 48px;
 }
 
 .alarm-days-grid {
     display: flex;
     flex-direction: row;
     align-items: flex-start;
-    width: 110px;
-    height: 38px;
+    width: 126px;
+    height: 44px;
 }
 
 .day-cell {
     display: flex;
     flex-direction: column;
     align-items: center;
-    width: 14px;
-    height: 38px;
+    width: 16px;
+    height: 44px;
     margin-left: 2px;
 }
 
@@ -184,10 +206,10 @@
     flex-direction: row;
     align-items: center;
     justify-content: center;
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     color: #AEB8CC;
-    font-size: 11px;
+    font-size: 14px;
     margin-bottom: 4px;
     text-align: center;
 }
@@ -197,46 +219,48 @@
     flex-direction: row;
     align-items: center;
     justify-content: center;
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     color: #5A6276;
-    font-size: 11px;
+    font-size: 14px;
     margin-bottom: 4px;
     text-align: center;
 }
 
+/* Day dots — brightened for legibility on the photo background, both
+   enabled (-on) and disabled-row (-on-dim) variants. */
 .day-dot {
     display: flex;
-    width: 10px;
-    height: 10px;
-    border-radius: 5px;
-    background-color: #2D2D3F;
+    width: 12px;
+    height: 12px;
+    border-radius: 6px;
+    background-color: #555E7A;
 }
 
 .day-dot-on {
     display: flex;
-    width: 10px;
-    height: 10px;
-    border-radius: 5px;
-    background-color: #6366F1;
+    width: 12px;
+    height: 12px;
+    border-radius: 6px;
+    background-color: #A5B4FC;
 }
 
 .day-dot-on-dim {
     display: flex;
-    width: 10px;
-    height: 10px;
-    border-radius: 5px;
-    background-color: #3B3F66;
+    width: 12px;
+    height: 12px;
+    border-radius: 6px;
+    background-color: #6366F1;
 }
 
 .alarm-days-text {
     display: flex;
     flex-direction: row;
     align-items: center;
-    width: 102px;
-    height: 22px;
+    width: 126px;
+    height: 33px;
     color: #C4CEE0;
-    font-size: 16px;
+    font-size: 24px;
     text-align: right;
     justify-content: flex-end;
 }
@@ -245,10 +269,10 @@
     display: flex;
     flex-direction: row;
     align-items: center;
-    width: 102px;
-    height: 22px;
+    width: 126px;
+    height: 33px;
     color: #6B7488;
-    font-size: 16px;
+    font-size: 24px;
     text-align: right;
     justify-content: flex-end;
 }
@@ -259,22 +283,22 @@
     align-items: center;
     justify-content: center;
     width: 466px;
-    height: 200px;
+    height: 280px;
     background-color: transparent;
 }
 
 .empty-title {
     color: #FFFFFF;
-    font-size: 32px;
-    height: 40px;
+    font-size: 48px;
+    height: 60px;
     margin-bottom: 8px;
     text-align: center;
 }
 
 .empty-hint {
     color: #AEB8CC;
-    font-size: 22px;
-    height: 28px;
+    font-size: 33px;
+    height: 42px;
     text-align: center;
 }
 
@@ -284,11 +308,11 @@
     flex-direction: row;
     align-items: center;
     justify-content: center;
-    width: 340px;
-    height: 30px;
+    width: 400px;
+    height: 45px;
     margin-top: 8px;
     color: #AEB8CC;
-    font-size: 20px;
+    font-size: 30px;
     text-align: center;
 }
 
@@ -297,19 +321,18 @@
     flex-direction: row;
     align-items: center;
     justify-content: center;
-    width: 380px;
-    height: 28px;
+    width: 420px;
+    height: 42px;
     margin-top: 16px;
     margin-bottom: 8px;
     color: #818CF8;
-    font-size: 20px;
+    font-size: 30px;
     text-align: center;
 }
 
 /* ---- Ring screen ---- */
 /* Ring screen — no background-color so the .bg-full photo shows at full
-   strength (no scrim on the ring, per design). Falls back to the .root
-   backdrop when no photo is set. */
+   strength (no scrim on the ring, per design). */
 .ring {
     width: 466px;
     height: 466px;
@@ -363,7 +386,7 @@
     height: 88px;
     margin-top: 6px;
     color: #22C55E;
-    font-size: 40px;
+    font-size: 60px;
     text-align: center;
 }
 
@@ -376,28 +399,28 @@
 .ring-title {
     width: 466px;
     color: #FCA5A5;
-    font-size: 26px;
-    height: 32px;
+    font-size: 32px;
+    height: 40px;
     text-align: center;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
 }
 
 .ring-time {
     width: 466px;
     color: #FFFFFF;
-    font-size: 88px;
-    height: 108px;
+    font-size: 112px;
+    height: 132px;
     text-align: center;
-    margin-bottom: 8px;
+    margin-bottom: 4px;
 }
 
 .ring-label {
     width: 466px;
     color: #C4CEE0;
-    font-size: 26px;
-    height: 32px;
+    font-size: 32px;
+    height: 40px;
     text-align: center;
-    margin-bottom: 12px;
+    margin-bottom: 6px;
 }
 
 .ring-actions {
@@ -410,6 +433,10 @@
     margin-top: 6px;
 }
 
+/* Buttons kept at the original size — two must fit within the round
+   chord at the button-row Y, and "Snooze 10m" must fit one button.
+   Scaling them up clips at the chord, so the ring action row is the one
+   place the 1.5x text bump does not apply. */
 .btn {
     display: flex;
     flex-direction: row;
@@ -418,8 +445,8 @@
     width: 180px;
     height: 88px;
     border-radius: 44px;
-    margin-left: 14px;
-    margin-right: 14px;
+    margin-left: 12px;
+    margin-right: 12px;
 }
 
 .btn-text {

@@ -27,7 +27,7 @@
         "repeat_oneoff": "Jednorazowy",
         "section_upcoming": "Nadchodzące",
         "section_others": "Inne",
-        "edit_on_phone": "Edytuj w telefonie",
+        "edit_on_phone": "Alarmy edytujesz tylko w aplikacji towarzyszącej na telefonie",
         "sync_never": "Brak synchronizacji",
         "sync_just_now": "Zsynchronizowano teraz",
         "sync_min_ago": "Zsynchronizowano {n} min temu",

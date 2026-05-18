@@ -87,6 +87,8 @@
     <string name="repeats_every_day">Every day</string>
     <string name="repeats_weekdays">Weekdays</string>
     <string name="repeats_weekends">Weekends</string>
+    <string name="repeats_timer">Timer</string>
+    <string name="repeats_oneoff">One-off</string>
     <string name="delete_alarm">Delete alarm</string>
 
     <!-- reason: reverse-save edit model strings (Revert + discard + delete

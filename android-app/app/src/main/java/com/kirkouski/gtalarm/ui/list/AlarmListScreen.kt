@@ -551,15 +551,25 @@ private fun AlarmRow(
 
 @Composable
 private fun subtitleLine(alarm: Alarm, firstDayOverride: Int?): String {
-    val days = daysLabel(alarm.daysOfWeek, firstDayOverride)
+    val days = repeatLabel(alarm, firstDayOverride)
     if (!alarm.enabled) return days
-    // For relative alarms the prominent text already shows the live countdown;
-    // subtitle reduces to a hint that the timer resets on toggle. For absolute
-    // alarms we keep the legacy "in N min" approximate text (doesn't tick).
-    if (alarm.isRelative) return ""
+    // Relative alarms show the live countdown in the prominent text; the
+    // subtitle is just the "Timer" repeat label (parity with the watch).
+    if (alarm.isRelative) return days
     val nextTrigger = remember(alarm) { NextTriggerCalculator.nextTriggerEpochMillis(alarm) }
     val relative = RelativeTime.formatUntil(nextTrigger)
     return if (relative.isEmpty()) days else "$days  ·  $relative"
+}
+
+// Repeat label — mirrors the watch's nonRecurringLabel logic so the same
+// alarm reads identically on both devices: recurring -> day label;
+// otherwise Timer (relative) / One-off (self-destruct) / Once.
+@Composable
+private fun repeatLabel(alarm: Alarm, firstDayOverride: Int?): String = when {
+    alarm.daysOfWeek != DaysOfWeek.NONE -> daysLabel(alarm.daysOfWeek, firstDayOverride)
+    alarm.isRelative -> stringResource(R.string.repeats_timer)
+    alarm.selfDestruct -> stringResource(R.string.repeats_oneoff)
+    else -> stringResource(R.string.repeats_once)
 }
 
 // Ticks the countdown for a relative alarm. Cadence:

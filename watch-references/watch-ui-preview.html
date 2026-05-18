@@ -67,7 +67,7 @@
     z-index: 0;
     background: linear-gradient(135deg, #3B2F6E 0%, #6D5BC8 45%, #C77DC2 100%);
   }
-  /* 50% dark scrim — list/sync screens only (omitted on ring). */
+  /* 20% dark scrim — list/sync screens only (omitted on ring). */
   .scrim {
     position: absolute;
     top: 0;
@@ -75,18 +75,43 @@
     width: 466px;
     height: 466px;
     z-index: 1;
-    background-color: #000000;
-    opacity: 0.5;
+    background-color: rgba(0, 0, 0, 0.2);
+  }
+  /* Row-tap hint overlay — full-screen, centered bubble. */
+  .tap-hint {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 466px;
+    height: 466px;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tap-hint-text {
+    width: 360px;
+    height: 170px;
+    box-sizing: border-box;
+    padding: 0 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0.82);
+    border-radius: 26px;
+    color: #FFFFFF;
+    font-size: 26px;
+    text-align: center;
   }
   .title {
-    width: 280px;
-    height: 30px;
+    width: 420px;
+    height: 46px;
     text-align: center;
     color: #F1F5F9;
-    font-size: 22px;
-    margin-top: 38px;  /* lower start — round chord at y=8 was too narrow */
-    margin-bottom: 6px;
-    line-height: 30px;
+    font-size: 33px;
+    margin-top: 30px;
+    margin-bottom: 4px;
+    line-height: 46px;
     box-sizing: border-box;
     overflow: hidden;
     white-space: nowrap;
@@ -98,31 +123,32 @@
     width: 466px;
     height: 320px;
     overflow-y: auto;
+    padding-top: 24px;
+    padding-bottom: 56px;
+    box-sizing: border-box;
   }
   /* Native <list-item> wrapper — on device it MUST carry an explicit
      width + height or the row collapses. Each .alarm-row sits inside one. */
   .alarm-list-row {
     width: 466px;
-    height: 62px;
+    height: 92px;
   }
   .alarm-row {
     display: flex;
     flex-direction: row;
     align-items: center;
-    width: 390px;            /* shrunk from 410 to fit chord at edge rows */
-    height: 56px;
-    margin-left: 38px;       /* centers 390 row in the 466 list */
-    margin-bottom: 6px;
+    width: 390px;
+    height: 84px;
+    margin-left: 38px;
+    margin-bottom: 8px;
     padding-left: 18px;
     padding-right: 18px;
-    background-color: #1F1F2A;
-    border: 1px solid #2D2D3F;
-    border-radius: 16px;
+    background-color: rgba(31, 31, 42, 0.5);
+    border-radius: 20px;
     box-sizing: border-box;
   }
   .alarm-row-dim {
-    background-color: #14141C;
-    border-color: #1E1E2C;
+    background-color: rgba(20, 20, 28, 0.5);
   }
   /* Status dot: 10px green when enabled, slim grey ring when disabled. */
   .status-dot {
@@ -142,8 +168,8 @@
   }
   .alarm-time {
     color: #FFFFFF;
-    font-size: 28px;
-    line-height: 32px;
+    font-size: 42px;
+    line-height: 48px;
     flex: 1;
   }
   .alarm-time-dim { color: #9AA4C0; }
@@ -152,36 +178,36 @@
     display: flex;
     flex-direction: row;
     align-items: flex-start;
-    height: 38px;
+    height: 44px;
   }
   .day-cell {
     display: flex;
     flex-direction: column;
     align-items: center;
-    width: 14px;
+    width: 16px;
     margin-left: 2px;
   }
   .day-cell-letter {
-    font-size: 11px;
-    line-height: 14px;
+    font-size: 14px;
+    line-height: 16px;
     color: #AEB8CC;
-    height: 14px;
+    height: 16px;
     text-align: center;
     margin-bottom: 4px;
   }
   .day-cell-letter-dim { color: #5A6276; }
   .day-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 5px;
-    background-color: #2D2D3F;
+    width: 12px;
+    height: 12px;
+    border-radius: 6px;
+    background-color: #555E7A;
   }
-  .day-dot-on { background-color: #6366F1; }
-  .day-dot-on-dim { background-color: #3B3F66; }
+  .day-dot-on { background-color: #A5B4FC; }
+  .day-dot-on-dim { background-color: #6366F1; }
   .alarm-days-text {
     color: #C4CEE0;
-    font-size: 16px;
-    line-height: 16px;
+    font-size: 24px;
+    line-height: 33px;
   }
   .alarm-days-text-dim { color: #6B7488; }
 
@@ -191,22 +217,21 @@
     align-items: center;
     justify-content: center;
     width: 466px;
-    height: 160px;
-    background-color: #0F0F23;
+    height: 280px;
   }
   .empty-title {
     color: #F1F5F9;
-    font-size: 32px;
-    height: 40px;
-    line-height: 40px;
+    font-size: 48px;
+    height: 60px;
+    line-height: 60px;
     margin-bottom: 8px;
     text-align: center;
   }
   .empty-hint {
     color: #AEB8CC;
-    font-size: 22px;
-    height: 28px;
-    line-height: 28px;
+    font-size: 33px;
+    height: 42px;
+    line-height: 42px;
     text-align: center;
   }
   .diag-line {
@@ -253,32 +278,32 @@
     background: radial-gradient(circle, #FCA5A5 22%, transparent 23%);
   }
   .ring-title {
-    width: 280px;
+    width: 420px;
     color: #FCA5A5;
-    font-size: 22px;
-    height: 28px;
-    line-height: 28px;
+    font-size: 32px;
+    height: 40px;
+    line-height: 40px;
     text-align: center;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
   }
   .ring-time {
     width: 466px;
     color: #F1F5F9;
-    font-size: 84px;
-    height: 100px;
-    line-height: 100px;
+    font-size: 112px;
+    height: 132px;
+    line-height: 132px;
     text-align: center;
-    margin-bottom: 8px;
+    margin-bottom: 4px;
     font-weight: 200;
   }
   .ring-label {
-    width: 320px;
+    width: 420px;
     color: #A5B4CB;
-    font-size: 22px;
-    height: 28px;
-    line-height: 28px;
+    font-size: 32px;
+    height: 40px;
+    line-height: 40px;
     text-align: center;
-    margin-bottom: 20px;
+    margin-bottom: 6px;
   }
   .ring-actions {
     display: flex;
@@ -286,22 +311,22 @@
     justify-content: center;
     align-items: center;
     width: 466px;
-    height: 76px;
-    margin-top: 8px;
+    height: 88px;
+    margin-top: 6px;
   }
   .btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 140px;       /* shrunk from 180 — fits chord at button row */
-    height: 76px;       /* shrunk from 88 to widen vertical room */
-    border-radius: 38px;
-    margin: 0 10px;     /* tighter than 14 */
+    width: 180px;
+    height: 88px;
+    border-radius: 44px;
+    margin: 0 12px;
     box-sizing: border-box;
   }
   .btn-text {
     color: #F1F5F9;
-    font-size: 22px;
+    font-size: 28px;
     text-align: center;
   }
   .btn-snooze   { background-color: #374151; }

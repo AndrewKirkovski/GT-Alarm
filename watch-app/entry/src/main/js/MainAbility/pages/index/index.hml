@@ -10,6 +10,7 @@
          <stack> composites a layer behind its content. -->
     <stack class="screen" if="{{screen === 'list'}}">
         <image class="bg-full" src="{{bgSrc}}" if="{{hasBg}}"></image>
+        <div class="scrim" if="{{showScrim}}"></div>
         <div class="content">
         <text class="title">{{title}}</text>
         <text class="diag-line">{{diagLine2}}</text>
@@ -110,11 +111,17 @@
             <text class="empty-hint">{{emptyHint}}</text>
         </div>
         </div>
+        <!-- Tap hint — overlay shown when a row is tapped (alarms are
+             edited on the phone, not the watch). Top layer of the stack. -->
+        <div class="tap-hint" if="{{tapHintShown}}">
+            <text class="tap-hint-text">{{tapHint}}</text>
+        </div>
     </stack>
 
     <!-- ================= SYNC screen ================= -->
     <stack class="screen" if="{{screen === 'sync'}}">
         <image class="bg-full" src="{{bgSrc}}" if="{{hasBg}}"></image>
+        <div class="scrim" if="{{showScrim}}"></div>
         <div class="content">
             <text class="title">{{syncTitle}}</text>
             <text class="sync-sub">{{syncSubtitle}}</text>

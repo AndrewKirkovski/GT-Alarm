@@ -27,7 +27,7 @@
         "repeat_oneoff": "一次性",
         "section_upcoming": "即将到来",
         "section_others": "其他",
-        "edit_on_phone": "在手机上编辑",
+        "edit_on_phone": "闹钟仅可在手机配套应用中编辑",
         "sync_never": "尚未同步",
         "sync_just_now": "刚刚同步",
         "sync_min_ago": "{n} 分钟前同步",

@@ -6,7 +6,6 @@
 import app from '@system.app';
 import storage from '@system.storage';
 import vibrator from '@system.vibrator';
-import prompt from '@system.prompt';
 import AlarmStore from '../../common/alarmStore.js';
 import SettingsStore from '../../common/settingsStore.js';
 import WearBridge from '../../common/wearBridge.js';
@@ -15,7 +14,10 @@ import Logger from '../../common/logger.js';
 
 // Bump per hardware-test build so the on-screen tag confirms the new
 // HAP actually replaced the old one.
-var BUILD_TAG = 'bg-hasbg/05-18';
+var BUILD_TAG = 'bg-ui3/05-18';
+
+// How long the row-tap hint overlay stays up.
+var TAP_HINT_MS = 2600;
 
 // @system.storage key holding the on-watch path of the last P2P-received
 // background file. The file itself persists in the app sandbox across
@@ -245,6 +247,10 @@ export default {
         bgDiag: 'bg:none',
         showScrim: false,
 
+        // --- row-tap hint overlay ---
+        tapHint: '',
+        tapHintShown: false,
+
         // --- sync screen ---
         syncTitle: '',
         syncSubtitle: '',
@@ -282,6 +288,7 @@ export default {
         _refreshTimer: null,
         _diagTimer: null,
         _vibrateTimer: null,
+        _tapHintTimer: null,
         _use24Hour: null,
         _dayOrder: DEFAULT_DAY_ORDER,
     },
@@ -499,13 +506,21 @@ export default {
         this.showScrim = !!this.bgSrc && this.screen !== 'ring';
     },
 
+    // Alarms are phone-only — tapping a row shows an on-screen hint.
+    // (An inline overlay, not @system.prompt.showToast — the toast did
+    // not surface on GT 6 hardware.)
     onRowTap: function (id) {
+        var self = this;
         this._userEngaged = true;
-        try {
-            prompt.showToast({ message: this.editOnPhoneToast, duration: 1500 });
-        } catch (e) {
-            Logger.err('onRowTap', e);
+        this.tapHint = this.editOnPhoneToast;
+        this.tapHintShown = true;
+        if (this._tapHintTimer !== null) {
+            clearTimeout(this._tapHintTimer);
         }
+        this._tapHintTimer = setTimeout(function () {
+            self.tapHintShown = false;
+            self._tapHintTimer = null;
+        }, TAP_HINT_MS);
     },
 
     // ---- DIAGNOSTIC STRIP ----

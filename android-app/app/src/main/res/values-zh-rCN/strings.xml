@@ -43,6 +43,8 @@
     <string name="repeats_every_day">每天</string>
     <string name="repeats_weekdays">工作日</string>
     <string name="repeats_weekends">周末</string>
+    <string name="repeats_timer">计时器</string>
+    <string name="repeats_oneoff">一次性</string>
     <string name="delete_alarm">删除闹钟</string>
 
     <string name="battery_opt_card_title">保持闹钟稳定</string>
