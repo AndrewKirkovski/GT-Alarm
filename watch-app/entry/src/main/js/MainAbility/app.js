@@ -1,3 +1,4 @@
+import app from '@system.app';
 import router from '@system.router';
 import storage from '@system.storage';
 import WearBridge from './common/wearBridge.js';
@@ -13,7 +14,7 @@ var PEER_END_KEY = 'ring_peer_ended_at_ms';
 // Build tag — bump when the HAP is rebuilt for a fresh hardware test.
 // Lite Wearable has no equivalent of PackageInfo.versionName at runtime,
 // so this is the cheapest way to know which HAP is on the watch.
-var BUILD_TAG = '0.1.0/2026-05-14-dismiss-ack';
+var BUILD_TAG = '0.1.0/2026-05-17-perpage-rx';
 
 export default {
     onCreate: function () {
@@ -21,13 +22,14 @@ export default {
         // both to HiLog AND over P2P to the phone (visible in adb logcat
         // under the WatchLog tag). Helps debug watch flow without DevEco
         // HiLog access.
-        Logger.setRemoteSink(function (level, msg) {
+        Logger.setRemoteSink(function (lines) {
             try {
-                WearBridge.sendLog(level, msg);
+                WearBridge.sendLogBatch(lines);
             } catch (e) {
                 // Best-effort relay; never let it break the on-device log.
             }
         });
+        WearBridge.setPageTag('app');
         Logger.i('app.onCreate build=' + BUILD_TAG);
 
         // Anchor the wake-reason clock BEFORE we install the incoming
@@ -99,6 +101,19 @@ export default {
             }
         });
 
+        // sync_done while app.js's bootstrap receiver is still active
+        // means the watch was woken purely for a sync and no page took
+        // over — terminate. (The syncing page wires its own onSyncDone;
+        // index/ring deliberately leave it unset.)
+        IncomingHandler.setOnSyncDone(function () {
+            Logger.i('app.sync_done — app.terminate()');
+            try {
+                app.terminate();
+            } catch (e) {
+                Logger.err('app.sync_done terminate threw', e);
+            }
+        });
+
         WearBridge.setIncomingHandler(function (msg) {
             try {
                 IncomingHandler.handle(msg);
@@ -110,5 +125,9 @@ export default {
     onDestroy: function () {
         Logger.i('app.onDestroy');
         WearBridge.setIncomingHandler(null);
+        // Drain the batched log relay — the flush timer is foreground-only
+        // and the process is about to die, so any queued lines would be
+        // lost otherwise.
+        Logger.flushNow();
     },
 };

@@ -245,6 +245,14 @@ export default {
     clear: function (callback, silent) {
         writeRaw([], callback, silent);
     },
+    // Authoritative wholesale replace — drops the entire current list and
+    // writes `items` instead. Used by the sync_replace handler so a Force
+    // sync prunes watch-only rows the additive add/update path can't
+    // remove. `.slice()` so the caller's array isn't aliased into store
+    // internals. fireChange notifies the visible page to re-render.
+    replaceAll: function (items, callback, silent) {
+        writeRaw(items.slice(), callback, silent);
+    },
 
     // Last successful peer-driven mutation timestamp. Bumped by
     // IncomingHandler whenever a wire message is applied locally so the

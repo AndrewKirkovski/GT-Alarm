@@ -9,6 +9,7 @@
     <string name="alarm_notification_title">闹钟</string>
     <string name="action_dismiss">关闭</string>
     <string name="action_snooze">稍后提醒</string>
+    <string name="ring_waiting_for_watch">等待手表…</string>
 
     <string name="screen_list_title">闹钟</string>
     <string name="screen_edit_title_new">新建闹钟</string>

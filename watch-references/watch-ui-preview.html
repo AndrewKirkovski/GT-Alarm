@@ -61,12 +61,20 @@
     overflow: hidden;
     white-space: nowrap;
   }
+  /* Native <list> on device: fixed-height scroll container, NOT flex.
+     Mirror that here with an explicit height + overflow so the mockup
+     can't hide a collapsed-list regression again. */
   .alarm-list {
     width: 466px;
+    height: 320px;
+    overflow-y: auto;
     background-color: #0F0F23;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+  }
+  /* Native <list-item> wrapper — on device it MUST carry an explicit
+     width + height or the row collapses. Each .alarm-row sits inside one. */
+  .alarm-list-row {
+    width: 466px;
+    height: 62px;
   }
   .alarm-row {
     display: flex;
@@ -74,6 +82,7 @@
     align-items: center;
     width: 390px;            /* shrunk from 410 to fit chord at edge rows */
     height: 56px;
+    margin-left: 38px;       /* centers 390 row in the 466 list */
     margin-bottom: 6px;
     padding-left: 18px;
     padding-right: 18px;
@@ -103,7 +112,7 @@
     border-radius: 5px;
   }
   .alarm-time {
-    color: #F1F5F9;
+    color: #FFFFFF;
     font-size: 28px;
     line-height: 32px;
     flex: 1;
@@ -169,24 +178,6 @@
     font-size: 22px;
     height: 28px;
     line-height: 28px;
-    text-align: center;
-  }
-  .btn-ping {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 220px;
-    height: 38px;
-    margin: 6px auto 0;
-    background-color: #4338CA;
-    border-radius: 19px;
-    border: 1px solid #6366F1;
-    box-sizing: border-box;
-  }
-  .btn-ping-text {
-    color: #F1F5F9;
-    font-size: 16px;
-    line-height: 22px;
     text-align: center;
   }
   .diag-line {
@@ -287,6 +278,55 @@
   .btn-snooze   { background-color: #374151; }
   .btn-dismiss  { background-color: #B91C1C; }
 
+  /* Green-flash variant — shown the moment the phone's dismiss/snooze
+     reaches the ring page's receiver (Bug-1 visible indicator). */
+  .ring-arc-green {
+    position: absolute;
+    width: 452px;
+    height: 452px;
+    top: 7px;
+    left: 7px;
+    border-radius: 50%;
+    border: 6px solid #22C55E;
+    box-sizing: border-box;
+    pointer-events: none;
+  }
+  .ring-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 360px;
+    height: 44px;
+    border-radius: 22px;
+    background-color: #15803D;
+    color: #FFFFFF;
+    font-size: 24px;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .ring-diag {
+    width: 420px;
+    height: 18px;
+    line-height: 18px;
+    margin: 2px auto 0;
+    text-align: center;
+    color: #6B7280;
+    font-size: 13px;
+  }
+
+  /* Syncing-page live line — last envelope type + running count. */
+  .live-line {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 380px;
+    height: 26px;
+    margin-top: 18px;
+    color: #6366F1;
+    font-size: 18px;
+    text-align: center;
+  }
+
   /* ---------------- SYNCING page CSS ---------------- */
   /* Mirrors watch-app/.../pages/syncing/syncing.css. Used during the
      wake-by-sync grace window — phone-driven cold launch shows this
@@ -345,15 +385,14 @@
       <div class="container">
         <div class="content">
           <div class="title">GT Alarm · 0.1.0</div>
-          <div class="btn-ping">
-            <div class="btn-ping-text">PING PHONE</div>
-          </div>
+          <div class="diag-line">Last sync: never</div>
+          <div class="diag-line">st:0 on:0 off:0</div>
+          <div class="diag-line">rx:ok@0s raw:0 in:0 last:-@-</div>
+          <div class="diag-line">tx:none pg:index b:perpage-rx</div>
           <div class="empty">
             <div class="empty-title">No alarms</div>
             <div class="empty-hint">Add one on phone</div>
           </div>
-          <div class="diag-line">Last sync: never</div>
-          <div class="diag-line">store rd:0 wr:0</div>
         </div>
       </div>
     </div>
@@ -366,26 +405,27 @@
       <div class="container">
         <div class="content">
           <div class="title">GT Alarm · 0.1.0</div>
-          <div class="btn-ping">
-            <div class="btn-ping-text">PING PHONE</div>
-          </div>
+          <div class="diag-line">Last sync: 12 min ago</div>
+          <div class="diag-line">st:1 on:1 off:0</div>
+          <div class="diag-line">rx:ok@8s raw:3 in:3 last:alarm_added@8s</div>
+          <div class="diag-line">tx:sync_hash=207 pg:index b:perpage-rx</div>
           <div class="alarm-list">
-            <div class="alarm-row">
-              <div class="status-dot"></div>
-              <div class="alarm-time">07:30</div>
-              <div class="alarm-days-grid">
-                <div class="day-cell"><div class="day-cell-letter">M</div><div class="day-dot day-dot-on"></div></div>
-                <div class="day-cell"><div class="day-cell-letter">T</div><div class="day-dot day-dot-on"></div></div>
-                <div class="day-cell"><div class="day-cell-letter">W</div><div class="day-dot day-dot-on"></div></div>
-                <div class="day-cell"><div class="day-cell-letter">T</div><div class="day-dot day-dot-on"></div></div>
-                <div class="day-cell"><div class="day-cell-letter">F</div><div class="day-dot day-dot-on"></div></div>
-                <div class="day-cell"><div class="day-cell-letter">S</div><div class="day-dot"></div></div>
-                <div class="day-cell"><div class="day-cell-letter">S</div><div class="day-dot"></div></div>
+            <div class="alarm-list-row">
+              <div class="alarm-row">
+                <div class="status-dot"></div>
+                <div class="alarm-time">07:30</div>
+                <div class="alarm-days-grid">
+                  <div class="day-cell"><div class="day-cell-letter">M</div><div class="day-dot day-dot-on"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">T</div><div class="day-dot day-dot-on"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">W</div><div class="day-dot day-dot-on"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">T</div><div class="day-dot day-dot-on"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">F</div><div class="day-dot day-dot-on"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">S</div><div class="day-dot"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">S</div><div class="day-dot"></div></div>
+                </div>
               </div>
             </div>
           </div>
-          <div class="diag-line">Last sync: 12 min ago</div>
-          <div class="diag-line">store rd:1 wr:0</div>
         </div>
       </div>
     </div>
@@ -398,47 +438,52 @@
       <div class="container">
         <div class="content">
           <div class="title">GT Alarm · 0.1.0</div>
-          <div class="btn-ping">
-            <div class="btn-ping-text">PING PHONE</div>
-          </div>
+          <div class="diag-line">Last sync: 1 min ago</div>
+          <div class="diag-line">st:3 on:2 off:1</div>
+          <div class="diag-line">rx:ok@2s raw:9 in:8 last:sync_replace@2s</div>
+          <div class="diag-line">tx:alarm_ringing=207 pg:index b:perpage-rx</div>
           <div class="alarm-list">
             <!-- enabled, every weekday (M T W T F on, S S off) -->
-            <div class="alarm-row">
-              <div class="status-dot"></div>
-              <div class="alarm-time">06:45</div>
-              <div class="alarm-days-grid">
-                <div class="day-cell"><div class="day-cell-letter">M</div><div class="day-dot day-dot-on"></div></div>
-                <div class="day-cell"><div class="day-cell-letter">T</div><div class="day-dot day-dot-on"></div></div>
-                <div class="day-cell"><div class="day-cell-letter">W</div><div class="day-dot day-dot-on"></div></div>
-                <div class="day-cell"><div class="day-cell-letter">T</div><div class="day-dot day-dot-on"></div></div>
-                <div class="day-cell"><div class="day-cell-letter">F</div><div class="day-dot day-dot-on"></div></div>
-                <div class="day-cell"><div class="day-cell-letter">S</div><div class="day-dot"></div></div>
-                <div class="day-cell"><div class="day-cell-letter">S</div><div class="day-dot"></div></div>
+            <div class="alarm-list-row">
+              <div class="alarm-row">
+                <div class="status-dot"></div>
+                <div class="alarm-time">06:45</div>
+                <div class="alarm-days-grid">
+                  <div class="day-cell"><div class="day-cell-letter">M</div><div class="day-dot day-dot-on"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">T</div><div class="day-dot day-dot-on"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">W</div><div class="day-dot day-dot-on"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">T</div><div class="day-dot day-dot-on"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">F</div><div class="day-dot day-dot-on"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">S</div><div class="day-dot"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter">S</div><div class="day-dot"></div></div>
+                </div>
               </div>
             </div>
             <!-- enabled, one-shot timer -->
-            <div class="alarm-row">
-              <div class="status-dot"></div>
-              <div class="alarm-time">09:00</div>
-              <div class="alarm-days-text">Timer</div>
+            <div class="alarm-list-row">
+              <div class="alarm-row">
+                <div class="status-dot"></div>
+                <div class="alarm-time">09:00</div>
+                <div class="alarm-days-text">Timer</div>
+              </div>
             </div>
             <!-- disabled, weekends (Sat + Sun on, weekdays off) -->
-            <div class="alarm-row alarm-row-dim">
-              <div class="status-dot status-dot-off"></div>
-              <div class="alarm-time alarm-time-dim">22:00</div>
-              <div class="alarm-days-grid">
-                <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">M</div><div class="day-dot"></div></div>
-                <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">T</div><div class="day-dot"></div></div>
-                <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">W</div><div class="day-dot"></div></div>
-                <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">T</div><div class="day-dot"></div></div>
-                <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">F</div><div class="day-dot"></div></div>
-                <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">S</div><div class="day-dot day-dot-on-dim"></div></div>
-                <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">S</div><div class="day-dot day-dot-on-dim"></div></div>
+            <div class="alarm-list-row">
+              <div class="alarm-row alarm-row-dim">
+                <div class="status-dot status-dot-off"></div>
+                <div class="alarm-time alarm-time-dim">22:00</div>
+                <div class="alarm-days-grid">
+                  <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">M</div><div class="day-dot"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">T</div><div class="day-dot"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">W</div><div class="day-dot"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">T</div><div class="day-dot"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">F</div><div class="day-dot"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">S</div><div class="day-dot day-dot-on-dim"></div></div>
+                  <div class="day-cell"><div class="day-cell-letter day-cell-letter-dim">S</div><div class="day-dot day-dot-on-dim"></div></div>
+                </div>
               </div>
             </div>
           </div>
-          <div class="diag-line">Last sync: 1 min ago</div>
-          <div class="diag-line">store rd:3 wr:0</div>
         </div>
       </div>
     </div>
@@ -452,6 +497,9 @@
         <div class="syncing-content">
           <div class="syncing-title">Syncing alarms</div>
           <div class="syncing-subtitle">…</div>
+          <div class="live-line">rx #3: sync_replace</div>
+          <div class="diag-line">rx:ok@1s raw:4 in:3 last:sync_replace@1s</div>
+          <div class="diag-line">tx:sync_hash=207 pg:syncing</div>
         </div>
       </div>
     </div>
@@ -472,6 +520,29 @@
             <div class="btn btn-snooze"><div class="btn-text">Snooze 10m</div></div>
             <div class="btn btn-dismiss"><div class="btn-text">Dismiss</div></div>
           </div>
+          <div class="ring-diag">snt:207 rx:ok@1s raw:2 in:1</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <div class="panel">
+    <div class="panel-label">Ring page — phone dismissed (green flash)</div>
+    <div class="watch">
+      <div class="ring">
+        <div class="ring-arc-green"></div>
+        <div class="ring-content">
+          <div class="ring-banner">PHONE DISMISSED</div>
+          <div class="ring-bell"></div>
+          <div class="ring-title">Alarm</div>
+          <div class="ring-time">07:30</div>
+          <div class="ring-label">Wake up</div>
+          <div class="ring-actions">
+            <div class="btn btn-snooze"><div class="btn-text">Snooze 10m</div></div>
+            <div class="btn btn-dismiss"><div class="btn-text">Dismiss</div></div>
+          </div>
+          <div class="ring-diag">snt:207 rx:ok@27s raw:6 in:5</div>
         </div>
       </div>
     </div>

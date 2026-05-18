@@ -57,10 +57,22 @@ GT-Alarm/
 
 ## Build / verify quick reference
 
-- **Watch:** `cd watch-app && ./hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon` (DevEco SDK env var: `DEVECO_SDK_HOME="C:/Program Files/Huawei/DevEco Studio/sdk"`). Lint via `./scripts/codelinter.sh`.
-- **Android:** `cd android-app && ./gradlew :app:assembleDebug` (also `:app:lintDebug`, `:app:testDebugUnitTest`, `:app:detektDebug`).
+**Always build via the repo scripts — never raw `gradlew` / `hvigorw`.** The scripts wire up `JAVA_HOME`, `DEVECO_SDK_HOME`, memory flags, and `--no-daemon` so there is one command pattern to approve:
+
+- **Android:** `bash scripts/android.sh <build|lint|detekt|test|check|all>` — `all` = assemble + lint + detekt + test.
+- **Watch:** `bash scripts/build-watch.sh debug` — builds the HAP AND pushes it to `/sdcard/haps/` on the phone. Lint separately via `./scripts/codelinter.sh`.
 
 Each app builds standalone — there is no cross-build dependency.
+
+### Agent pre-flight checklist (recurring trip-ups — check EVERY time)
+
+- [ ] **Build with the scripts above**, not raw `gradlew.bat` / `hvigorw`. Raw invocations skip env setup and have failed repeatedly.
+- [ ] **Two adb devices are connected.** ALWAYS set `ANDROID_SERIAL=R5CX13B9KWK` for `adb` and `build-watch.sh`, or commands fail with `more than one device/emulator`.
+- [ ] **bg-manager + shell scripts:** append `2>&1` to `bash scripts/*.sh` commands so bg-manager routes them through Git Bash — a bare direct spawn yields an empty log + exit 1.
+- [ ] **Run `scripts/android.sh all` before declaring an Android build done** — detekt breaks the build on new loop-jumps (≤1 `break`/`continue` per loop), >3 returns, >60-line methods, or broad `catch`. Fix at source, or add `@Suppress` + an adjacent `// reason:`.
+- [ ] **Any watch HML/CSS change → update `watch-references/watch-ui-preview.html` AND Playwright-screenshot it.** The mockup is browser CSS and CANNOT reproduce native-component quirks — verify intent, not pixel-truth.
+- [ ] **`<list>` is a native scroll component, not a flex box** — it needs an explicit `height`. `display:flex` with no height collapses it to ~1px on real hardware. Model it in the mockup as fixed-height + `overflow-y:auto` so the regression can't hide.
+- [ ] **Root-cause before patching** — prove the cause from logs/source; no speculative fixes.
 
 ### Android linter stack
 
@@ -87,3 +99,46 @@ The Android lint + test executors crash with `paging file too small` when DevEco
 - `testOptions.unitTests.all.maxHeapSize = "768m"` + `-XX:+UseSerialGC` — minimal-footprint test executor.
 
 When invoking from CLI, set `GRADLE_OPTS="-Xmx2g -XX:MaxMetaspaceSize=512m"` and `--max-workers=1` for additional headroom on memory-pressured hosts.
+
+## Watch (Lite Wearable) compliance — check on EVERY watch-side edit
+
+The watch is a HarmonyOS **Lite Wearable** (FA model, ACELite engine, GT 6 Pro 466×466). It is NOT full HarmonyOS / Stage Model — disregard NEXT / ArkTS / `@ohos.*` advice.
+
+- **ES5 only.** No `let`/`const`, arrow functions, destructuring, `async`/`await`, `Promise`, template literals, classes, default params. Plain `var` + `function` + callbacks.
+- **Explicit px sizes everywhere.** Flex children do NOT auto-size. Every layout element needs `width`/`height` in px, and layout `<div>`s need `display: flex` or they don't render.
+- **`<list>` is a native scroll component** — needs an explicit `height`, never flex-sized (see pre-flight checklist).
+- **One `<list-item for=>` template per `<list>`.** Multiple templates render nothing. Switch enabled/disabled variants with inner `if=` on pre-computed booleans (HML `if=` does NOT coerce truthy).
+- **Buttons are `<div onclick=>`**, not `<input>`.
+- **Page bundle ≤ 48 KB.** Webpack-bundled imports count — do NOT import the Wear Engine bridge into display-only pages (it drags in the heavy `wearengine.js` wrapper). Keep `pages/*` imports minimal.
+- **Per-page-bundle module isolation.** `app.js` + `common/*` share one bundle; each `pages/*` is its own isolated bundle. A module singleton imported by `app.js` is a DIFFERENT instance than the one a page imports. Cross-bundle signalling MUST go through `@system.storage` / `@system.file` — never shared module state.
+- **`@system.storage` per-value cap is 128 bytes.** Anything larger → `@system.file`.
+- **`<image>` cannot decode PNG/JPEG at runtime** — only the custom BGRA `.bin` format (phone encodes before sending).
+- **`setTimeout` is foreground-only** — a hidden page's pending timers do not fire.
+
+## Wear Engine: the Activity rule — DO NOT violate
+
+Huawei Wear Engine **P2P receive requires an Activity component in the task** at receive time — it is a runtime tech constraint AND an AppGallery review requirement. Watch sync is the entire point of this app; getting to AppGallery depends on it.
+
+- `AlarmRingService` MUST ensure `AlarmActivity` is in the task when an alarm fires (FSI is the primary launch path; `pi.send` with creator-side BAL opt-in is the **canonical compliance path** when FSI degrades to a heads-up — NOT a removable "backup").
+- Never replace the Activity launch with an FGS-only receive path. Treat this as fact unless empirically disproven (would require disassembling the closed-source SDK).
+
+### The whole round-trip needs the Activity — not just the fire
+
+`registerReceiver` is process-scoped (the `HuaweiWearBridge` `@Singleton` owns it), but Wear Engine only **delivers** inbound messages while an Activity is live. So a registered receiver is necessary but **not sufficient**.
+
+**Concrete failure mode (the "watch dismiss never propagates" bug):** `AlarmActivity` finished itself on the dismiss tap, then `AlarmRingService` (a Service) ran `sendAlarmDismissedAwaiting` and waited for the watch's `alarm_dismissed_ack`. With no Activity left, that ack was never delivered — the await timed out every single time.
+
+Rules:
+- **Any send-and-await round-trip with the watch requires an Activity alive in the task for the WHOLE round-trip.** You may *send* from anywhere; you may not *await a reply* after the Activity is gone.
+- A Service may *run* the await coroutine (the fire flow does — `AlarmRingService.preArmWatch` → `sendAlarmFiredAwaiting`), but it only resolves because `AlarmActivity` coexists. The Service is not the receive anchor; the Activity is.
+- When a user action tears the ring UI down (dismiss/snooze), keep `AlarmActivity` alive until the watch round-trip completes (show a "waiting for watch" state) — let `RingEndedSignal` close it, don't `finishAndRemoveTask()` eagerly.
+
+## Cross-device messaging: retries + ack are MANDATORY
+
+Any watch-bound message whose loss is user-visible (`alarm_fired`, `alarm_dismissed`, `alarm_snoozed`) MUST:
+
+1. **Wake-and-send protocol** — ping-poll the peer until it returns 202 (APP_RUNNING) before sending; 201 means "launching, not ready". Force-reping (bypass the 30 s cache) on dismiss/snooze.
+2. **Transport retry** — retry on 206 (COMM_FAIL) / thrown transport errors, with backoff, bounded by a total deadline.
+3. **Application-level ack** — wait for an ack envelope from the watch's JS handler, NOT just the 207 transport ACK. **207 means "delivered to the watch's Wear Engine layer", NOT "the JS receiver processed it"** — the receiver can be mid-bundle-load and silently drop it. On ack timeout, re-send the whole envelope (idempotent on the watch) for another round.
+
+Fire-and-forget is acceptable ONLY for non-critical traffic (log relay, toggle notifications the user can re-tap). When in doubt, add the ack loop. See `docs/sync-architecture.md` for the wire format of record.

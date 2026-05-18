@@ -42,3 +42,31 @@
     font-size: 20px;
     text-align: center;
 }
+
+/* Live line — last envelope type + running count, updates per arrival. */
+.live-line {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 380px;
+    height: 26px;
+    margin-top: 18px;
+    color: #6366F1;
+    font-size: 18px;
+    text-align: center;
+}
+
+/* Diagnostic strip — debug build only. */
+.diag-line {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 420px;
+    height: 18px;
+    margin-top: 4px;
+    color: #6B7280;
+    font-size: 13px;
+    text-align: center;
+}

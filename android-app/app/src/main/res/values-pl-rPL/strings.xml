@@ -9,6 +9,7 @@
     <string name="alarm_notification_title">Alarm</string>
     <string name="action_dismiss">Odrzuć</string>
     <string name="action_snooze">Drzemka</string>
+    <string name="ring_waiting_for_watch">Czekanie na zegarek…</string>
 
     <string name="screen_list_title">Alarmy</string>
     <string name="screen_edit_title_new">Nowy alarm</string>

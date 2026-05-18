@@ -14,6 +14,7 @@
     <string name="alarm_notification_title">Alarm</string>
     <string name="action_dismiss">Dismiss</string>
     <string name="action_snooze">Snooze</string>
+    <string name="ring_waiting_for_watch">Waiting for watch…</string>
 
     <string name="missed_notification_title" tools:ignore="MissingTranslation">Reminder missed</string>
     <string name="missed_notification_text_labeled" tools:ignore="MissingTranslation">\'%1$s\' was missed while the device was off.</string>

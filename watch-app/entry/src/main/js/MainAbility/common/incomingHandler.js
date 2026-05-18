@@ -41,7 +41,13 @@ import WearBridge from './wearBridge.js';
 // has its own auto-close path on dismiss/snooze; this tracker is only
 // for sync wakes.
 var WAKE_SYNC_GRACE_MS = 2500;
-var DRAIN_QUIESCENCE_MS = 1500;
+// Drain fallback. Bumped 1500 → 3000 (2026-05-17): with the additive
+// alarm_added burst replaced by a single sync_replace message, the
+// data push lands ~2 s after sync_check; 1500 ms could fire the drain
+// (→ app.terminate) mid-sync (`forceSync done sent=0 of=1`). The
+// explicit `sync_done` envelope is now the primary terminate signal;
+// this timer only fires if `sync_done` is dropped.
+var DRAIN_QUIESCENCE_MS = 3000;
 
 var _appStartMs = 0;
 var _wokenForSync = false;
@@ -89,6 +95,11 @@ function bumpInboundDiag(type) {
 
 var onAlarmFired = null;
 var onPeerEndedRing = null;
+// Injected by each page (per-bundle copy) — decides what `sync_done`
+// means in that page's context. syncing page + app.js bootstrap →
+// app.terminate(); index/ring leave it null so a live sync doesn't
+// tear down the page the user is looking at.
+var onSyncDone = null;
 
 // Called once from app.onCreate so we know when the app process started.
 // Anything before WAKE_SYNC_GRACE_MS from now is treated as part of the
@@ -117,6 +128,15 @@ function markRingActive() {
 // route to the syncing page) can still arm the drain.
 function armDrain() {
     if (_ringActive) return;
+    // Only the app.js bootstrap bundle copy auto-terminates: it is the
+    // one that handles the FIRST envelope on a cold wake and owns the
+    // "watch woken purely for a sync / peer-ended push" lifetime. Page
+    // bundle copies (gotcha #11) never call markAppStart, so _appStartMs
+    // stays 0 here — and a page that the user (or the ring/sync flow) is
+    // actively showing must NOT be torn down by this timer. Per-page
+    // lifetime is owned by the page itself (ring.scheduleTerminate,
+    // syncing's onSyncDone terminate, index never auto-closes).
+    if (_appStartMs === 0) return;
     if (_drainTimer !== null) clearTimeout(_drainTimer);
     _drainTimer = setTimeout(function () {
         Logger.i('incoming.drain-quiesced — app.terminate()');
@@ -153,8 +173,15 @@ function noteIncomingEnvelope() {
         } catch (e) {
             Logger.err('incoming.route-syncing failed', e);
         }
+        // The syncing page now owns process lifetime: it re-arms its own
+        // drain timer per envelope and terminates on `sync_done`. We do
+        // NOT arm app.js's drain here — a fixed timer armed on the FIRST
+        // envelope could fire mid-sync and kill the watch before the
+        // data push lands (Bug 3, `forceSync done sent=0 of=1`).
+        return;
     }
-    armDrain();
+    // Already routed to syncing on a prior call; the syncing page's own
+    // receiver handles subsequent envelopes from here.
 }
 
 // Stamp the AlarmStore's last-sync-epoch whenever any peer-driven mutation
@@ -267,10 +294,80 @@ function applyToggle(msg) {
     });
 }
 
+// Light plausibility check for a sync_replace alarm entry. The phone
+// builds sync_replace from already-validated domain Alarm objects, so
+// this is just defense against a corrupt payload — id/hour/minute in
+// range. Bad entries are dropped individually, not the whole replace.
+function isPlausibleAlarm(a) {
+    return (
+        a &&
+        typeof a.id === 'number' && isFinite(a.id) && a.id > 0 &&
+        typeof a.hour === 'number' && a.hour >= 0 && a.hour <= 23 &&
+        typeof a.minute === 'number' && a.minute >= 0 && a.minute <= 59
+    );
+}
+
+// Sequentially tombstone each id dropped by a sync_replace, so a stale
+// alarm_updated arriving later can't resurrect a pruned row. Sequential
+// (not parallel) to avoid racing Tombstones' read-modify-write storage.
+function tombstonePruned(ids, stamp, idx) {
+    if (idx >= ids.length) return;
+    Tombstones.add(ids[idx], stamp, function () {
+        tombstonePruned(ids, stamp, idx + 1);
+    });
+}
+
+// Authoritative full-state replace (phone-originated Force sync). NOT
+// per-row LWW — the watch's AlarmStore is replaced wholesale so rows the
+// phone deleted (which an additive alarm_added push can never remove)
+// are pruned. Every dropped id is tombstoned first.
+function applyReplace(msg) {
+    var incoming = msg.alarms;
+    if (!incoming || incoming.length === undefined) {
+        Logger.w('incoming.sync_replace missing alarms array');
+        return;
+    }
+    var valid = [];
+    var dropped = 0;
+    for (var i = 0; i < incoming.length; i++) {
+        if (isPlausibleAlarm(incoming[i])) {
+            valid.push(incoming[i]);
+        } else {
+            dropped++;
+        }
+    }
+    var stamp = (typeof msg.updatedAtEpoch === 'number' && msg.updatedAtEpoch > 0)
+        ? msg.updatedAtEpoch : Date.now();
+    AlarmStore.getAll(function (oldItems) {
+        var newIds = {};
+        for (var j = 0; j < valid.length; j++) {
+            newIds['' + valid[j].id] = true;
+        }
+        var prunedIds = [];
+        for (var k = 0; k < oldItems.length; k++) {
+            if (!newIds['' + oldItems[k].id]) {
+                prunedIds.push(oldItems[k].id);
+            }
+        }
+        AlarmStore.replaceAll(valid, function () {
+            Logger.i('incoming.sync_replace applied n=' + valid.length +
+                ' dropped=' + dropped + ' pruned=' + prunedIds.length);
+            bumpLastSync();
+            tombstonePruned(prunedIds, stamp, 0);
+        });
+    });
+}
+
 export default {
     markAppStart: markAppStart,
     setOnAlarmFiredNavigator: function (fn) {
         onAlarmFired = fn;
+    },
+    // Injected per page. Fired on a phone `sync_done` envelope. syncing
+    // page + app.js wire it to app.terminate(); index/ring leave it
+    // unset so a live sync never tears down the visible page.
+    setOnSyncDone: function (fn) {
+        onSyncDone = fn;
     },
     // Called by app.js with a function (alarmId) => void that should route
     // back to the index page if the ring page is currently showing for
@@ -313,6 +410,24 @@ export default {
             });
             return;
         }
+        // sync_replace: authoritative full-state replace from Force sync.
+        // No top-level alarmId — bypass rejectMalformed.
+        if (msg && msg.type === 'sync_replace') {
+            bumpInboundDiag('sync_replace');
+            noteIncomingEnvelope();
+            applyReplace(msg);
+            return;
+        }
+        // sync_done: end-of-sync marker. Terminate per the page's wired
+        // onSyncDone (syncing page / app.js → app.terminate; index/ring
+        // leave it unset). Do NOT noteIncomingEnvelope — sync_done means
+        // "stop", not "more is coming".
+        if (msg && msg.type === 'sync_done') {
+            bumpInboundDiag('sync_done');
+            Logger.i('incoming.sync_done');
+            if (onSyncDone) onSyncDone();
+            return;
+        }
         if (rejectMalformed(msg)) {
             Logger.w('incoming.rejected-malformed');
             // Still count the inbound bytes so the diag UI shows "we got
@@ -349,7 +464,9 @@ export default {
             Logger.i('incoming.peer-ended type=' + type + ' id=' + msg.alarmId);
             // If our ring page is showing for this alarm, close it. The
             // callback is a no-op when no ring is active (see app.js).
-            if (onPeerEndedRing) onPeerEndedRing(msg.alarmId);
+            // `type` lets the ring page show "PHONE DISMISSED" vs
+            // "PHONE SNOOZED" on its green-flash banner.
+            if (onPeerEndedRing) onPeerEndedRing(msg.alarmId, type);
             // Application-level ack: tell the phone we actually processed
             // this envelope. Without it, the phone only sees the transport
             // 207 ACK which doesn't prove the JS receiver ran our handler

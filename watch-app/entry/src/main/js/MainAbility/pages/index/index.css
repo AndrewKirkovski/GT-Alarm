@@ -45,22 +45,45 @@
     margin-bottom: 6px;
 }
 
+/* `<list>` is a native ACELite scroll component, NOT a flex box. It
+   MUST carry an explicit height — it cannot size to its content the
+   way a flex column does. A prior redesign set `display:flex` + no
+   height here; the HTML mockup (plain <div>) rendered fine but the
+   real <list> collapsed to ~1px on GT 6 hardware. Keep the height. */
 .alarm-list {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
     width: 466px;
+    /* 300 (was 320): the diagnostic strip now sits above the list, so
+       the list starts lower. <list> is a native scroll component — it
+       MUST keep an explicit height (a prior flex/no-height redesign
+       collapsed it to ~1px on GT 6). Lower rows scroll into view. */
+    height: 300px;
     background-color: #0F0F23;
 }
 
+/* The <list-item> wrapper. ACELite requires an EXPLICIT width + height
+   on every <list-item> — it does NOT size to its content. A bare
+   <list-item> collapses every row to ~0px and they overlap into a few
+   scrambled pixels (verified on GT 6). Confirmed against the Huawei
+   scriptiot Lite-Wearable alarm sample, whose <list-item> carries an
+   inline `width`/`height`. 62 = 56 row + 6 inter-row gap. The visual
+   row styling lives on the inner .alarm-row / .alarm-row-dim divs
+   because the enabled/disabled variant can't be a data-bound class. */
+.alarm-list-row {
+    width: 466px;
+    height: 62px;
+}
+
 /* Single row: status-dot + time + (day-grid OR text). 390 wide so
-   the row fits inside the chord at mid-list y-positions. */
+   the row fits inside the chord at mid-list y-positions. margin-left
+   38 centers the 390 row in the 466 list-item; margin-bottom 6 is the
+   inter-row gap (56 + 6 = the 62 px .alarm-list-row slot). */
 .alarm-row {
     display: flex;
     flex-direction: row;
     align-items: center;
     width: 390px;
     height: 56px;
+    margin-left: 38px;
     margin-bottom: 6px;
     padding-left: 18px;
     padding-right: 18px;
@@ -78,6 +101,7 @@
     align-items: center;
     width: 390px;
     height: 56px;
+    margin-left: 38px;
     margin-bottom: 6px;
     padding-left: 18px;
     padding-right: 18px;
@@ -117,7 +141,7 @@
     align-items: center;
     width: 200px;       /* explicit width — Lite Wearable flex doesn't
                            reliably distribute without it */
-    color: #F1F5F9;
+    color: #FFFFFF;     /* pure white — enabled-row digits were too dim */
     font-size: 28px;
     height: 32px;
 }
@@ -253,28 +277,6 @@
     color: #818CB0;
     font-size: 22px;
     height: 28px;
-    text-align: center;
-}
-
-.btn-ping {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    width: 220px;
-    height: 38px;
-    margin-top: 6px;
-    margin-bottom: 6px;
-    background-color: #4338CA;
-    border-radius: 19px;
-    border-width: 1px;
-    border-color: #6366F1;
-}
-
-.btn-ping-text {
-    color: #F1F5F9;
-    font-size: 16px;
-    height: 22px;
     text-align: center;
 }
 

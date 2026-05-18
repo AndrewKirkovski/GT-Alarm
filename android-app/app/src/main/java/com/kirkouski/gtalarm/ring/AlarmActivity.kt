@@ -45,6 +45,7 @@ import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.ui.edit.rememberBackgroundBitmap
 import com.kirkouski.gtalarm.util.TimeFormatter
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -54,6 +55,12 @@ class AlarmActivity : ComponentActivity() {
 
     @Inject lateinit var repository: AlarmRepository
     @Inject lateinit var settingsStore: SettingsStore
+
+    // Flips true once the user taps Dismiss/Snooze and the service begins
+    // the watch round-trip. Drives the "waiting for watch" UI. Read inside
+    // the setContent composable; set on the main thread from sendAction.
+    private val awaitingWatchState = mutableStateOf(false)
+    private var watchWaitTimeoutArmed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -109,6 +116,7 @@ class AlarmActivity : ComponentActivity() {
             AlarmRingScreen(
                 alarm = alarm,
                 backgroundImageUri = effectiveBgUri,
+                awaitingWatch = awaitingWatchState.value,
                 onDismiss = { sendAction(AlarmRingService.ACTION_DISMISS, alarmId) },
                 onSnooze = snoozeAction,
             )
@@ -146,20 +154,45 @@ class AlarmActivity : ComponentActivity() {
             this.action = action
             putExtra(AlarmRingService.EXTRA_ALARM_ID, alarmId)
         }
-        // Synchronous startService — wrapping in lifecycleScope.launch raced
-        // with finishAndRemoveTask: lifecycleScope cancels on Activity
-        // destroy, so if cancellation won the next-main-loop tick the
-        // startService never ran and the alarm kept ringing on the watch.
-        // runCatching guards against the Android 12+
-        // ForegroundServiceStartNotAllowedException edge case where the
-        // Activity has slipped from foreground (auto-stop runnable +
-        // keyguard reassertion mid-tap); we log + finish either way so the
-        // user-visible Activity always tears down.
-        runCatching { startService(intent) }
+        // runCatching guards the Android 12+ ForegroundServiceStartNot-
+        // AllowedException edge case where the Activity has slipped from
+        // foreground (auto-stop runnable + keyguard reassertion mid-tap).
+        val started = runCatching { startService(intent) }
             .onFailure {
                 Log.w(TAG, "startService action=$action id=$alarmId failed: ${it::class.simpleName}: ${it.message}")
             }
-        finishAndRemoveTask()
+            .isSuccess
+        if (started) {
+            // Deliberately do NOT finishAndRemoveTask() here. Huawei Wear
+            // Engine P2P RECEIVE only works while an Activity is in the task.
+            // The service is about to send alarm_dismissed/alarm_snoozed and
+            // AWAIT the watch's ack — that ack can only be delivered while
+            // this Activity is alive. Stay up, show the "waiting for watch"
+            // state, and let RingEndedSignal (emitted when the service ends
+            // the round-trip in stopForegroundAndSelf) close us.
+            // armWatchWaitTimeout is the safety net if that signal never
+            // arrives. NOT finishing here is load-bearing, not an oversight.
+            awaitingWatchState.value = true
+            armWatchWaitTimeout()
+        } else {
+            // Service never started → no round-trip, no RingEndedSignal →
+            // finish now so the ring UI isn't stranded.
+            finishAndRemoveTask()
+        }
+    }
+
+    // Safety net: if the service never emits RingEndedSignal (crash / hang),
+    // finish anyway after WATCH_WAIT_TIMEOUT_MS so the ring UI can't be
+    // stranded on "waiting for watch" forever. lifecycleScope cancels this
+    // coroutine if RingEndedSignal finishes us first.
+    private fun armWatchWaitTimeout() {
+        if (watchWaitTimeoutArmed) return
+        watchWaitTimeoutArmed = true
+        lifecycleScope.launch {
+            delay(WATCH_WAIT_TIMEOUT_MS)
+            Log.w(TAG, "watch round-trip timeout — finishing without RingEndedSignal")
+            finishAndRemoveTask()
+        }
     }
 
     override fun onStart() {
@@ -182,6 +215,11 @@ class AlarmActivity : ComponentActivity() {
         val isVisible: java.util.concurrent.atomic.AtomicBoolean =
             java.util.concurrent.atomic.AtomicBoolean(false)
 
+        // Hard cap on the post-tap "waiting for watch" state. Must exceed
+        // the service's BROADCAST_AWAIT_MS (12 s) plus margin so the normal
+        // RingEndedSignal path wins; this only fires if the service hangs.
+        private const val WATCH_WAIT_TIMEOUT_MS = 15_000L
+
         private const val TAG = "AlarmActivity"
     }
 }
@@ -200,6 +238,7 @@ private const val DIM_OVERLAY_ALPHA = 0.45f
 private fun AlarmRingScreen(
     alarm: Alarm?,
     backgroundImageUri: String?,
+    awaitingWatch: Boolean,
     onDismiss: () -> Unit,
     onSnooze: (() -> Unit)?,
 ) {
@@ -269,30 +308,43 @@ private fun AlarmRingScreen(
                 )
             }
             Spacer(Modifier.height(64.dp))
-            Button(
-                onClick = onDismiss,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White,
-                    contentColor = Color.Black,
-                ),
-            ) {
+            if (awaitingWatch) {
+                // User already tapped — audio + vibration are stopped and
+                // the service is finishing the watch round-trip. Buttons
+                // are removed (no double-tap); this Activity deliberately
+                // stays up as the Wear Engine receive anchor until
+                // RingEndedSignal closes it.
                 Text(
-                    text = androidx.compose.ui.res.stringResource(R.string.action_dismiss),
+                    text = androidx.compose.ui.res.stringResource(R.string.ring_waiting_for_watch),
+                    color = Color.White,
                     fontSize = 18.sp,
                 )
-            }
-            if (onSnooze != null) {
-                Spacer(Modifier.height(12.dp))
-                OutlinedButton(
-                    onClick = onSnooze,
+            } else {
+                Button(
+                    onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.White,
+                        contentColor = Color.Black,
+                    ),
                 ) {
                     Text(
-                        text = androidx.compose.ui.res.stringResource(R.string.action_snooze),
-                        color = Color.White,
+                        text = androidx.compose.ui.res.stringResource(R.string.action_dismiss),
                         fontSize = 18.sp,
                     )
+                }
+                if (onSnooze != null) {
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = onSnooze,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = androidx.compose.ui.res.stringResource(R.string.action_snooze),
+                            color = Color.White,
+                            fontSize = 18.sp,
+                        )
+                    }
                 }
             }
         }

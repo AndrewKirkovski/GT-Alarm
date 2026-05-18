@@ -1,9 +1,11 @@
 import storage from '@system.storage';
 import file from '@system.file';
 import prompt from '@system.prompt';
+import router from '@system.router';
 import AlarmStore from '../../common/alarmStore.js';
 import SettingsStore from '../../common/settingsStore.js';
 import WearBridge from '../../common/wearBridge.js';
+import IncomingHandler from '../../common/incomingHandler.js';
 import Logger from '../../common/logger.js';
 
 var DAY_BITS = [1, 2, 4, 8, 16, 32, 64];
@@ -308,12 +310,6 @@ export default {
         // set `this._use24Hour` / `this._dayOrder` straight in onInit
         // and refresh().
 
-        // Debug diagnostics — shown under the PING PHONE button to give
-        // user direct visibility into watch→phone P2P health AND the
-        // AlarmStore state. No Logger.i / DevEco HiLog needed.
-        pingStatusText: 'tap to test',
-        pingsSent: 0,
-        pingsOk: 0,
         // timer: setTimeout(3000) isolation probe. If 'fired @+N ms' shows
         // up but the ping line hangs on 'before c.send', the JS event loop
         // is alive — the SDK callback chain is the failure point.
@@ -321,8 +317,11 @@ export default {
         timersStarted: 0,
         // store: "st:N rd:M w:<status>" + first-fail tag if present.
         storeStatusText: 'no read yet',
-        // inbound: "in:N last:<type>" — cross-bundle counter via storage.
-        inboundStatusText: 'in: no read yet',
+        // Diagnostic strip line 1: "rx:<state> raw:N in:N last:<type>@age".
+        // raw = every inbound message the receiver fired for; in = handled.
+        inboundStatusText: 'rx: no read yet',
+        // Diagnostic strip line 2: "tx:<type>=<code> pg:index b:<tag>".
+        rxDiagText: '',
         // probe: persistent storage health from onInit. Stays visible
         // alongside inbound; separate field so refreshInboundDiag doesn't
         // wipe it.
@@ -376,7 +375,7 @@ export default {
         // We need a fixed local copy because pages can't reach app.js
         // module state (per-bundle isolation gotcha #11). Bumped per
         // build alongside app.js's BUILD_TAG.
-        this.buildTag = 'oneoff';
+        this.buildTag = 'perpage-rx';
     },
 
     // Validates @system.file basics on real GT 6 Pro firmware:
@@ -511,7 +510,38 @@ export default {
         });
     },
 
+    // Diagnostic strip. Line 1 = rx-state + raw/handled inbound counters;
+    // line 2 = last send + page tag + build. raw counts EVERY message the
+    // receiver fired for; in counts handled ones — the gap disambiguates
+    // a receive failure from a parse/dispatch failure on a failed test.
     refreshInboundDiag: function () {
+        var self = this;
+        var rx = WearBridge.getReceiverState();
+        var rxTxt = (rx.result === 'ok')
+            ? ('ok@' + Math.floor((Date.now() - rx.atMs) / 1000) + 's')
+            : rx.result;
+        var snd = WearBridge.getLastSend();
+        self.rxDiagText = 'tx:' + (snd.type ? (snd.type + '=' + snd.reason) : 'none') +
+            ' pg:index b:' + self.buildTag;
+        storage.get({
+            key: 'diag_rawrx',
+            default: '{"count":0}',
+            success: function (rawData) {
+                var raw;
+                try {
+                    raw = JSON.parse(rawData);
+                } catch (e) {
+                    raw = { count: 0 };
+                }
+                self.applyInboundLine(rxTxt, raw.count || 0);
+            },
+            fail: function () {
+                self.applyInboundLine(rxTxt, 0);
+            },
+        });
+    },
+
+    applyInboundLine: function (rxTxt, rawCount) {
         var self = this;
         storage.get({
             key: 'diag_inbound',
@@ -524,15 +554,18 @@ export default {
                     obj = null;
                 }
                 if (!obj) {
-                    self.inboundStatusText = 'diag:parse-fail';
+                    self.inboundStatusText = 'rx:' + rxTxt + ' diag:parse-fail';
                     return;
                 }
-                var line = 'in:' + (obj.total || 0);
-                if (obj.lastType) line = line + ' last:' + obj.lastType;
-                self.inboundStatusText = line;
+                var last = obj.lastType ? obj.lastType : '-';
+                var age = obj.lastTs
+                    ? (Math.floor((Date.now() - obj.lastTs) / 1000) + 's')
+                    : '-';
+                self.inboundStatusText = 'rx:' + rxTxt + ' raw:' + rawCount +
+                    ' in:' + (obj.total || 0) + ' last:' + last + '@' + age;
             },
             fail: function (data, code) {
-                self.inboundStatusText = 'diag:read-fail ' + code;
+                self.inboundStatusText = 'rx:' + rxTxt + ' in:diag-fail ' + code;
             },
         });
     },
@@ -540,6 +573,36 @@ export default {
     onShow: function () {
         Logger.i('index.onShow');
         var self = this;
+        // Per-page receiver registration (Fix 1). Each page bundle is
+        // isolated (gotcha #11); the watch's single global Wear Engine
+        // subscription is serviced only in the bundle that last called
+        // registerReceiver. index re-registers on every onShow so while
+        // the list is foreground inbound P2P lands in THIS bundle's
+        // live callback. NOT unregistered in onHide — the next page's
+        // onShow re-registers; unregistering could race that.
+        WearBridge.setPageTag('index');
+        IncomingHandler.setOnAlarmFiredNavigator(function (alarmId) {
+            Logger.i('index.onAlarmFired routing to ring id=' + alarmId);
+            try {
+                router.replace({ uri: 'pages/ring/ring', params: { alarmId: alarmId } });
+            } catch (e) {
+                Logger.err('index.onAlarmFired router.replace', e);
+            }
+        });
+        IncomingHandler.setOnPeerEndedRing(function (alarmId) {
+            // No ring page is up while index is foreground — nothing to
+            // close. Logged only, for the diagnostic timeline.
+            Logger.i('index.onPeerEndedRing noop id=' + alarmId);
+        });
+        // index deliberately leaves onSyncDone unset — a live force-sync
+        // while the user is on the list must NOT terminate the app.
+        WearBridge.setIncomingHandler(function (msg) {
+            try {
+                IncomingHandler.handle(msg);
+            } catch (e) {
+                Logger.err('index.incomingHandler', e);
+            }
+        });
         // Force a fresh array reference BEFORE refresh fills it. ACE Lite
         // page state survives router.replace navigation — if we came back
         // from ring.js, `self.alarms` may still hold stale rows from the
@@ -579,6 +642,8 @@ export default {
             clearInterval(this._refreshTimer);
             this._refreshTimer = null;
         }
+        // Drain the batched log relay — its flush timer is foreground-only.
+        Logger.flushNow();
     },
 
     refresh: function () {
@@ -630,38 +695,6 @@ export default {
             Logger.err('onRowTap toast', e);
         }
         Logger.i('index.onRowTap id=' + id);
-    },
-
-    // Diagnostic: fire a single watch_log message at the phone with a
-    // result callback. The status line below the button updates with the
-    // SDK's onSendResult code:
-    //   207 = COMM_SUCCESS — watch's send call delivered. If phone's adb
-    //         logcat still shows no WatchLog entry, phone is rejecting at
-    //         the validation layer (PEER_FP mismatch most likely).
-    //   206 = COMM_FAIL — watch's send didn't deliver. PHONE_CERT_SHA256
-    //         on watch side wrong, or BT channel down.
-    //   err — onFailure callback fired before onSendResult (transport-
-    //         level error).
-    onPingPhone: function () {
-        var self = this;
-        self.pingsSent = self.pingsSent + 1;
-        var n = self.pingsSent;
-        // Update pingStatusText on every step so user can see WHERE the
-        // SDK call stalls when callbacks never fire. Trace events come
-        // from sendOnceWithResult: ensureClient → buildMsg → schedTimeout
-        // → before c.send → after c.send → (onSuccess/onFailure/
-        // onSendResult c=N or TIMEOUT fired) → settle.
-        self.pingStatusText = '#' + n + ': start';
-        WearBridge.sendPing(
-            function (success, reason) {
-                if (success) self.pingsOk = self.pingsOk + 1;
-                self.pingStatusText = '#' + n + ' DONE ' + reason +
-                    ' (ok ' + self.pingsOk + '/' + self.pingsSent + ')';
-            },
-            function (step) {
-                self.pingStatusText = '#' + n + ': ' + step;
-            }
-        );
     },
 
     // Isolation probe — does setTimeout actually fire on Lite Wearable?

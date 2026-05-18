@@ -77,8 +77,26 @@ JSON over P2P. Every message is a single line, single object, no nesting.
 // watch → phone: response to sync_check
 { "type": "sync_hash", "hash": "<8-char lowercase hex>" }
 
-// watch → phone: dev-only log relay (carries no alarmId)
-{ "type": "watch_log", "level": "I" | "W" | "E", "msg": "<string>", "ts": <number> }
+// watch → phone: dev-only BATCHED log relay (carries no alarmId). The
+// watch coalesces Logger lines and flushes ONE envelope per ~700 ms or
+// per N queued lines, so the relay stops adding per-line P2P channel
+// pressure. Each entry keeps its own `ts` so logcat ordering survives.
+{ "type": "watch_log_batch",
+  "lines": [ { "level": "I" | "W" | "E", "msg": "<string>", "ts": <number> }, ... ],
+  "ts": <number> }
+
+// phone → watch: authoritative full-state replace — used by Force sync.
+// NOT LWW. The watch replaces its entire AlarmStore with `alarms` and
+// tombstones every id dropped by the replace. This is what prunes
+// watch-only rows that an additive `alarm_added` push can never remove.
+{ "type": "sync_replace",
+  "alarms": [ <Alarm>, ... ], "updatedAtEpoch": <number> }
+
+// phone → watch: end-of-sync marker, sent as the LAST message of every
+// forceSync (success, failure, or already-in-sync). The watch
+// terminates promptly on this instead of waiting out the drain-
+// quiescence timer — closes the sync→self-terminate race.
+{ "type": "sync_done", "updatedAtEpoch": <number> }
 
 // phone → watch: push display preferences (12/24h + first-day-of-week).
 // Not LWW. Phone is the only place these are edited; watch overwrites
@@ -108,7 +126,9 @@ JSON over P2P. Every message is a single line, single object, no nesting.
 
 `sync_check` / `sync_hash` implement the force-sync precheck (§6). Phone sends `sync_check`, watch replies `sync_hash` with the result of `AlarmHash.compute(localAlarms)`. If the phone's local hash matches, it skips the per-alarm `alarm_added` push and surfaces `ForceSyncResult.AlreadyInSync`. Hash format is locked to 8 lowercase hex chars; receivers reject anything else.
 
-`watch_log` is opt-in diagnostic; the receiver (phone) writes it to `adb logcat` under the `WatchLog` tag and exits — never reaches the LWW handler. It legitimately carries `updatedAtEpoch = ts` (not the LWW stamp).
+`watch_log_batch` is opt-in diagnostic; the phone receiver expands it to one `adb logcat` line per entry under the `WatchLog` tag, ts-ordered, and exits — never reaches the LWW handler. It replaces the former per-line `watch_log` envelope (one P2P send per log line was a real channel-pressure confound while diagnosing 206 failures).
+
+`sync_replace` is **authoritative, not LWW** — it is a deliberate user-initiated "Force sync", so the watch applies the whole list wholesale rather than per-row last-write-wins. Before writing, the watch diffs against its current store and **tombstones every id that the replace drops**, so a stale `alarm_updated` arriving afterward cannot resurrect a pruned row. `sync_done` is a meta-protocol terminate marker; the watch calls `app.terminate()` on it unless the ring page is active or the user opened the app themselves.
 
 `alarm_ringing` / `alarm_dismissed_ack` / `alarm_snoozed_ack` are intercepted by `HuaweiWearBridge` directly (NOT routed through `IncomingMessageHandler`) so they can satisfy the pending `CompletableDeferred<Unit>` reservations made by the phone's `sendAlarmFiredAwaiting` / `sendAlarmDismissedAwaiting` / `sendAlarmSnoozedAwaiting`. The corresponding `Awaiting` methods also force a fresh peer-running ping (bypass the 30 s wake-cache) before send, so the wake protocol re-establishes the channel even if the OS process is still marked alive but the JS receiver has degraded since the last confirmed running event.
 
@@ -124,7 +144,12 @@ JSON over P2P. Every message is a single line, single object, no nesting.
 | `alarm_snoozed` | < 160 B |
 | `alarm_toggled` | < 160 B |
 | `alarm_ringing` / `alarm_dismissed_ack` / `alarm_snoozed_ack` | < 128 B |
+| `sync_done` | < 64 B |
 | `alarm_added` / `alarm_updated` with normal label + URI | < 1 KiB |
+| `watch_log_batch` (≤ 8 lines) | < 1 KiB |
+| `sync_replace` (full list, ~12 alarms) | < 2 KiB — guarded against the 4 KiB cap |
+
+`sync_replace` is the only payload that scales with alarm count. `HuaweiWearBridge.forceSync` checks the serialized UTF-8 length against the 4 KiB hard cap before sending; if it would exceed, it falls back to the legacy per-alarm `alarm_added` burst (which cannot prune, but stays within budget). For a realistic ≤ 12-alarm list this never triggers.
 
 ### 2.2 Per-alarm fields in the `alarm` payload
 
@@ -421,11 +446,13 @@ watch:  hash = AlarmHash.compute(alarms)
 watch:  { "type": "sync_hash", "hash": "<8-hex>" }   ──►  phone
 phone:  alarms = repository.getAll()    // re-snapshot AFTER response (TOCTOU)
 phone:  localHash = AlarmHash.compute(alarms)
-phone:  if remoteHash == localHash → ForceSyncResult.AlreadyInSync(n)
-phone:  else                       → full alarm_added push as before
+phone:  if remoteHash == localHash → { sync_done } → ForceSyncResult.AlreadyInSync(n)
+phone:  else → { sync_replace, alarms:[...] } → { sync_done } → ForceSyncResult.Ok(n)
 ```
 
 The phone re-fetches its own alarm list **after** receiving the watch's response so the local hash reflects the latest DB state, not a snapshot taken before the ~2s round-trip. This closes the TOCTOU race where the user adds an alarm mid-sync and `remoteHash` accidentally matches a stale `localHash`.
+
+**On hash mismatch the phone sends ONE `sync_replace`, not a per-alarm `alarm_added` burst.** The earlier additive push could only ADD rows — it never removed watch-only rows the phone had since deleted, so the watch's set monotonically grew and the hash never converged (observed: 12 alarms on the watch vs 1 on the phone). `sync_replace` makes the watch's `AlarmStore` byte-for-byte equal the phone snapshot, so the next `sync_check` provably matches. The phone always sends `sync_done` last (both the matched and replaced paths) so the watch terminates immediately instead of lingering on the drain timer.
 
 **Hash algorithm** — `AlarmHash.kt` on phone, `alarmHash.js` on watch. Byte-equivalent implementations:
 
@@ -490,7 +517,9 @@ When changing the sync contract, update **all** of these in the same change:
 **Wire format** (must stay in lock-step):
 - `android-app/app/src/main/java/com/kirkouski/gtalarm/data/sync/IncomingMessage.kt` — sealed class
 - `android-app/app/src/main/java/com/kirkouski/gtalarm/wear/WearBridgeService.kt` — interface
-- `watch-app/entry/src/main/js/default/services/wearBridge.js` — message shape + send/onMessage seam (Phase 0b WIP)
+- `android-app/app/src/main/java/com/kirkouski/gtalarm/wear/WearJsonCodec.kt` — inbound parser (`watch_log_batch` expanded directly in the `HuaweiWearBridge` receiver)
+- `watch-app/entry/src/main/js/MainAbility/common/incomingHandler.js` — watch receive dispatch (`sync_replace`, `sync_done`, `sync_check`, `settings_changed`, `alarm_*`)
+- `watch-app/entry/src/main/js/MainAbility/common/wearBridge.js` — watch send/receive seam + `sendLogBatch`
 
 **Phone-side call sites** (mutations + ring lifecycle, all already wired through Phase 4 + 5a):
 - `wear/NoOpWearBridge.kt` — replace with `HuaweiWearBridge.kt` post-AGConnect-approval

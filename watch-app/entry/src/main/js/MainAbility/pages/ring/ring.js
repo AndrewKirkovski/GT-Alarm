@@ -5,6 +5,7 @@ import vibrator from '@system.vibrator';
 import AlarmStore from '../../common/alarmStore.js';
 import SettingsStore from '../../common/settingsStore.js';
 import WearBridge from '../../common/wearBridge.js';
+import IncomingHandler from '../../common/incomingHandler.js';
 import Logger from '../../common/logger.js';
 
 var VIBRATE_INTERVAL_MS = 1500;
@@ -142,6 +143,20 @@ export default {
         _vibrateTimer: null,
         snoozePressed: false,
         dismissPressed: false,
+        // Headline debug indicator: flipped true when the phone's
+        // alarm_dismissed / alarm_snoozed reaches THIS page's receiver.
+        // Drives the green-flash arc + banner via the dual-`if=` static-
+        // class pattern (class= can't be data-bound — gotcha 10f).
+        peerDismissed: false,
+        peerBannerText: '',
+        // Single compact diagnostic line — the ring screen's round
+        // chord leaves little room, so one line only: own alarm_ringing
+        // send code + rx-state + raw/handled inbound counters. (The
+        // green flash is the headline dismiss indicator; this line is
+        // for the no-flash failure case.)
+        ringDiagText: 'snt:-- rx:--',
+        _ringSent: '--',
+        _diagTimer: null,
         // Side-button = implicit snooze workaround. Set to 'dismiss' or
         // 'snooze' the moment the user taps either UI button so the
         // subsequent onHide doesn't double-fire notifySnoozed. Cleared
@@ -221,22 +236,62 @@ export default {
 
     onShow: function () {
         Logger.i('ring.onShow alarmId=' + this.alarmId);
+        var self = this;
         // Fresh ring lifecycle — clear any prior explicit-action marker
         // so onHide's implicit-snooze fallback is armed, and cancel any
         // pending terminate left over from a back-to-back prior dismiss.
         this._explicitAction = null;
         cancelTerminate();
+        // Per-page receiver registration (Fix 1). The ring page is the
+        // bug-1 hotspot: alarm_dismissed arrives 25-60 s after the page
+        // is up, long after app.js's bootstrap receiver stopped being
+        // serviced. Re-register so inbound P2P lands in THIS bundle's
+        // live callback. markRingActive latches _ringActive in ring's
+        // incomingHandler copy so a piggybacked sync envelope can't
+        // route us off the ring screen.
+        WearBridge.setPageTag('ring');
+        IncomingHandler.markRingActive();
+        IncomingHandler.setOnAlarmFiredNavigator(function (firedId) {
+            // Rare re-fire while ring is already up — idempotent re-route.
+            try {
+                router.replace({ uri: 'pages/ring/ring', params: { alarmId: firedId } });
+            } catch (e) {
+                Logger.err('ring.onAlarmFired router.replace', e);
+            }
+        });
+        IncomingHandler.setOnPeerEndedRing(function (endedId, endedType) {
+            self.onPeerEnded(endedId, endedType);
+        });
+        // ring deliberately leaves onSyncDone unset — the ring page owns
+        // its own lifetime (scheduleTerminate); a sync_done must not
+        // terminate mid-alarm.
+        WearBridge.setIncomingHandler(function (msg) {
+            try {
+                IncomingHandler.handle(msg);
+            } catch (e) {
+                Logger.err('ring.incomingHandler', e);
+            }
+        });
         // Tell the phone our ring UI is up. Phone awaits this reply
         // before starting its own audio so the two devices ring in
         // sync. Fire-and-retry — phone falls back to ringing alone if
-        // we don't reach it within its 3 s window.
+        // we don't reach it within its 3 s window. The result code is
+        // surfaced on-screen via the ringSentText diagnostic line.
         var idNum = Number(this.alarmId);
         if (isFinite(idNum) && idNum > 0) {
             try {
-                WearBridge.sendRinging(idNum);
+                WearBridge.sendRinging(idNum, function (success, reason) {
+                    self._ringSent = reason;
+                });
             } catch (e) {
                 Logger.err('ring.sendRinging', e);
             }
+        }
+        this.refreshRingDiag();
+        if (this._diagTimer === null) {
+            this._diagTimer = setInterval(function () {
+                self.refreshRingDiag();
+            }, 2000);
         }
         function buzz() {
             try {
@@ -269,6 +324,12 @@ export default {
         Logger.i('ring.onHide alarmId=' + this.alarmId +
             ' explicit=' + this._explicitAction);
         this.stopVibrate();
+        if (this._diagTimer !== null) {
+            clearInterval(this._diagTimer);
+            this._diagTimer = null;
+        }
+        // Drain the batched log relay — its flush timer is foreground-only.
+        Logger.flushNow();
         var explicit = this._explicitAction;
         var alarmId = Number(this.alarmId);
         // Whatever the close reason — local tap, side button, peer-ended —
@@ -338,6 +399,93 @@ export default {
 
     onSwipe: function () {
         Logger.i('ring.onSwipe swallowed');
+    },
+
+    // Phone reported the alarm dismissed/snoozed on its side. This is the
+    // headline Bug-1 indicator: if the phone's alarm_dismissed reaches
+    // THIS page's receiver, the ring screen visibly flashes green with a
+    // banner, then closes after ~1.2 s. If it never flashes, the receive
+    // is dead — exactly the diagnostic the hardware test needs.
+    onPeerEnded: function (alarmId, type) {
+        Logger.i('ring.onPeerEnded type=' + type + ' id=' + alarmId);
+        var self = this;
+        self.stopVibrate();
+        self.peerDismissed = true;
+        self.peerBannerText = (type === 'alarm_snoozed') ? 'PHONE SNOOZED' : 'PHONE DISMISSED';
+        // Suppress onHide's implicit-snooze fallback — the phone already
+        // ended the alarm, the watch must not boomerang a snooze back.
+        // Both the marker AND _explicitAction are set; onHide checks each.
+        self._explicitAction = 'peer-ended';
+        try {
+            storage.set({
+                key: PEER_END_KEY,
+                value: '' + Date.now(),
+                success: function () {},
+                fail: function () {},
+            });
+        } catch (e) {
+            Logger.err('ring.onPeerEnded marker write', e);
+        }
+        // Hold the green flash visible ~1.2 s so it's actually seen,
+        // then close the ring page.
+        setTimeout(function () {
+            try {
+                router.replace({ uri: 'pages/index/index' });
+            } catch (e) {
+                Logger.err('ring.onPeerEnded router.replace', e);
+            }
+        }, 1200);
+    },
+
+    // Diagnostic strip refresh — rx-state + raw/handled inbound counters.
+    refreshRingDiag: function () {
+        var self = this;
+        var rx = WearBridge.getReceiverState();
+        var rxTxt = (rx.result === 'ok')
+            ? ('ok@' + Math.floor((Date.now() - rx.atMs) / 1000) + 's')
+            : rx.result;
+        storage.get({
+            key: 'diag_rawrx',
+            default: '{"count":0}',
+            success: function (rawData) {
+                var raw;
+                try {
+                    raw = JSON.parse(rawData);
+                } catch (e) {
+                    raw = { count: 0 };
+                }
+                self.applyRingDiag(rxTxt, raw.count || 0);
+            },
+            fail: function () {
+                self.applyRingDiag(rxTxt, 0);
+            },
+        });
+    },
+
+    applyRingDiag: function (rxTxt, rawCount) {
+        var self = this;
+        storage.get({
+            key: 'diag_inbound',
+            default: '{"total":0}',
+            success: function (data) {
+                var obj;
+                try {
+                    obj = JSON.parse(data);
+                } catch (e) {
+                    obj = null;
+                }
+                var inCount = obj ? (obj.total || 0) : 0;
+                // Compact single line — `last:type@age` is dropped here
+                // (the green flash already signals a received dismiss);
+                // full detail is in the relayed logcat timeline.
+                self.ringDiagText = 'snt:' + self._ringSent + ' rx:' + rxTxt +
+                    ' raw:' + rawCount + ' in:' + inCount;
+            },
+            fail: function () {
+                self.ringDiagText = 'snt:' + self._ringSent + ' rx:' + rxTxt +
+                    ' raw:' + rawCount + ' in:?';
+            },
+        });
     },
 
     onDismiss: function () {

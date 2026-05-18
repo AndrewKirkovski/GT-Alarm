@@ -2,10 +2,13 @@
     <div class="content">
         <text class="title">{{title}}</text>
 
-        <!-- Diagnostic PING button — temporary. -->
-        <div class="btn btn-ping" onclick="onPingPhone">
-            <text class="btn-ping-text">PING PHONE</text>
-        </div>
+        <!-- Diagnostic strip — directly under the title so it sits in
+             the round display's readable band (anything below ~y400 is
+             clipped by the chord). The scrolling alarm list goes below. -->
+        <text class="diag-line">{{lastSyncText}}</text>
+        <text class="diag-line">{{storeStatusText}}</text>
+        <text class="diag-line">{{inboundStatusText}}</text>
+        <text class="diag-line">{{rxDiagText}}</text>
 
         <!-- Flat alarm list. SINGLE <list-item for=> template (Lite
              Wearable does NOT support multiple list-item templates in
@@ -21,7 +24,7 @@
              Each day cell is letter-on-top + dot-below; letters from
              $item.dL0..dL6 (single-char of localized day labels). -->
         <list class="alarm-list" if="{{alarms.length > 0}}">
-            <list-item for="{{alarms}}" tid="id"
+            <list-item class="alarm-list-row" for="{{alarms}}" tid="id"
                        onclick="onRowTap({{$item.id}})">
                 <div class="alarm-row" if="{{$item.enabled}}">
                     <div class="status-dot"></div>
@@ -114,9 +117,5 @@
             <text class="empty-title">{{emptyText}}</text>
             <text class="empty-hint">{{emptyHint}}</text>
         </div>
-
-        <text class="diag-line">{{lastSyncText}}</text>
-        <text class="diag-line">{{storeStatusText}}</text>
-        <text class="diag-line">{{pingStatusText}}</text>
     </div>
 </stack>

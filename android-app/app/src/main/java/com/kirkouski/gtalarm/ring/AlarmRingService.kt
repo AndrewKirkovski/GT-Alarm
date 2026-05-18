@@ -336,6 +336,12 @@ class AlarmRingService : Service() {
         mainHandler.postDelayed(r, AUTO_STOP_MS)
     }
 
+    // ACTIVITY RULE: when fromPeer=false this awaits the watch's
+    // alarm_dismissed_ack (a Wear Engine P2P receive). That ack is only
+    // delivered while AlarmActivity is alive in the task — so AlarmActivity
+    // deliberately does NOT finishAndRemoveTask() on the dismiss tap; it
+    // stays up showing "waiting for watch" until stopForegroundAndSelf()
+    // below emits RingEndedSignal. Do not "optimise" the Activity away.
     private fun handleDismiss(alarmId: Long, fromPeer: Boolean) {
         Log.d(TAG, "dismiss id=$alarmId fromPeer=$fromPeer")
         if (alarmId < 0) {
@@ -390,6 +396,11 @@ class AlarmRingService : Service() {
         }
     }
 
+    // ACTIVITY RULE: same as handleDismiss — when fromPeer=false this awaits
+    // the watch's alarm_snoozed_ack (a P2P receive), which only arrives
+    // while AlarmActivity is alive in the task. AlarmActivity stays up
+    // ("waiting for watch") until stopForegroundAndSelf() emits
+    // RingEndedSignal.
     private fun handleSnooze(alarmId: Long, fromPeer: Boolean, rescheduleEpochFromPeer: Long) {
         Log.d(TAG, "snooze id=$alarmId fromPeer=$fromPeer reschedule=$rescheduleEpochFromPeer")
         // Stop audio + vibration NOW (same rationale as handleDismiss) —

@@ -9,6 +9,7 @@
     <string name="alarm_notification_title">Будильник</string>
     <string name="action_dismiss">Отключить</string>
     <string name="action_snooze">Отложить</string>
+    <string name="ring_waiting_for_watch">Ожидание часов…</string>
 
     <string name="screen_list_title">Будильники</string>
     <string name="screen_edit_title_new">Новый будильник</string>

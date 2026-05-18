@@ -9,6 +9,7 @@
     <string name="alarm_notification_title">Будзільнік</string>
     <string name="action_dismiss">Адхіліць</string>
     <string name="action_snooze">Адкласці</string>
+    <string name="ring_waiting_for_watch">Чаканне гадзінніка…</string>
 
     <string name="screen_list_title">Будзільнікі</string>
     <string name="screen_edit_title_new">Новы будзільнік</string>

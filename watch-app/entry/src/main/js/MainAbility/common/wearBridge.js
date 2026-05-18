@@ -11,6 +11,7 @@
 // setPeerFingerPrint(watch_bundle_base64_pubkey) call.
 import { P2pClient, Message, Builder } from '../wearEngine/wearengine.js';
 import Logger from './logger.js';
+import storage from '@system.storage';
 
 // PHONE_PKG_NAME is the Android phone APK's applicationId. Used by
 // setPeerPkgName so the watch's P2pClient knows which peer to send to.
@@ -34,6 +35,25 @@ var client = null;
 var incomingHandler = null;
 var receiverRegistered = false;
 
+// Per-bundle page tag (e.g. 'app', 'index', 'ring', 'syncing'). Set by
+// each page via setPageTag before it wires its receiver. Lite Wearable
+// isolates page bundles (gotcha #11), so this module + its receiver
+// state is a SEPARATE copy per page — the tag tells the relayed logs
+// which bundle's receiver actually fired.
+var pageTag = 'app';
+
+// Receiver registration state for this bundle's P2pClient. Exposed via
+// getReceiverState() so the page diagnostic strip can show, on-screen,
+// whether the watch's inbound P2P receiver is actually bound right now.
+// result: 'idle' | 'pending' | 'ok' | 'fail'.
+var receiverState = { result: 'idle', atMs: 0 };
+
+// Last send outcome for this bundle — surfaced in the page diagnostic
+// strip as `tx:<type>=<code>`. reason is the SDK code string ('207',
+// '206', 'timeout', 'fail', 'throw').
+var lastSendType = '';
+var lastSendReason = '';
+
 // Trace of the most recent send-step the code reached. Set by
 // sendOnceWithResult before/after each phase. Exported via getLastTrace()
 // so the index page can render it — invaluable when c.send hangs and we
@@ -41,6 +61,38 @@ var receiverRegistered = false;
 var lastTrace = 'idle';
 function trace(s) {
     lastTrace = s;
+}
+
+// Raw inbound-message counter. Bumped in onReceiveMessage BEFORE any
+// parse/dispatch — counts EVERY message the watch's receiver fired for,
+// including unknown types and pre-parse-failure ones. The handled-type
+// counter `diag_inbound` (incomingHandler.js) only counts messages that
+// reached a dispatch branch. raw ticks but in doesn't => parse/dispatch
+// failed; neither ticks => the receiver never fired at all.
+function bumpRawRx(len) {
+    storage.get({
+        key: 'diag_rawrx',
+        default: '{"count":0}',
+        success: function (data) {
+            var obj;
+            try {
+                obj = JSON.parse(data);
+            } catch (e) {
+                obj = { count: 0 };
+            }
+            obj.count = (obj.count || 0) + 1;
+            obj.lastLen = len;
+            obj.lastMs = Date.now();
+            obj.lastTag = pageTag;
+            storage.set({
+                key: 'diag_rawrx',
+                value: JSON.stringify(obj),
+                success: function () {},
+                fail: function () {},
+            });
+        },
+        fail: function () {},
+    });
 }
 
 function ensureClient() {
@@ -76,28 +128,45 @@ function dispatchIncoming(rawMessage) {
     }
 }
 
-function registerOnce() {
-    if (receiverRegistered) return;
+// Bind this bundle's P2pClient receiver to the GLOBAL Wear Engine
+// message subscription. NOT guarded by `receiverRegistered` — Fix 1
+// (per-page receiver registration) REQUIRES this to re-register on
+// every call. Each page bundle owns an isolated copy of this module
+// (gotcha #11); when a page becomes foreground it must re-point the
+// single global `subscribeMsg` slot at ITS OWN live callback closure,
+// because the previously-foreground page's closure stops being
+// serviced. The wrapper's registerReceiver does a global
+// unsubscribeMsg()+subscribeMsg() so re-registering is the intended,
+// idempotent operation.
+function installReceiver() {
     var c = ensureClient();
+    receiverState = { result: 'pending', atMs: Date.now() };
+    Logger.i('wearBridge[' + pageTag + '].registerReceiver call');
     c.registerReceiver({
         onSuccess: function () {
             receiverRegistered = true;
-            Logger.i('wearBridge.registerReceiver onSuccess');
+            receiverState = { result: 'ok', atMs: Date.now() };
+            Logger.i('wearBridge[' + pageTag + '].registerReceiver onSuccess');
         },
         onFailure: function () {
             receiverRegistered = false;
-            Logger.w('wearBridge.registerReceiver onFailure');
+            receiverState = { result: 'fail', atMs: Date.now() };
+            Logger.w('wearBridge[' + pageTag + '].registerReceiver onFailure');
         },
         onReceiveMessage: function (data) {
             // The wearengine.js wrapper passes the raw `data.message`
             // (string) for plain text messages. File messages arrive as
             // `{ isFileType: true, name: ..., mode: ... }` — we don't
-            // use those.
+            // use those. bumpRawRx FIRST so the diag strip counts even
+            // the ignored / unparseable ones.
+            var len = (data && !data.isFileType) ? ('' + data).length : 0;
+            bumpRawRx(len);
             if (data && data.isFileType) {
-                Logger.i('wearBridge.onReceiveMessage file=' + data.name + ' (ignored)');
+                Logger.i('wearBridge[' + pageTag + '].onReceiveMessage file=' +
+                    data.name + ' (ignored)');
                 return;
             }
-            Logger.i('wearBridge.onReceiveMessage len=' + (data ? ('' + data).length : 0));
+            Logger.i('wearBridge[' + pageTag + '].onReceiveMessage len=' + len);
             dispatchIncoming(data);
         },
     });
@@ -171,6 +240,8 @@ function sendOnceWithResult(envelope, cb, onTrace) {
     function settle(success, reason) {
         if (settled) return;
         settled = true;
+        lastSendType = envelope.type;
+        lastSendReason = reason;
         if (cb) cb(success, reason);
     }
     tr('schedTimeout');
@@ -265,10 +336,29 @@ export default {
     setIncomingHandler: function (handler) {
         incomingHandler = handler;
         if (handler !== null) {
-            registerOnce();
+            installReceiver();
         } else {
             unregister();
         }
+    },
+
+    // Per-bundle page tag for diagnostics — call before setIncomingHandler.
+    setPageTag: function (tag) {
+        pageTag = tag;
+    },
+
+    // Receiver registration state for this bundle: { result, atMs }.
+    // result is 'idle' | 'pending' | 'ok' | 'fail'. Rendered in the page
+    // diagnostic strip so a failed hardware test shows on-screen whether
+    // the inbound P2P receiver was even bound.
+    getReceiverState: function () {
+        return receiverState;
+    },
+
+    // Last send outcome for this bundle: { type, reason }. reason is the
+    // SDK code string. Rendered in the page diagnostic strip.
+    getLastSend: function () {
+        return { type: lastSendType, reason: lastSendReason };
     },
 
     notifyToggled: function (alarm) {
@@ -362,35 +452,18 @@ export default {
         }, 3, 1);
     },
 
-    // Dev-only: relay a watch-side log line to the phone so it surfaces in
-    // adb logcat (Lite Wearable HiLog is hard to read from DevEco on Windows).
-    // No fingerprint validation, no LWW — just envelope + send. NOT called
-    // from inside wearBridge's own log paths to avoid re-entry.
-    sendLog: function (level, msg) {
+    // Dev-only: relay a BATCH of watch-side log lines to the phone so they
+    // surface in adb logcat (Lite Wearable HiLog is hard to read from
+    // DevEco on Windows). `lines` is an array of { level, msg, ts }.
+    // logger.js coalesces lines and calls this once per ~700 ms instead of
+    // once per line — one P2P send per line was a channel-pressure
+    // confound. Fire-and-forget; uses console.* internally, never Logger.
+    sendLogBatch: function (lines) {
         sendJson({
-            type: 'watch_log',
-            level: level,
-            msg: msg,
+            type: 'watch_log_batch',
+            lines: lines,
             ts: Date.now(),
         });
-    },
-
-    // Dev-only diagnostic send with result callback. Used by the PING PHONE
-    // button on index page to show the SDK's onSendResult code (207=ok,
-    // 206=fail) on the watch face — lets us tell whether watch→phone P2P
-    // is failing at the watch's send call or arriving and being rejected
-    // by phone's receiver layer.
-    //
-    // onTrace(step) is invoked at each major phase of send so the caller
-    // can show real-time progress in the UI — invaluable when the SDK
-    // hangs and HiLog isn't accessible.
-    sendPing: function (cb, onTrace) {
-        sendOnceWithResult({
-            type: 'watch_log',
-            level: 'I',
-            msg: 'PING_FROM_WATCH ts=' + Date.now(),
-            ts: Date.now(),
-        }, cb, onTrace);
     },
 
     // Read-only — last send-step the bridge reached. Useful for the

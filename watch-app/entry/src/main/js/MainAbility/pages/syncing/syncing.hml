@@ -1,10 +1,14 @@
 <!-- Full-screen "Syncing alarms" placeholder shown when the phone wakes
-     the watch app for a routine state push (sync_check / alarm_*).
-     No interactive elements; the page tears down when IncomingHandler
-     calls app.terminate() after the envelope burst quiesces. -->
+     the watch app for a routine state push (sync_check / sync_replace /
+     alarm_*). The page registers its own P2P receiver, shows a live
+     line of arriving envelopes, and tears down on `sync_done` or a
+     drain-quiescence timeout. -->
 <div class="container">
     <div class="content">
         <text class="title">{{title}}</text>
         <text class="subtitle">{{subtitle}}</text>
+        <text class="live-line">{{liveLine}}</text>
+        <text class="diag-line">{{diagLine1}}</text>
+        <text class="diag-line">{{diagLine2}}</text>
     </div>
 </div>
