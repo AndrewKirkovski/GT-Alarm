@@ -13,7 +13,6 @@
 //
 // All apply paths are tombstone-aware and LWW-resolved.
 import app from '@system.app';
-import router from '@system.router';
 import storage from '@system.storage';
 import AlarmStore from './alarmStore.js';
 import SettingsStore from './settingsStore.js';
@@ -95,11 +94,11 @@ function bumpInboundDiag(type) {
 
 var onAlarmFired = null;
 var onPeerEndedRing = null;
-// Injected by each page (per-bundle copy) — decides what `sync_done`
-// means in that page's context. syncing page + app.js bootstrap →
-// app.terminate(); index/ring leave it null so a live sync doesn't
-// tear down the page the user is looking at.
+// Injected by the single page. onSyncDone → terminate when a sync wake
+// finishes; onSyncWake → switch the page to its "Syncing…" screen on the
+// first envelope of a wake-by-sync.
 var onSyncDone = null;
+var onSyncWake = null;
 
 // Called once from app.onCreate so we know when the app process started.
 // Anything before WAKE_SYNC_GRACE_MS from now is treated as part of the
@@ -167,21 +166,12 @@ function noteIncomingEnvelope() {
             return;
         }
         _wokenForSync = true;
-        Logger.i('incoming.wake-by-sync (elapsed=' + elapsed + 'ms) — routing to syncing');
-        try {
-            router.replace({ uri: 'pages/syncing/syncing' });
-        } catch (e) {
-            Logger.err('incoming.route-syncing failed', e);
-        }
-        // The syncing page now owns process lifetime: it re-arms its own
-        // drain timer per envelope and terminates on `sync_done`. We do
-        // NOT arm app.js's drain here — a fixed timer armed on the FIRST
-        // envelope could fire mid-sync and kill the watch before the
-        // data push lands (Bug 3, `forceSync done sent=0 of=1`).
-        return;
+        Logger.i('incoming.wake-by-sync elapsed=' + elapsed);
+        // Single page: switch to the "Syncing…" screen. armDrain() below
+        // owns the terminate-after-quiescence; sync_done terminates fast.
     }
-    // Already routed to syncing on a prior call; the syncing page's own
-    // receiver handles subsequent envelopes from here.
+    armDrain();
+    if (onSyncWake) onSyncWake();
 }
 
 // Stamp the AlarmStore's last-sync-epoch whenever any peer-driven mutation
@@ -363,11 +353,14 @@ export default {
     setOnAlarmFiredNavigator: function (fn) {
         onAlarmFired = fn;
     },
-    // Injected per page. Fired on a phone `sync_done` envelope. syncing
-    // page + app.js wire it to app.terminate(); index/ring leave it
-    // unset so a live sync never tears down the visible page.
+    // Fired on a phone `sync_done` envelope — page terminates the app.
     setOnSyncDone: function (fn) {
         onSyncDone = fn;
+    },
+    // Fired on the first envelope of a wake-by-sync — page shows its
+    // "Syncing…" screen.
+    setOnSyncWake: function (fn) {
+        onSyncWake = fn;
     },
     // Called by app.js with a function (alarmId) => void that should route
     // back to the index page if the ring page is currently showing for

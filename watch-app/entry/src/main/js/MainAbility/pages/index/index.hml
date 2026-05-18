@@ -1,28 +1,14 @@
-<stack class="container">
-    <div class="content">
+<!-- Single-page watch UI. Three screens — list / sync / ring — are
+     mutually-exclusive `if=`-rendered blocks switched by the `screen`
+     data field. No router: one page, one bundle, one P2P receiver. -->
+<stack class="root">
+
+    <!-- ================= LIST screen ================= -->
+    <div class="content" if="{{screen === 'list'}}">
         <text class="title">{{title}}</text>
+        <text class="diag-line">{{diagLine1}}</text>
+        <text class="diag-line">{{diagLine2}}</text>
 
-        <!-- Diagnostic strip — directly under the title so it sits in
-             the round display's readable band (anything below ~y400 is
-             clipped by the chord). The scrolling alarm list goes below. -->
-        <text class="diag-line">{{lastSyncText}}</text>
-        <text class="diag-line">{{storeStatusText}}</text>
-        <text class="diag-line">{{inboundStatusText}}</text>
-        <text class="diag-line">{{rxDiagText}}</text>
-
-        <!-- Flat alarm list. SINGLE <list-item for=> template (Lite
-             Wearable does NOT support multiple list-item templates in
-             one <list> — the previous two-template variant rendered
-             nothing, verified 2026-05-12 on GT 6). Per-row enabled/
-             disabled visual variant achieved with two conditional
-             wrapper <div>s inside the list-item, each carrying its
-             own static class. Class= data binding is also
-             unsupported (see memory:litewearable_rendering_gotchas
-             #10f) so a class swap is impossible — the conditional-
-             render pattern is the canonical workaround.
-
-             Each day cell is letter-on-top + dot-below; letters from
-             $item.dL0..dL6 (single-char of localized day labels). -->
         <list class="alarm-list" if="{{alarms.length > 0}}">
             <list-item class="alarm-list-row" for="{{alarms}}" tid="id"
                        onclick="onRowTap({{$item.id}})">
@@ -118,4 +104,46 @@
             <text class="empty-hint">{{emptyHint}}</text>
         </div>
     </div>
+
+    <!-- ================= SYNC screen ================= -->
+    <div class="content" if="{{screen === 'sync'}}">
+        <text class="title">{{syncTitle}}</text>
+        <text class="sync-sub">{{syncSubtitle}}</text>
+        <text class="live-line">{{liveLine}}</text>
+        <text class="diag-line">{{diagLine1}}</text>
+        <text class="diag-line">{{diagLine2}}</text>
+    </div>
+
+    <!-- ================= RING screen ================= -->
+    <stack class="ring" if="{{screen === 'ring'}}" onswipe="onSwipe">
+        <progress type="arc" percent="100" class="ring-arc" if="{{!peerDismissed}}"></progress>
+        <progress type="arc" percent="100" class="ring-arc-green" if="{{peerDismissed}}"></progress>
+        <div class="ring-content">
+            <text class="ring-banner" if="{{peerDismissed}}">{{peerBannerText}}</text>
+            <image src="common/bell.png" class="ring-bell"></image>
+            <text class="ring-title">{{ringTitle}}</text>
+            <text class="ring-time">{{ringTime}}</text>
+            <text class="ring-label" if="{{ringLabel}}">{{ringLabel}}</text>
+            <div class="ring-actions">
+                <div class="btn btn-snooze" if="{{!snoozePressed}}"
+                     onclick="onSnooze" ontouchstart="onSnoozeDown" ontouchend="onSnoozeUp">
+                    <text class="btn-text">{{labelSnooze}}</text>
+                </div>
+                <div class="btn btn-snooze-pressed" if="{{snoozePressed}}"
+                     onclick="onSnooze" ontouchstart="onSnoozeDown" ontouchend="onSnoozeUp">
+                    <text class="btn-text">{{labelSnooze}}</text>
+                </div>
+                <div class="btn btn-dismiss" if="{{!dismissPressed}}"
+                     onclick="onDismiss" ontouchstart="onDismissDown" ontouchend="onDismissUp">
+                    <text class="btn-text">{{labelDismiss}}</text>
+                </div>
+                <div class="btn btn-dismiss-pressed" if="{{dismissPressed}}"
+                     onclick="onDismiss" ontouchstart="onDismissDown" ontouchend="onDismissUp">
+                    <text class="btn-text">{{labelDismiss}}</text>
+                </div>
+            </div>
+            <text class="ring-diag">{{ringDiagText}}</text>
+        </div>
+    </stack>
+
 </stack>

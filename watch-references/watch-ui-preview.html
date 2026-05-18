@@ -117,7 +117,7 @@
     line-height: 32px;
     flex: 1;
   }
-  .alarm-time-dim { color: #818CB0; }
+  .alarm-time-dim { color: #9AA4C0; }
   /* Right side: 7-day grid (letter above dot) OR text fallback. */
   .alarm-days-grid {
     display: flex;
@@ -135,12 +135,12 @@
   .day-cell-letter {
     font-size: 11px;
     line-height: 14px;
-    color: #6B7280;
+    color: #AEB8CC;
     height: 14px;
     text-align: center;
     margin-bottom: 4px;
   }
-  .day-cell-letter-dim { color: #3F4756; }
+  .day-cell-letter-dim { color: #5A6276; }
   .day-dot {
     width: 10px;
     height: 10px;
@@ -150,11 +150,11 @@
   .day-dot-on { background-color: #6366F1; }
   .day-dot-on-dim { background-color: #3B3F66; }
   .alarm-days-text {
-    color: #A5B4CB;
+    color: #C4CEE0;
     font-size: 16px;
     line-height: 16px;
   }
-  .alarm-days-text-dim { color: #5C6582; }
+  .alarm-days-text-dim { color: #6B7488; }
 
   .empty {
     display: flex;
@@ -174,20 +174,20 @@
     text-align: center;
   }
   .empty-hint {
-    color: #818CB0;
+    color: #AEB8CC;
     font-size: 22px;
     height: 28px;
     line-height: 28px;
     text-align: center;
   }
   .diag-line {
-    width: 320px;
-    height: 16px;
-    line-height: 16px;
-    margin: 2px auto 0;
+    width: 380px;
+    height: 20px;
+    line-height: 20px;
+    margin: 1px auto 0;
     text-align: center;
-    color: #6B7280;
-    font-size: 12px;
+    color: #D6DCE8;
+    font-size: 14px;
   }
 
   /* ---------------- RING page CSS ---------------- */
@@ -385,10 +385,8 @@
       <div class="container">
         <div class="content">
           <div class="title">GT Alarm · 0.1.0</div>
-          <div class="diag-line">Last sync: never</div>
-          <div class="diag-line">st:0 on:0 off:0</div>
-          <div class="diag-line">rx:ok@0s raw:0 in:0 last:-@-</div>
-          <div class="diag-line">tx:none pg:index b:perpage-rx</div>
+          <div class="diag-line">rx:ok@0s raw:0 in:0 -@-</div>
+          <div class="diag-line">st:0 on:0 Not synced yet b:single-page/05-18</div>
           <div class="empty">
             <div class="empty-title">No alarms</div>
             <div class="empty-hint">Add one on phone</div>
@@ -405,10 +403,8 @@
       <div class="container">
         <div class="content">
           <div class="title">GT Alarm · 0.1.0</div>
-          <div class="diag-line">Last sync: 12 min ago</div>
-          <div class="diag-line">st:1 on:1 off:0</div>
-          <div class="diag-line">rx:ok@8s raw:3 in:3 last:alarm_added@8s</div>
-          <div class="diag-line">tx:sync_hash=207 pg:index b:perpage-rx</div>
+          <div class="diag-line">rx:ok@8s raw:3 in:3 alarm_added@8s</div>
+          <div class="diag-line">st:1 on:1 Synced 12 min ago b:single-page/05-18</div>
           <div class="alarm-list">
             <div class="alarm-list-row">
               <div class="alarm-row">
@@ -438,10 +434,8 @@
       <div class="container">
         <div class="content">
           <div class="title">GT Alarm · 0.1.0</div>
-          <div class="diag-line">Last sync: 1 min ago</div>
-          <div class="diag-line">st:3 on:2 off:1</div>
-          <div class="diag-line">rx:ok@2s raw:9 in:8 last:sync_replace@2s</div>
-          <div class="diag-line">tx:alarm_ringing=207 pg:index b:perpage-rx</div>
+          <div class="diag-line">rx:ok@2s raw:9 in:8 sync_replace@2s</div>
+          <div class="diag-line">st:3 on:2 Synced 1 min ago b:single-page/05-18</div>
           <div class="alarm-list">
             <!-- enabled, every weekday (M T W T F on, S S off) -->
             <div class="alarm-list-row">

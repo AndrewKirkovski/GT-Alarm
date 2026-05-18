@@ -40,9 +40,7 @@
         "js": [
             {
                 "pages": [
-                    "pages/index/index",
-                    "pages/ring/ring",
-                    "pages/syncing/syncing"
+                    "pages/index/index"
                 ],
                 "name": ".MainAbility"
             }
