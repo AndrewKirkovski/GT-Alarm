@@ -105,7 +105,9 @@ class WearJsonCodecTest {
         assertEquals(
             Alarm(
                 id = 5L,
-                label = "Wake",
+                // The wire `label` ("Wake" above) is ignored — the alarm
+                // label is phone-only and never crosses the watch wire.
+                label = "",
                 hour = 7,
                 minute = 30,
                 daysOfWeek = 0b0011111,
@@ -168,11 +170,11 @@ class WearJsonCodecTest {
     }
 
     @Test
-    fun `parseAlarm truncates oversize label to Alarm MAX_LABEL_LENGTH`() {
-        // A compromised / buggy peer could push a multi-megabyte label and
-        // crash Alarm's init validator. parseAlarm truncates instead of
-        // rejecting because label is user-facing display text — losing a
-        // tail is better than dropping the whole alarm.
+    fun `parseAlarm ignores any label on the wire — label is phone-only`() {
+        // The alarm label never crosses the watch wire (sync-architecture.md
+        // §2.2). A compromised / buggy peer could still stuff a multi-megabyte
+        // `label` into the payload; parseAlarm must ignore it outright rather
+        // than letting it reach Alarm's init validator.
         val huge = "x".repeat(Alarm.MAX_LABEL_LENGTH + 100)
         val payload = JSONObject().apply {
             put("id", 5L); put("hour", 7); put("minute", 0); put("enabled", true); put("label", huge)
@@ -180,7 +182,7 @@ class WearJsonCodecTest {
         val msg = WearJsonCodec.parseIncoming(JSONObject().apply {
             put("type", "alarm_added"); put("alarmId", 5L); put("updatedAtEpoch", 1L); put("alarm", payload)
         }) as IncomingMessage.AlarmAdded
-        assertEquals(Alarm.MAX_LABEL_LENGTH, msg.alarm.label.length)
+        assertEquals("", msg.alarm.label)
     }
 
     @Test

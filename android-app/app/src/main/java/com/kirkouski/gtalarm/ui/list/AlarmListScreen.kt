@@ -1,5 +1,18 @@
+// reason: AlarmListScreen is the list screen plus its inline cards (watch-sync
+// card + its split-out action button, setup banner, battery-opt rationale,
+// swipe-to-delete row, alarm row) and the countdown / repeat-label / day-label
+// helpers — each referenced exactly once from this screen. Splitting would
+// scatter list-state routing across files for zero reuse.
+@file:Suppress("TooManyFunctions")
+
 package com.kirkouski.gtalarm.ui.list
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -7,6 +20,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,26 +28,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -44,14 +55,20 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.domain.Alarm
@@ -73,7 +90,6 @@ import android.widget.Toast
 // boilerplate, which we'd just have to revisit when the next AC item lands.
 // Local @Suppress is preferred over disabling LongMethod globally —
 // matches the same pattern used in AlarmEditScreen.
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 @Suppress("LongMethod")
 fun AlarmListScreen(
@@ -82,7 +98,7 @@ fun AlarmListScreen(
     onOpenExactAlarmSettings: () -> Unit,
     onOpenBatteryOptSettings: () -> Unit,
     onOpenHelp: () -> Unit,
-    onOpenSettings: () -> Unit,
+    onAuthorizeWatch: () -> Unit,
     vm: AlarmListViewModel = hiltViewModel(),
 ) {
     val alarms by vm.alarms.collectAsStateWithLifecycle()
@@ -91,8 +107,20 @@ fun AlarmListScreen(
     val watchStatus by vm.watchStatus.collectAsStateWithLifecycle()
     val pairedDevice by vm.pairedDeviceInfo.collectAsStateWithLifecycle()
     val forceSyncRunning by vm.forceSyncRunning.collectAsStateWithLifecycle()
+    val needsWatchAuth by vm.needsWatchAuthorization.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    // Re-check Wear Engine authorization on resume so the WatchSyncCard's
+    // sync/authorize button flips the moment the user returns from the
+    // Huawei Health grant dialog.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) vm.refreshWatchAuthorization()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     // Banner visible whenever any required permission is denied. The audit
     // is a handful of cheap system-service queries (no I/O), so re-running
     // on each list recomposition is fine; remember + the canExact/battery
@@ -108,34 +136,19 @@ fun AlarmListScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.screen_list_title)) },
-                actions = {
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_settings),
-                            contentDescription = stringResource(R.string.action_open_settings),
-                            tint = Color.Unspecified,
-                        )
-                    }
-                    IconButton(onClick = onOpenHelp) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_help),
-                            contentDescription = stringResource(R.string.action_open_help),
-                            tint = Color.Unspecified,
-                        )
-                    }
-                },
-            )
-        },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
-            FloatingActionButton(onClick = onAdd) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = stringResource(R.string.add_alarm),
-                )
-            }
+            // Juicy circular add button — the ic_add gradient-circle PNG
+            // with a drop shadow, in place of the M3 rounded-square FAB.
+            Image(
+                painter = painterResource(R.drawable.ic_add),
+                contentDescription = stringResource(R.string.add_alarm),
+                modifier = Modifier
+                    .size(64.dp)
+                    .shadow(elevation = 6.dp, shape = CircleShape)
+                    .clip(CircleShape)
+                    .clickable(onClick = onAdd),
+            )
         },
     ) { padding ->
         Column(
@@ -150,7 +163,9 @@ fun AlarmListScreen(
                 status = watchStatus,
                 pairedDevice = pairedDevice,
                 forceSyncRunning = forceSyncRunning,
+                needsAuthorization = needsWatchAuth,
                 onForceSync = { vm.onForceSync() },
+                onAuthorize = onAuthorizeWatch,
             )
             if (showSetupBanner) {
                 SetupNeededBanner(onOpenSetup = onOpenHelp)
@@ -211,16 +226,20 @@ fun AlarmListScreen(
     }
 }
 
-// reason: single linear Card + Column + Row tree with no reorderable
-// sections. Splitting into header/body/button composables would add a
-// state-routing layer for ~3 lines saved.
+// Collapsed watch-sync row: status icon + two text lines + a sync icon on
+// the trailing edge that doubles as the force-sync control and spins while
+// a sync is in flight.
+// reason: LongMethod — one linear Row tree; the status/device strings and
+// the spin transition are derived inline so the layout reads top-to-bottom.
 @Suppress("LongMethod")
 @Composable
 private fun WatchSyncCard(
     status: WatchSyncStatus,
     pairedDevice: PairedDeviceInfo?,
     forceSyncRunning: Boolean,
+    needsAuthorization: Boolean,
     onForceSync: () -> Unit,
+    onAuthorize: () -> Unit,
 ) {
     val bodyRes = when (status) {
         WatchSyncStatus.NOT_CONNECTED -> R.string.watch_status_card_not_connected
@@ -229,59 +248,100 @@ private fun WatchSyncCard(
         WatchSyncStatus.ERROR -> R.string.watch_status_card_error
     }
     val iconRes = if (status == WatchSyncStatus.CONNECTED) R.drawable.ic_watch else R.drawable.ic_watch_off
-    ElevatedCard(
-        modifier = Modifier
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    painter = painterResource(iconRes),
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp),
-                    tint = Color.Unspecified,
-                )
-                Spacer(Modifier.size(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(R.string.watch_status_card_title),
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = stringResource(bodyRes),
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                    pairedDevice?.let { info ->
-                        val devText = listOf(info.name, info.model)
-                            .filter { it.isNotBlank() }
-                            .joinToString(" · ")
-                            .ifBlank { stringResource(R.string.watch_status_card_device_unknown) }
-                        Text(
-                            text = devText,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
-                    }
-                }
-            }
-            OutlinedButton(
-                onClick = onForceSync,
-                enabled = !forceSyncRunning,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
-            ) {
-                Text(stringResource(R.string.watch_status_card_force_sync))
-            }
+    val deviceText = pairedDevice?.let { info ->
+        listOf(info.name, info.model).filter { it.isNotBlank() }.joinToString(" · ")
+    }?.takeIf { it.isNotBlank() }
+    // When the app lacks Wear Engine permission the authorization prompt is
+    // the only useful action — the status line says so and the trailing
+    // circle becomes the authorize button instead of force-sync.
+    val statusLine = if (needsAuthorization) {
+        stringResource(R.string.watch_status_card_needs_auth)
+    } else {
+        stringResource(bodyRes).let { body ->
+            if (deviceText != null) "$body  ·  $deviceText" else body
         }
     }
+    ElevatedCard(
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                modifier = Modifier.size(28.dp),
+                tint = Color.Unspecified,
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 12.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.watch_status_card_title),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = statusLine,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            WatchSyncActionButton(
+                needsAuthorization = needsAuthorization,
+                forceSyncRunning = forceSyncRunning,
+                onForceSync = onForceSync,
+                onAuthorize = onAuthorize,
+            )
+        }
+    }
+}
+
+// Trailing circle on the WatchSyncCard: the authorize button (key icon) when
+// Wear Engine permission is missing, otherwise the force-sync button (sync
+// icon that spins while a sync is in flight). Split out of WatchSyncCard so
+// neither composable trips the detekt cyclomatic-complexity ceiling.
+@Composable
+private fun WatchSyncActionButton(
+    needsAuthorization: Boolean,
+    forceSyncRunning: Boolean,
+    onForceSync: () -> Unit,
+    onAuthorize: () -> Unit,
+) {
+    if (needsAuthorization) {
+        Image(
+            painter = painterResource(R.drawable.ic_watch_authorize),
+            contentDescription = stringResource(R.string.watch_status_card_authorize),
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onAuthorize),
+        )
+        return
+    }
+    // The infinite transition runs unconditionally (composition rule); its
+    // angle is only applied to the sync icon while forceSyncRunning is true.
+    val spin by rememberInfiniteTransition(label = "watchSync").animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing)),
+        label = "watchSyncAngle",
+    )
+    Image(
+        painter = painterResource(R.drawable.ic_sync),
+        contentDescription = stringResource(R.string.watch_status_card_force_sync),
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .clickable(enabled = !forceSyncRunning, onClick = onForceSync)
+            .rotate(if (forceSyncRunning) spin else 0f),
+    )
 }
 
 private fun forceSyncToast(
@@ -333,7 +393,7 @@ private fun SetupNeededBanner(onOpenSetup: () -> Unit) {
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            OutlinedButton(onClick = onOpenSetup) {
+            FilledTonalButton(onClick = onOpenSetup) {
                 Text(stringResource(R.string.setup_banner_action))
             }
         }
@@ -369,7 +429,7 @@ private fun BatteryOptRationaleCard(
                 TextButton(onClick = onDismiss) {
                     Text(stringResource(R.string.battery_opt_card_dismiss))
                 }
-                OutlinedButton(
+                FilledTonalButton(
                     onClick = onOpenSettings,
                     modifier = Modifier.padding(start = 8.dp),
                 ) {
@@ -536,12 +596,14 @@ private fun AlarmRow(
                         fontWeight = FontWeight.Light,
                     )
                 }
-                if (alarm.label.isNotBlank()) {
-                    Text(alarm.label, fontSize = 14.sp)
-                }
+                // Alarm label is intentionally NOT shown in the list — it
+                // appears only on the ring screen when the alarm fires.
+                // The subtitle is pinned to a single line.
                 Text(
                     text = subtitleLine(alarm, settings.firstDayOfWeek),
                     fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             Switch(checked = alarm.enabled, onCheckedChange = onToggle)

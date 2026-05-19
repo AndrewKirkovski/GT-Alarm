@@ -64,9 +64,11 @@
     <!-- Disabled-relative-alarm label. We show the configured duration
          instead of a live countdown when the alarm is off — keeping the
          row identifiable without falsely reading "firing now" after the
-         frozen target has slipped into the past (bug #93). -->
-    <string name="list_relative_off_min" tools:ignore="MissingTranslation">%1$d min timer · off</string>
-    <string name="list_relative_off_hr_min" tools:ignore="MissingTranslation">%1$d h %2$d min timer · off</string>
+         frozen target has slipped into the past (bug #93). The "Timer"
+         badge and the row toggle already convey type and on/off state, so
+         the label is just the bare duration. -->
+    <string name="list_relative_off_min" tools:ignore="MissingTranslation">%1$d min</string>
+    <string name="list_relative_off_hr_min" tools:ignore="MissingTranslation">%1$d h %2$d min</string>
     <string name="delete">Delete</string>
     <string name="cancel">Cancel</string>
     <string name="add_alarm">Add alarm</string>
@@ -88,7 +90,7 @@
     <string name="repeats_weekdays">Weekdays</string>
     <string name="repeats_weekends">Weekends</string>
     <string name="repeats_timer">Timer</string>
-    <string name="repeats_oneoff">One-off</string>
+    <string name="repeats_oneoff">Auto-delete</string>
     <string name="delete_alarm">Delete alarm</string>
 
     <!-- reason: reverse-save edit model strings (Revert + discard + delete
@@ -121,6 +123,8 @@
     <string name="watch_status_card_connecting">Watch: connecting…</string>
     <string name="watch_status_card_connected">Watch: connected</string>
     <string name="watch_status_card_error">Watch: connection error</string>
+    <string name="watch_status_card_needs_auth" tools:ignore="MissingTranslation">Not authorized — tap the key to grant watch access</string>
+    <string name="watch_status_card_authorize" tools:ignore="MissingTranslation">Authorize watch access</string>
 
     <string name="voice_alarm_set">Alarm set for %1$s</string>
     <string name="voice_alarm_failed">Couldn\'t set alarm</string>
@@ -128,9 +132,9 @@
     <string name="action_open_help">Help</string>
     <string tools:ignore="MissingTranslation" name="action_open_settings">Settings</string>
 
+
     <!-- ===== Settings screen. Translations to land in a follow-up; tools:ignore
          silences the missing-translation lint until then. ===== -->
-    <string tools:ignore="MissingTranslation" name="screen_settings_title">Settings</string>
     <string tools:ignore="MissingTranslation" name="settings_section_display">Display</string>
     <string tools:ignore="MissingTranslation" name="settings_time_format_label">Time format</string>
     <string tools:ignore="MissingTranslation" name="settings_time_format_system">System</string>
@@ -141,7 +145,7 @@
     <string tools:ignore="MissingTranslation" name="settings_section_default_ringtones">Default ringtones</string>
     <string tools:ignore="MissingTranslation" name="settings_default_ringtones_intro">Used when you create a new alarm without picking a sound. Existing alarms keep their own audio.</string>
     <string tools:ignore="MissingTranslation" name="settings_default_ringtone_absolute">For clock-time alarms</string>
-    <string tools:ignore="MissingTranslation" name="settings_default_ringtone_relative">For \"in N minutes\" alarms</string>
+    <string tools:ignore="MissingTranslation" name="settings_default_ringtone_relative">For \"in N min\" alarms</string>
     <string tools:ignore="MissingTranslation" name="settings_default_ringtone_reset">Use system default</string>
     <string tools:ignore="MissingTranslation" name="settings_section_default_backgrounds">Default background images</string>
     <string tools:ignore="MissingTranslation" name="settings_default_backgrounds_intro">Used when an alarm doesn\'t have its own image. The phone image renders behind the lockscreen alarm; the watch image is cropped to the watch face.</string>
@@ -150,13 +154,10 @@
     <string tools:ignore="MissingTranslation" name="settings_default_background_none">Not set</string>
     <string tools:ignore="MissingTranslation" name="settings_default_background_set">Set</string>
     <string tools:ignore="MissingTranslation" name="settings_default_background_clear">Clear default background</string>
-    <string name="screen_help_title">Voice setup</string>
-    <string name="help_intro">Android doesn\'t have a single setting called \"default alarm app\". When you ask Google Assistant to set an alarm, the system either uses an app you\'ve picked before, or shows a chooser the first time. Choosing GT Alarm and tapping \"Always\" makes it the default thereafter.</string>
+    <string name="help_intro">Android doesn\'t have a single setting called \"default alarm app\". When you ask Google Assistant to set an alarm, the system either uses an app you\'ve picked before, or shows a chooser the first time. Choosing GT Alarm and tapping \"Always\" makes it the default thereafter. On phones without Google services — many Huawei models — voice-set through Google Assistant isn\'t available at all.</string>
     <string name="help_status_default">GT Alarm is the default alarm app on this device.</string>
     <string name="help_status_disambiguator">Multiple alarm apps are installed. The next time you say \"Hey Google, set an alarm\", Android will show a chooser — pick GT Alarm and tap Always.</string>
     <string name="help_status_other">%1$s is currently the default. Use the steps for your phone brand below to switch.</string>
-    <string name="help_status_none">No alarm app is registered on this device. Try reinstalling GT Alarm.</string>
-    <string name="help_open_default_apps">Open Default apps in Settings</string>
     <string name="help_reset_hint">If a different app got set as default by mistake: Settings → Apps → that app → Open by default → Clear defaults.</string>
 
     <string name="help_pair_watch_title">Authorize Huawei watch</string>
@@ -165,9 +166,7 @@
 
     <!-- Debug controls — intentionally English-only (translatable="false"). -->
     <string name="help_debug_title" translatable="false">Debug</string>
-    <string name="help_debug_body" translatable="false">Inserts a one-shot alarm that fires in exactly 60 seconds. Use to iterate the ring/dismiss/snooze flow without waiting for a real alarm time. Pairs with the build-tuned 1-minute snooze.</string>
-    <string name="help_debug_test_alarm_button" translatable="false">Schedule test alarm in 1 minute</string>
-    <string name="help_debug_test_alarm_toast" translatable="false">Test alarm fires in 60s</string>
+    <string name="help_debug_body" translatable="false">Fires an alarm immediately so you can iterate the ring / dismiss / snooze flow — phone and paired watch — without waiting for a real alarm time.</string>
     <string name="help_debug_fire_now_button" translatable="false">Fire alarm NOW (test watch ring)</string>
     <string name="help_debug_fire_now_toast" translatable="false">Firing alarm id=%1$d (watch should ring too)</string>
 
@@ -185,11 +184,10 @@
 
     <!-- Credits / attribution footer in the Help screen. -->
     <string name="help_credits_title">Credits</string>
-    <string name="help_credits_icons">Icons by Pixel perfect — Flaticon</string>
-    <string name="help_credits_flaticon_url" translatable="false">https://www.flaticon.com/authors/pixel-perfect</string>
+    <string name="help_credits_icons">Icons by Tabler</string>
+    <string name="help_credits_icons_url" translatable="false">https://tabler.io/icons</string>
 
     <!-- WatchSyncCard + Force-sync — debug/diagnostic UI, English-only. -->
-    <string name="watch_status_card_device_unknown" translatable="false">Device: unknown</string>
     <string name="watch_status_card_force_sync" translatable="false">Force sync</string>
     <!-- reason: Debug-only English-only diagnostic toast. PluralsCandidate
          lint warning is irrelevant for a debug string we'll only ever see
@@ -209,9 +207,8 @@
     <string tools:ignore="MissingTranslation" name="help_section_reliability">Reliability checklist</string>
     <string tools:ignore="MissingTranslation" name="help_section_reliability_intro">For alarms to ring while your phone is locked, all of the items below need to be green. Tap Fix on anything that isn\'t.</string>
     <string tools:ignore="MissingTranslation" name="help_section_brand_tips">Phone-brand tips</string>
-    <string tools:ignore="MissingTranslation" name="help_section_brand_tips_intro">Some manufacturers add their own background-killers and voice quirks on top of Android. The reliability checks above cover the universal toggles; the steps below are the per-brand bits.</string>
-    <string tools:ignore="MissingTranslation" name="help_subsection_keep_awake">Keep the app awake</string>
-    <string tools:ignore="MissingTranslation" name="help_subsection_voice">Voice (Hey Google)</string>
+    <string tools:ignore="MissingTranslation" name="help_section_brand_tips_intro">Some manufacturers add their own background-killers on top of Android. The reliability checklist above covers every universal toggle — the steps below are only the per-brand extras it can\'t reach.</string>
+    <string tools:ignore="MissingTranslation" name="help_section_voice">Voice setup (Hey Google)</string>
 
     <!-- Home-screen banner that auto-shows when any reliability check is red. -->
     <string tools:ignore="MissingTranslation" name="setup_banner_title">Setup needed</string>
@@ -238,28 +235,16 @@
     <string tools:ignore="MissingTranslation" name="setup_oem_label_other">Other Android</string>
     <string tools:ignore="MissingTranslation" name="setup_oem_label_detected">%1$s (your phone)</string>
 
-    <!-- ===== Per-brand bullet-formatted tips ===== -->
+    <!-- ===== Per-brand background-keep tips ===== -->
     <!-- Each tip body uses "  •  " (NBSP + bullet + NBSP) at line starts so
          Compose Text wraps each bullet line correctly. Separated by \n\n for
-         paragraph spacing. KEEP-AWAKE and VOICE sections are emitted as two
-         strings each so the HelpScreen renders them with subsection
-         headers between them. -->
+         paragraph spacing. These cover ONLY per-brand extras — anything the
+         reliability checklist already handles (notifications, exact alarm,
+         full-screen, battery-unrestricted) is intentionally left out. -->
 
     <string tools:ignore="MissingTranslation" name="setup_oem_keep_pixel">Stock Android has no extra OEM kill on top of standard Doze. If alarms still misbehave, check Settings → Notifications → Do not disturb → Allowed during DND → Alarms and sounds is ON.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_voice_pixel">Pixel ships with Google Clock as the default alarm app.\n\n  •  Say \"Hey Google, set an alarm\". Android may show a chooser if both apps qualify — pick GT Alarm and tap Always.\n  •  To swap later: Settings → Apps → Google Clock → Open by default → Clear defaults. Voice-trigger again and pick GT Alarm.</string>
-
     <string tools:ignore="MissingTranslation" name="setup_oem_keep_samsung">One UI puts unused apps to sleep aggressively. Walk through each item — at least one of them is usually the culprit.\n\n  •  Settings → Battery → Background usage limits → Never sleeping apps → + → add GT Alarm.\n  •  Confirm GT Alarm is NOT under Sleeping apps OR Deep sleeping apps in that screen.\n  •  Settings → Battery → ⋮ (top right) → Automation → Auto-optimize daily → OFF.\n  •  Settings → Battery → More battery settings → Adaptive battery → OFF.\n  •  For the paired Huawei watch, also add Huawei Health to Never sleeping apps.\n  •  Settings → Notifications → Do not disturb → Allowed during DND → Alarms and sounds → ON.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_voice_samsung">One UI does not expose a single \"default alarm app\" setting. Instead:\n\n  •  Say \"Hey Google, set an alarm\". The first time Google Assistant fires it, Android shows a chooser if both apps qualify — pick GT Alarm and tap Always.\n  •  Bixby may not honor third-party clocks. Stick with Google Assistant for voice.</string>
-
-    <string tools:ignore="MissingTranslation" name="setup_oem_keep_xiaomi">MIUI / HyperOS has the most aggressive background kill on the market. Every step matters.\n\n  •  Settings → Apps → Manage apps → GT Alarm → Autostart → ON.\n  •  Same screen → Battery saver → No restrictions.\n  •  Same screen → Other permissions → Display pop-up windows while running in the background → ON.\n  •  Lock the app in the recents drawer (pull down the card → padlock icon) so MIUI does not reap it.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_voice_xiaomi">MIUI Clock is the system default.\n\n  •  Voice alarms via Google Assistant trigger a chooser the first time — pick GT Alarm + Always.\n  •  Third-party alarms may not show the alarm-clock icon in the status bar. This is a HyperOS limitation; the alarm still fires.</string>
-
-    <string tools:ignore="MissingTranslation" name="setup_oem_keep_oneplus">OxygenOS deep-sleep can defer alarms by hours unless GT Alarm is exempted.\n\n  •  Settings → Battery → Battery optimization → GT Alarm → Don\'t optimize.\n  •  Settings → Apps → GT Alarm → Battery usage → Allow background activity → ON.\n  •  If your model has Advanced Optimization, exclude GT Alarm there too.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_voice_oneplus">OxygenOS uses OnePlus Clock by default.\n\n  •  First \"Hey Google, set an alarm\" should show a chooser — pick GT Alarm + tap Always.</string>
-
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_xiaomi">MIUI / HyperOS has the most aggressive background kill on the market — and Autostart is the part the checklist can\'t set for you.\n\n  •  Settings → Apps → Manage apps → GT Alarm → Autostart → ON.\n  •  Same screen → Other permissions → Display pop-up windows while running in the background → ON.\n  •  Lock the app in the recents drawer (pull down the card → padlock icon) so MIUI does not reap it.</string>
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_oneplus">The Battery item in the reliability checklist above covers OxygenOS\'s standard optimization. One extra, on models that have it:\n\n  •  Settings → Battery → Advanced Optimization → exclude GT Alarm. It is a separate switch from standard battery optimization and OxygenOS deep-sleep still applies it.</string>
     <string tools:ignore="MissingTranslation" name="setup_oem_keep_huawei">EMUI / HarmonyOS NEXT requires explicit protection.\n\n  •  Phone Manager → Protected apps → enable GT Alarm.\n  •  Settings → Battery → Launch → GT Alarm → turn OFF \"Manage automatically\" then turn ON all three sub-toggles (Auto-launch, Secondary launch, Run in background).</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_voice_huawei">Huawei phones without Google Mobile Services (most models since 2020) don\'t run Google Assistant, so voice-set isn\'t available via the GT Alarm intent. Native assistants (Celia, Bixby) typically don\'t honor third-party alarm apps.\n\nIf you have an older Huawei with GMS, follow the Pixel / stock Android steps.</string>
-
-    <string tools:ignore="MissingTranslation" name="setup_oem_keep_other">If your phone is a Chinese brand (vivo, OPPO, Realme, Meizu) look for a Phone Manager or Security app and find a Protected apps / Autostart / Background app list. Add GT Alarm there.\n\nOn other brands the universal reliability checklist above is usually enough.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_voice_other">Most Android phones use the system Clock app by default.\n\n  •  When Google Assistant fires \"set an alarm\", the system shows a chooser if multiple apps qualify — pick GT Alarm and tap Always. The system remembers the choice per-intent.</string>
-</resources>
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_other">If your phone is a Chinese brand (vivo, OPPO, Realme, Meizu) look for a Phone Manager or Security app and find a Protected apps / Autostart / Background app list. Add GT Alarm there.\n\nOn other brands the universal reliability checklist above is usually enough.</string></resources>

@@ -62,13 +62,10 @@
     <string name="voice_alarm_failed">Не атрымалася задаць будзільнік</string>
 
     <string name="action_open_help">Дапамога</string>
-    <string name="screen_help_title">Налада голасу</string>
     <string name="help_intro">У Android няма адзінай налады «прыкладанне будзільніка па змаўчанні». Калі вы просіце Google Assistant паставіць будзільнік, сістэма альбо выкарыстоўвае раней выбранае прыкладанне, альбо паказвае дыялог выбару пры першым разе. Абярыце GT Alarm і націсніце «Заўсёды», каб зрабіць яго прыкладаннем па змаўчанні.</string>
     <string name="help_status_default">GT Alarm — прыкладанне будзільніка па змаўчанні на гэтай прыладзе.</string>
     <string name="help_status_disambiguator">Усталявана некалькі прыкладанняў будзільніка. Калі вы наступны раз скажаце «Hey Google, set an alarm», Android пакажа дыялог выбару — абярыце GT Alarm і націсніце «Заўсёды».</string>
     <string name="help_status_other">%1$s — бягучае прыкладанне па змаўчанні. Выкарыстайце інструкцыю для свайго брэнда тэлефона ніжэй, каб пераключыць.</string>
-    <string name="help_status_none">На гэтай прыладзе не зарэгістравана ніводнае прыкладанне будзільніка. Паспрабуйце пераўсталяваць GT Alarm.</string>
-    <string name="help_open_default_apps">Адкрыць «Прыкладанні па змаўчанні» ў наладах</string>
     <string name="help_reset_hint">Калі па памылцы па змаўчанні было ўсталявана іншае прыкладанне: Налады → Прыкладанні → тое прыкладанне → Адкрываць па змаўчанні → Ачысціць.</string>
     <string name="help_pair_watch_title">Аўтарызацыя гадзінніка Huawei</string>
     <string name="help_pair_watch_body">Падключыце ўжо спараваны гадзіннік Huawei Sports Watch / GT, каб будзільнікі звінелі на запясці. Патрабуецца прыкладанне Huawei Health і гадзіннік, ужо спараваны праз яго. На прыладах без Huawei Health нічога не адбываецца.</string>
@@ -80,7 +77,7 @@
     <string name="help_device_unsupported_body">На сёння цалкам пратэставаны толькі Huawei GT 6 Pro. Калі ваша мадэль не сінхранізуецца ці выгляд скажоны — напішыце мне. Перадача прылады на тэст — самы хуткі шлях да поўнай падтрымкі.</string>
     <string name="help_device_unsupported_button">Звязацца з распрацоўшчыкам</string>
     <string name="help_credits_title">Аўтары</string>
-    <string name="help_credits_icons">Іконкі ад Pixel perfect — Flaticon</string>
+    <string name="help_credits_icons">Іконкі ад Tabler</string>
     <string name="field_snooze_off_value">Выкл</string>
     <string name="field_snooze_off_chip">Выкл</string>
     <string name="dialog_keep_editing">Працягнуць рэдагаванне</string>

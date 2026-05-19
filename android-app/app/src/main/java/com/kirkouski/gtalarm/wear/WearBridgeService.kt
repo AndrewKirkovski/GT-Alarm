@@ -115,10 +115,22 @@ interface WearBridgeService {
     /**
      * Renders the Wear Engine auth dialog via Huawei Health. Activity context
      * required (the dialog is rendered by Huawei Health, not us). User-driven
-     * — wired to the "Authorize watch access" button in HelpScreen, NOT
-     * auto-fired on launch.
+     * — wired to the "Authorize watch access" buttons in HelpScreen and the
+     * WatchSyncCard, NOT auto-fired on launch.
      */
     fun requestPermissionFromActivity(activity: android.app.Activity)
+
+    /**
+     * Tri-state check of whether the app currently holds Wear Engine
+     * `DEVICE_MANAGER` permission. Drives the WatchSyncCard's authorize-vs-sync
+     * button:
+     * - `true`  — granted; show the force-sync button.
+     * - `false` — Huawei Health present but permission not granted; show the
+     *   authorize button.
+     * - `null`  — could not determine (Huawei Health / HMS missing); leave the
+     *   default force-sync button so non-Huawei devices aren't mislabelled.
+     */
+    suspend fun hasWatchPermission(): Boolean?
 
     /**
      * User-initiated "Force sync" button. Pings the peer Lite Wearable app

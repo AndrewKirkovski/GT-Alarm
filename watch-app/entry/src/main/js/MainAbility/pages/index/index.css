@@ -148,7 +148,7 @@
     width: 12px;
     height: 12px;
     border-radius: 6px;
-    background-color: #22C55E;
+    background-color: #35C84A;
     margin-right: 12px;
 }
 
@@ -242,7 +242,7 @@
     width: 12px;
     height: 12px;
     border-radius: 6px;
-    background-color: #A5B4FC;
+    background-color: #5FC9EF;
 }
 
 .day-dot-on-dim {
@@ -250,7 +250,7 @@
     width: 12px;
     height: 12px;
     border-radius: 6px;
-    background-color: #6366F1;
+    background-color: #009EDA;
 }
 
 .alarm-days-text {
@@ -325,7 +325,7 @@
     height: 42px;
     margin-top: 16px;
     margin-bottom: 8px;
-    color: #818CF8;
+    color: #5FC9EF;
     font-size: 30px;
     text-align: center;
 }
@@ -354,7 +354,7 @@
     width: 466px;
     height: 466px;
     stroke-width: 6px;
-    color: #22C55E;
+    color: #35C84A;
     radius: 220px;
     center-x: 233px;
     center-y: 233px;
@@ -375,7 +375,7 @@
 }
 
 /* Ended-state confirmation — replaces .ring-actions in place. Same
-   width / height / margin-top as .ring-actions so DISMISSED / SNOOZED
+   width / height / margin-top as .ring-actions so the green thumbs-up
    sits at exactly the Y the buttons occupied. */
 .ring-ended {
     display: flex;
@@ -383,11 +383,13 @@
     align-items: center;
     justify-content: center;
     width: 466px;
-    height: 88px;
+    height: 124px;
     margin-top: 6px;
-    color: #22C55E;
-    font-size: 60px;
-    text-align: center;
+}
+
+.ring-thumb {
+    width: 96px;
+    height: 96px;
 }
 
 .ring-bell {
@@ -414,61 +416,33 @@
     margin-bottom: 4px;
 }
 
-.ring-label {
-    width: 466px;
-    color: #C4CEE0;
-    font-size: 32px;
-    height: 40px;
-    text-align: center;
-    margin-bottom: 6px;
-}
-
 .ring-actions {
     display: flex;
     flex-direction: row;
     justify-content: center;
     align-items: center;
     width: 466px;
-    height: 88px;
+    height: 124px;
     margin-top: 6px;
 }
 
-/* Buttons kept at the original size — two must fit within the round
-   chord at the button-row Y, and "Snooze 10m" must fit one button.
-   Scaling them up clips at the chord, so the ring action row is the one
-   place the 1.5x text bump does not apply. */
-.btn {
+/* Snooze / stop are circular icon buttons. 112px circles with 22px side
+   margins → 312px total, well inside the round chord at the action-row Y.
+   The glyph + gradient is baked into the PNG (tools/icongen). */
+.ring-btn {
     display: flex;
-    flex-direction: row;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    width: 180px;
-    height: 88px;
-    border-radius: 44px;
-    margin-left: 12px;
-    margin-right: 12px;
+    width: 112px;
+    height: 112px;
+    margin-left: 22px;
+    margin-right: 22px;
 }
 
-.btn-text {
-    color: #FFFFFF;
-    font-size: 28px;
-    text-align: center;
-}
-
-.btn-snooze {
-    background-color: #374151;
-}
-
-.btn-snooze-pressed {
-    background-color: #15151A;
-}
-
-.btn-dismiss {
-    background-color: #B91C1C;
-}
-
-.btn-dismiss-pressed {
-    background-color: #5C1212;
+.ring-btn-img {
+    width: 112px;
+    height: 112px;
 }
 
 .ring-diag {
@@ -478,4 +452,27 @@
     text-align: center;
     color: #D6DCE8;
     font-size: 14px;
+}
+
+/* Hidden crown-capture list — see index.js CROWN_* + onCrownTick. The
+   digital crown scrolls the focused <list>; this one exists only to
+   receive that scroll on the ring screen. Transparent + bottom layer of
+   the ring <stack> = invisible and never intercepts touch. It is
+   CROWN_ITEM_COUNT items tall so it always has scroll range. */
+.crown-list {
+    width: 466px;
+    height: 466px;
+    background-color: transparent;
+}
+
+.crown-item {
+    width: 466px;
+    height: 16px;
+}
+
+.crown-cell {
+    display: flex;
+    width: 466px;
+    height: 16px;
+    background-color: transparent;
 }

@@ -36,8 +36,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -204,8 +202,10 @@ fun WatchBackgroundPickerDialog(
                 )
                 IconButton(onClick = onDismiss) {
                     Icon(
-                        imageVector = Icons.Default.Close,
+                        painter = painterResource(R.drawable.ic_close),
                         contentDescription = stringResource(R.string.cancel),
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(24.dp),
                     )
                 }
             }

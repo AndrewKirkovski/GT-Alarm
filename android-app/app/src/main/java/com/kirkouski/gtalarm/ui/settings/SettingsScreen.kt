@@ -10,6 +10,7 @@ package com.kirkouski.gtalarm.ui.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -18,29 +19,24 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +51,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.data.SettingsState
+import com.kirkouski.gtalarm.ui.components.AccordionSection
 import com.kirkouski.gtalarm.ui.edit.WatchBackgroundPickerDialog
 import com.kirkouski.gtalarm.ui.edit.rememberAudioPicker
 import com.kirkouski.gtalarm.ui.edit.rememberAudioPreview
@@ -64,67 +61,69 @@ import com.kirkouski.gtalarm.util.firstCalendarDayWithOverride
 import com.kirkouski.gtalarm.util.longDayName
 import java.util.Calendar
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    onBack: () -> Unit,
     vm: SettingsViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    var displayOpen by rememberSaveable { mutableStateOf(true) }
+    var ringtoneOpen by rememberSaveable { mutableStateOf(false) }
+    var backgroundOpen by rememberSaveable { mutableStateOf(false) }
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.screen_settings_title)) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = stringResource(R.string.cancel),
-                        )
-                    }
-                },
-            )
-        },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
         Column(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(vertical = 8.dp),
         ) {
-            DisplaySection(state = state, vm = vm)
-            RingtoneSection(state = state, vm = vm)
-            BackgroundSection(state = state, vm = vm)
+            AccordionSection(
+                title = stringResource(R.string.settings_section_display),
+                expanded = displayOpen,
+                onToggle = { displayOpen = !displayOpen },
+            ) {
+                DisplaySection(state = state, vm = vm)
+            }
+            HorizontalDivider()
+            AccordionSection(
+                title = stringResource(R.string.settings_section_default_ringtones),
+                expanded = ringtoneOpen,
+                onToggle = { ringtoneOpen = !ringtoneOpen },
+            ) {
+                RingtoneSection(state = state, vm = vm)
+            }
+            HorizontalDivider()
+            AccordionSection(
+                title = stringResource(R.string.settings_section_default_backgrounds),
+                expanded = backgroundOpen,
+                onToggle = { backgroundOpen = !backgroundOpen },
+            ) {
+                BackgroundSection(state = state, vm = vm)
+            }
         }
     }
 }
 
 @Composable
 private fun BackgroundSection(state: SettingsState, vm: SettingsViewModel) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            SectionTitle(textRes = R.string.settings_section_default_backgrounds)
-            Text(
-                text = stringResource(R.string.settings_default_backgrounds_intro),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            BackgroundRow(
-                titleRes = R.string.settings_default_phone_background,
-                currentUri = state.defaultPhoneBackgroundUri,
-                onPicked = { uri -> vm.setDefaultPhoneBackground(uri) },
-                onClear = { vm.setDefaultPhoneBackground(null) },
-            )
-            WatchBackgroundRow(
-                currentUri = state.defaultWatchBackgroundUri,
-                onPicked = { uri -> vm.setDefaultWatchBackground(uri) },
-                onClear = { vm.setDefaultWatchBackground(null) },
-            )
-        }
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text(
+            text = stringResource(R.string.settings_default_backgrounds_intro),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        BackgroundRow(
+            titleRes = R.string.settings_default_phone_background,
+            currentUri = state.defaultPhoneBackgroundUri,
+            onPicked = { uri -> vm.setDefaultPhoneBackground(uri) },
+            onClear = { vm.setDefaultPhoneBackground(null) },
+        )
+        WatchBackgroundRow(
+            currentUri = state.defaultWatchBackgroundUri,
+            onPicked = { uri -> vm.setDefaultWatchBackground(uri) },
+            onClear = { vm.setDefaultWatchBackground(null) },
+        )
     }
 }
 
@@ -242,12 +241,14 @@ private fun BackgroundRowLayout(
         if (currentUri != null) {
             IconButton(onClick = onClear) {
                 Icon(
-                    imageVector = Icons.Default.Close,
+                    painter = painterResource(R.drawable.ic_close),
                     contentDescription = stringResource(R.string.settings_default_background_clear),
+                    tint = Color.Unspecified,
+                    modifier = Modifier.size(24.dp),
                 )
             }
         }
-        OutlinedButton(onClick = onPick) {
+        FilledTonalButton(onClick = onPick) {
             Text(stringResource(R.string.field_audio_pick))
         }
     }
@@ -255,33 +256,26 @@ private fun BackgroundRowLayout(
 
 @Composable
 private fun DisplaySection(state: SettingsState, vm: SettingsViewModel) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            SectionTitle(textRes = R.string.settings_section_display)
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            text = stringResource(R.string.settings_time_format_label),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
+        TwentyFourHourSelector(
+            value = state.use24Hour,
+            onChange = vm::setUse24Hour,
+        )
 
-            Text(
-                text = stringResource(R.string.settings_time_format_label),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-            TwentyFourHourSelector(
-                value = state.use24Hour,
-                onChange = vm::setUse24Hour,
-            )
-
-            Text(
-                text = stringResource(R.string.settings_first_day_label),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-            FirstDayDropdown(
-                value = state.firstDayOfWeek,
-                onChange = vm::setFirstDayOfWeek,
-            )
-        }
+        Text(
+            text = stringResource(R.string.settings_first_day_label),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
+        FirstDayDropdown(
+            value = state.firstDayOfWeek,
+            onChange = vm::setFirstDayOfWeek,
+        )
     }
 }
 
@@ -324,7 +318,7 @@ private fun FirstDayDropdown(
         longDayName(effective)
     }
     Column {
-        OutlinedButton(
+        FilledTonalButton(
             onClick = { expanded = true },
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -332,7 +326,12 @@ private fun FirstDayDropdown(
                 text = label,
                 modifier = Modifier.padding(end = 8.dp),
             )
-            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+            Icon(
+                painter = painterResource(R.drawable.ic_arrow_drop_down),
+                contentDescription = null,
+                tint = Color.Unspecified,
+                modifier = Modifier.size(20.dp),
+            )
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
@@ -364,33 +363,27 @@ private fun FirstDayDropdown(
 
 @Composable
 private fun RingtoneSection(state: SettingsState, vm: SettingsViewModel) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            SectionTitle(textRes = R.string.settings_section_default_ringtones)
-            Text(
-                text = stringResource(R.string.settings_default_ringtones_intro),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            RingtoneRow(
-                iconRes = R.drawable.ic_music_note,
-                titleRes = R.string.settings_default_ringtone_absolute,
-                currentName = state.defaultAbsoluteRingtoneName,
-                currentUri = state.defaultAbsoluteRingtoneUri,
-                onPicked = { uri, name -> vm.setDefaultAbsoluteRingtone(uri, name) },
-                onClear = { vm.setDefaultAbsoluteRingtone(null, null) },
-            )
-            RingtoneRow(
-                iconRes = R.drawable.ic_timer,
-                titleRes = R.string.settings_default_ringtone_relative,
-                currentName = state.defaultRelativeRingtoneName,
-                currentUri = state.defaultRelativeRingtoneUri,
-                onPicked = { uri, name -> vm.setDefaultRelativeRingtone(uri, name) },
-                onClear = { vm.setDefaultRelativeRingtone(null, null) },
-            )
-        }
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text(
+            text = stringResource(R.string.settings_default_ringtones_intro),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        RingtoneRow(
+            iconRes = R.drawable.ic_music_note,
+            titleRes = R.string.settings_default_ringtone_absolute,
+            currentName = state.defaultAbsoluteRingtoneName,
+            currentUri = state.defaultAbsoluteRingtoneUri,
+            onPicked = { uri, name -> vm.setDefaultAbsoluteRingtone(uri, name) },
+            onClear = { vm.setDefaultAbsoluteRingtone(null, null) },
+        )
+        RingtoneRow(
+            iconRes = R.drawable.ic_timer,
+            titleRes = R.string.settings_default_ringtone_relative,
+            currentName = state.defaultRelativeRingtoneName,
+            currentUri = state.defaultRelativeRingtoneUri,
+            onPicked = { uri, name -> vm.setDefaultRelativeRingtone(uri, name) },
+            onClear = { vm.setDefaultRelativeRingtone(null, null) },
+        )
     }
 }
 
@@ -444,10 +437,14 @@ private fun RingtoneRow(
                 },
             ) {
                 Icon(
-                    imageVector = if (previewing) Icons.Default.Stop else Icons.Default.PlayArrow,
+                    painter = painterResource(
+                        if (previewing) R.drawable.ic_stop else R.drawable.ic_play,
+                    ),
                     contentDescription = stringResource(
                         if (previewing) R.string.action_stop_preview else R.string.action_play_preview,
                     ),
+                    tint = Color.Unspecified,
+                    modifier = Modifier.size(24.dp),
                 )
             }
         }
@@ -455,14 +452,14 @@ private fun RingtoneRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            OutlinedButton(
+            FilledTonalButton(
                 onClick = pickAudio,
                 modifier = Modifier.weight(1f),
             ) {
                 Text(stringResource(R.string.field_audio_pick))
             }
             if (currentUri != null) {
-                OutlinedButton(
+                FilledTonalButton(
                     onClick = {
                         audioPreview.stop()
                         onClear()
@@ -474,15 +471,6 @@ private fun RingtoneRow(
             }
         }
     }
-}
-
-@Composable
-private fun SectionTitle(textRes: Int) {
-    Text(
-        text = stringResource(textRes),
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.SemiBold,
-    )
 }
 
 // Sentinel alarm id for the Settings default watch-bg crop. Negative so it

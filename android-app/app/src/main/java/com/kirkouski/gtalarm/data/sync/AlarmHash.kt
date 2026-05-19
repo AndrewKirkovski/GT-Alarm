@@ -14,7 +14,7 @@ import com.kirkouski.gtalarm.domain.Alarm
  * on the watch side (`((h << 5) - h + s.charCodeAt(i)) | 0`).
  *
  * **Canonical form:** alarms sorted by id ascending, each rendered as a
- * pipe-delimited line `id|label|hour|minute|daysOfWeek|enabled|audioUri|
+ * pipe-delimited line `id|hour|minute|daysOfWeek|enabled|audioUri|
  * isVibrationOnly|snoozeMinutes|updatedAtEpoch|relativeMinutes|selfDestruct`
  * with `\n` separator. Booleans render as `1`/`0`; null audioUri / null
  * relativeMinutes render as empty string between the surrounding pipes.
@@ -24,6 +24,9 @@ import com.kirkouski.gtalarm.domain.Alarm
  * check becomes useless overhead.
  *
  * **Intentionally NOT included** in the canonical form:
+ *   - `label` — not part of the watch wire format at all; the alarm label
+ *     is phone-only (shown on the phone ring screen). The watch never
+ *     receives it, so including it here would force a permanent mismatch.
  *   - `backgroundImageUri` — device-local `content://` path that doesn't
  *     round-trip between phone and watch (watch never has the same URI).
  *     Reconciliation of the watch image happens via file-transfer of the
@@ -41,7 +44,6 @@ object AlarmHash {
         val sb = StringBuilder()
         alarms.sortedBy { it.id }.forEach { a ->
             sb.append(a.id).append('|')
-                .append(a.label).append('|')
                 .append(a.hour).append('|')
                 .append(a.minute).append('|')
                 .append(a.daysOfWeek).append('|')

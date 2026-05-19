@@ -62,13 +62,10 @@
     <string name="voice_alarm_failed">Nie udało się ustawić alarmu</string>
 
     <string name="action_open_help">Pomoc</string>
-    <string name="screen_help_title">Konfiguracja głosowa</string>
     <string name="help_intro">Android nie ma jednego ustawienia o nazwie „domyślna aplikacja alarmu”. Gdy poprosisz Asystenta Google o ustawienie alarmu, system użyje wcześniej wybranej aplikacji albo pokaże okno wyboru przy pierwszym uruchomieniu. Wybranie GT Alarm i naciśnięcie „Zawsze” ustawia ją jako domyślną.</string>
     <string name="help_status_default">GT Alarm jest domyślną aplikacją alarmu na tym urządzeniu.</string>
     <string name="help_status_disambiguator">Zainstalowano wiele aplikacji alarmu. Następnym razem, gdy powiesz „Hey Google, set an alarm”, Android pokaże okno wyboru — wybierz GT Alarm i naciśnij Zawsze.</string>
     <string name="help_status_other">Obecnie domyślną aplikacją jest %1$s. Aby przełączyć, użyj instrukcji dla swojej marki telefonu poniżej.</string>
-    <string name="help_status_none">Na tym urządzeniu nie zarejestrowano żadnej aplikacji alarmu. Spróbuj zainstalować GT Alarm ponownie.</string>
-    <string name="help_open_default_apps">Otwórz „Aplikacje domyślne” w Ustawieniach</string>
     <string name="help_reset_hint">Jeśli inna aplikacja została ustawiona jako domyślna przez pomyłkę: Ustawienia → Aplikacje → ta aplikacja → Otwórz domyślnie → Wyczyść.</string>
     <string name="help_pair_watch_title">Autoryzacja zegarka Huawei</string>
     <string name="help_pair_watch_body">Połącz sparowany wcześniej zegarek Huawei Sports Watch / GT, aby alarmy dzwoniły na nadgarstku. Wymaga aplikacji Huawei Health i zegarka już sparowanego przez nią. Na urządzeniach bez Huawei Health nic się nie stanie.</string>
@@ -80,7 +77,7 @@
     <string name="help_device_unsupported_body">Na dziś w pełni przetestowany jest tylko Huawei GT 6 Pro. Jeśli Twój model się nie synchronizuje albo układ jest dziwny — napisz do mnie. Przekazanie urządzenia do testów to najszybsza droga do pełnego wsparcia.</string>
     <string name="help_device_unsupported_button">Skontaktuj się z autorem</string>
     <string name="help_credits_title">Autorzy</string>
-    <string name="help_credits_icons">Ikony autorstwa Pixel perfect — Flaticon</string>
+    <string name="help_credits_icons">Ikony autorstwa Tabler</string>
     <string name="field_snooze_off_value">Wył.</string>
     <string name="field_snooze_off_chip">Wył.</string>
     <string name="dialog_keep_editing">Wróć do edycji</string>

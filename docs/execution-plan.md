@@ -1,10 +1,26 @@
 # GT Alarm — Multi-phase execution plan
 
-**Status:** in-progress · **Created:** 2026-04-25
+**Status:** in-progress · **Created:** 2026-04-25 · **Reconciled:** 2026-05-19
 
 Breakdown of every gap found by the 2026-04-25 anti-lazy scan, organised into phases that each end with a code-review pass. Each phase is verifiable before the next begins.
 
 > Companion to `acceptance-criteria.md` and `sync-architecture.md`. Re-read both before starting any phase.
+> **The phase numbering below is historical** — the watch app was rewritten mid-plan (see the Reconcile section). `acceptance-criteria.md` → "KNOWN GAPS TO CLOSE NEXT" is the live task list.
+
+---
+
+## Reconcile — current status (2026-05-19)
+
+This plan was written against the **HarmonyOS NEXT** watch app. On 2026-04-27 the watch was **rewritten as a HarmonyOS LiteWearable app** (ACELite FA-model JS) — the GT 6 will not run a NEXT / Stage-Model app. The legacy app is parked in `watch-app.old/`. This supersedes the watch-side phases:
+
+- **Phase 0a (watch codelinter / ohosTest / `safeResourceColor`)** — SUPERSEDED. The LiteWearable app has no ArkTS, no `ColorMetrics`, no Hypium/ohosTest. Watch linting is `codelinter.sh`; there is no watch unit-test suite.
+- **Phase 1 (watch Hypium unit tests)** — SUPERSEDED for the same reason. Watch logic is plain ES5 JS, verified on-device.
+- **Phases 0b / 2 / 3 / 4 (Android)** — substantially LANDED. Android is on the 2026 SDK stack; the three-layer linter (kotlinc `-Werror` + Android lint + detekt) is enforced; edge-to-edge, locale overlays, swipe-to-delete, widget refresh, the battery card all shipped. Per-criterion status lives in `acceptance-criteria.md`.
+- **Migrations:** Phase 4b added a Room v1→v2 migration, but the project policy since 2026-05-13 is **no migration code until the first public release** — pre-release schema bumps are handled by wipe-and-reinstall (`memory/no_migration_until_release.md`). `DatabaseModule` uses `fallbackToDestructiveMigration` (debug-gated).
+
+**Shipped since (DONE sections at the bottom):** Phase 5a, 5a+, the LiteWearable watch rewrite, and the post-5a+ icon-system + UI/UX + watch-input pass.
+
+**Current blocker:** Huawei AppGallery / Wear Engine dev-account approval — every cross-device sync criterion (`acceptance-criteria.md` #21–26) is coded (🟡) and cannot be verified until P2P transport is live.
 
 ---
 
@@ -262,6 +278,21 @@ What ✅ verifies (when hardware lands):
   corresponding live-device tests pass.
 - Pre-release legal/correctness backlog (AC "KNOWN GAPS → Android"
   entries 0 a/b/c) must close before public Play Store release.
+
+---
+
+### Post-5a+ landings (2026-05-15 → 2026-05-19)
+
+Not part of the original 2026-04-25 plan — queued UX/polish plus a full icon-pipeline rebuild and a watch-input research spike.
+
+Landed:
+- **Icon system** — repo-tracked generator `tools/icongen` (Tabler SVG → PNG: gradient-circle / raw / gradient-stroke / filled modes). Replaced the Flaticon set on both apps; closed the Flaticon attribution legal gap (`acceptance-criteria.md` KNOWN GAPS Android #0). Phone bottom-tab navigation (`ui/nav/BottomBar.kt`).
+- **Brand palette** — fixed 6-colour palette (primary cyan `#009EDA`) applied to both apps; Material You dynamic colour dropped in favour of the fixed brand scheme.
+- **Compose UI restyle** — collapsible `AccordionSection` component; Help + Settings rebuilt as edge-to-edge accordion lists; Help-screen content rework (voice-section dedup, brand-tip trim to non-checklist items, single immediate Debug button, dead "Open Default apps" button removed, unreachable `help_status_none` state removed).
+- **Watch-sync authorize flow** — the watch-sync card's button launches the Wear Engine permission dialog directly when permission is missing (tri-state `hasWatchPermission`).
+- **Watch input research + crown-to-snooze** — established (memory `litewearable_input_capabilities.md`) that the GT 6 physical button is system-reserved (no JS event reaches a third-party app) and the crown only drives a focused `<list>`'s scroll. Shipped crown-to-snooze on the ring screen: a hidden, always-scrollable `<list>` debounces `scrollend` ticks into gestures — one rotation → snooze, two → dismiss.
+
+Pending device verification: crown-to-snooze timing tuning on the GT 6; the palette / UX pass rendered on the watch.
 
 ---
 

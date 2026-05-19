@@ -925,11 +925,12 @@ class HuaweiWearBridge @Inject constructor(
         }
     }
 
-    private suspend fun ensurePermissionGranted(): Boolean {
-        return awaitTask("checkPermission") {
+    override suspend fun hasWatchPermission(): Boolean? =
+        awaitTask("checkPermission") {
             HiWear.getAuthClient(context).checkPermission(Permission.DEVICE_MANAGER)
-        } == true
-    }
+        }
+
+    private suspend fun ensurePermissionGranted(): Boolean = hasWatchPermission() == true
 
     // reason: same as performSend — Wear Engine wraps all transport errors in
     // RuntimeException subclasses; narrower catches would miss real failures.
@@ -962,7 +963,8 @@ class HuaweiWearBridge @Inject constructor(
     // two paths cannot drift in field set or encoding.
     private fun buildAlarmPayload(alarm: Alarm): JSONObject = JSONObject().apply {
         put("id", alarm.id)
-        put("label", alarm.label)
+        // alarm.label is intentionally NOT sent — the label is phone-only
+        // (shown on the phone ring screen). See sync-architecture.md §2.2.
         put("hour", alarm.hour)
         put("minute", alarm.minute)
         put("daysOfWeek", alarm.daysOfWeek)

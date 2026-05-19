@@ -155,7 +155,7 @@
     width: 12px;
     height: 12px;
     border-radius: 6px;
-    background-color: #22C55E;
+    background-color: #35C84A;
     margin-right: 12px;
     flex-shrink: 0;
   }
@@ -202,8 +202,8 @@
     border-radius: 6px;
     background-color: #555E7A;
   }
-  .day-dot-on { background-color: #A5B4FC; }
-  .day-dot-on-dim { background-color: #6366F1; }
+  .day-dot-on { background-color: #5FC9EF; }
+  .day-dot-on-dim { background-color: #009EDA; }
   .alarm-days-text {
     color: #C4CEE0;
     font-size: 24px;
@@ -272,10 +272,9 @@
     position: relative;
   }
   .ring-bell {
-    width: 48px;
-    height: 48px;
-    margin-bottom: 6px;
-    background: radial-gradient(circle, #FCA5A5 22%, transparent 23%);
+    width: 56px;
+    height: 56px;
+    margin-bottom: 8px;
   }
   .ring-title {
     width: 420px;
@@ -296,41 +295,26 @@
     margin-bottom: 4px;
     font-weight: 200;
   }
-  .ring-label {
-    width: 420px;
-    color: #A5B4CB;
-    font-size: 32px;
-    height: 40px;
-    line-height: 40px;
-    text-align: center;
-    margin-bottom: 6px;
-  }
   .ring-actions {
     display: flex;
     flex-direction: row;
     justify-content: center;
     align-items: center;
     width: 466px;
-    height: 88px;
+    height: 124px;
     margin-top: 6px;
   }
-  .btn {
+  /* Circular snooze / stop icon buttons — gradient + glyph baked into
+     the PNG by tools/icongen. */
+  .ring-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 180px;
-    height: 88px;
-    border-radius: 44px;
-    margin: 0 12px;
-    box-sizing: border-box;
+    width: 112px;
+    height: 112px;
+    margin: 0 22px;
   }
-  .btn-text {
-    color: #F1F5F9;
-    font-size: 28px;
-    text-align: center;
-  }
-  .btn-snooze   { background-color: #374151; }
-  .btn-dismiss  { background-color: #B91C1C; }
+  .ring-btn-img { width: 112px; height: 112px; }
 
   /* Green-flash variant — shown the moment the phone's dismiss/snooze
      reaches the ring page's receiver (Bug-1 visible indicator). */
@@ -341,22 +325,20 @@
     top: 7px;
     left: 7px;
     border-radius: 50%;
-    border: 6px solid #22C55E;
+    border: 6px solid #35C84A;
     box-sizing: border-box;
     pointer-events: none;
   }
-  /* Ended-state confirmation — replaces .ring-actions in place. */
+  /* Ended-state confirmation — green thumbs-up replaces .ring-actions. */
   .ring-ended {
     display: flex;
     align-items: center;
     justify-content: center;
     width: 466px;
-    height: 88px;
+    height: 124px;
     margin-top: 6px;
-    color: #22C55E;
-    font-size: 40px;
-    text-align: center;
   }
+  .ring-thumb { width: 96px; height: 96px; }
   .ring-diag {
     width: 420px;
     height: 18px;
@@ -375,7 +357,7 @@
     width: 380px;
     height: 26px;
     margin-top: 18px;
-    color: #6366F1;
+    color: #5FC9EF;
     font-size: 18px;
     text-align: center;
   }
@@ -525,13 +507,12 @@
         <div class="ring">
           <div class="ring-arc"></div>
           <div class="ring-content">
-            <div class="ring-bell">&#128276;</div>
+            <img class="ring-bell" src="../watch-app/entry/src/main/js/MainAbility/common/bell.png">
             <div class="ring-title">Alarm</div>
             <div class="ring-time">07:30</div>
-            <div class="ring-label">Wake up!</div>
             <div class="ring-actions">
-              <div class="btn btn-snooze"><div class="btn-text">Snooze 10m</div></div>
-              <div class="btn btn-dismiss"><div class="btn-text">Dismiss</div></div>
+              <div class="ring-btn"><img class="ring-btn-img" src="../watch-app/entry/src/main/js/MainAbility/common/snooze.png"></div>
+              <div class="ring-btn"><img class="ring-btn-img" src="../watch-app/entry/src/main/js/MainAbility/common/stop.png"></div>
             </div>
           </div>
         </div>
@@ -619,13 +600,12 @@
       <div class="ring">
         <div class="ring-arc"></div>
         <div class="ring-content">
-          <div class="ring-bell"></div>
+          <img class="ring-bell" src="../watch-app/entry/src/main/js/MainAbility/common/bell.png">
           <div class="ring-title">Alarm</div>
           <div class="ring-time">07:30</div>
-          <div class="ring-label">Wake up</div>
           <div class="ring-actions">
-            <div class="btn btn-snooze"><div class="btn-text">Snooze 10m</div></div>
-            <div class="btn btn-dismiss"><div class="btn-text">Dismiss</div></div>
+            <div class="ring-btn"><img class="ring-btn-img" src="../watch-app/entry/src/main/js/MainAbility/common/snooze.png"></div>
+            <div class="ring-btn"><img class="ring-btn-img" src="../watch-app/entry/src/main/js/MainAbility/common/stop.png"></div>
           </div>
           <div class="ring-diag">snt:207 rx:ok@1s raw:2 in:1</div>
         </div>
@@ -640,11 +620,10 @@
       <div class="ring">
         <div class="ring-arc-green"></div>
         <div class="ring-content">
-          <div class="ring-bell"></div>
+          <img class="ring-bell" src="../watch-app/entry/src/main/js/MainAbility/common/bell.png">
           <div class="ring-title">Alarm</div>
           <div class="ring-time">07:30</div>
-          <div class="ring-label">Wake up</div>
-          <div class="ring-ended">DISMISSED</div>
+          <div class="ring-ended"><img class="ring-thumb" src="../watch-app/entry/src/main/js/MainAbility/common/thumbup.png"></div>
           <div class="ring-diag">snt:207 rx:ok@27s raw:6 in:5</div>
         </div>
       </div>

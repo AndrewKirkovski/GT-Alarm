@@ -334,10 +334,9 @@ class AlarmRepository @Inject constructor(
             daysOfWeek = 0,
             enabled = true,
             updatedAtEpoch = now,
-            // Match scheduleTestFireInOneMinute: 1-min snooze + self-destruct so
-            // the dev loop iterates at the same fast tempo and the row doesn't
-            // linger in the list after dismiss. Default 10-min snooze made
-            // verification useless on the instant-fire path.
+            // 1-min snooze + self-destruct so the debug fire-now loop
+            // iterates fast and the row self-clears after dismiss instead
+            // of accumulating disabled "Debug instant fire" rows.
             snoozeMinutes = Alarm.MIN_SNOOZE_MINUTES,
             selfDestruct = true,
         )
@@ -346,40 +345,6 @@ class AlarmRepository @Inject constructor(
         refreshWidgets()
         Log.i(TAG, "ensureDebugAlarmId created id=$newId")
         return newId
-    }
-
-    // Debug-only: inserts a one-shot alarm and overrides the scheduler's
-    // computed hour/minute trigger with an exact `now + 60_000` epoch so a
-    // tester doesn't have to wait until the next minute boundary. Returns
-    // the trigger epoch in ms so the caller can surface "fires at 14:33:42"
-    // in a Toast. The row stays in the DB after the fire — same lifecycle
-    // as a real one-shot (auto-disabled by AlarmRingService.handleDismiss).
-    suspend fun scheduleTestFireInOneMinute(): Long {
-        val now = System.currentTimeMillis()
-        val trigger = now + ONE_MINUTE_MS
-        val cal = java.util.Calendar.getInstance().apply { timeInMillis = trigger }
-        val draft = Alarm(
-            label = "Debug 1-min fire",
-            hour = cal.get(java.util.Calendar.HOUR_OF_DAY),
-            minute = cal.get(java.util.Calendar.MINUTE),
-            daysOfWeek = 0,
-            enabled = true,
-            updatedAtEpoch = now,
-            // Match the 1-minute fire cadence so test snooze loops at the
-            // same fast tempo. Default 10-min snooze makes the dev loop
-            // unusable — user would tap snooze and wait 10 min to verify.
-            snoozeMinutes = Alarm.MIN_SNOOZE_MINUTES,
-            // Self-destruct so the row vanishes after dismiss instead of
-            // accumulating disabled "Debug 1-min fire" rows in the list.
-            selfDestruct = true,
-        )
-        val newId = dao.upsert(draft.toEntity())
-        val saved = draft.copy(id = newId)
-        scheduler.scheduleAt(saved, trigger)
-        wearBridge.sendAlarmAdded(saved)
-        refreshWidgets()
-        Log.i(TAG, "scheduleTestFireInOneMinute id=$newId trigger=$trigger")
-        return trigger
     }
 
     private suspend fun refreshWidgets() = widgetRefresher.refresh()
@@ -408,7 +373,6 @@ class AlarmRepository @Inject constructor(
 
     private companion object {
         const val TAG = "AlarmRepo"
-        const val ONE_MINUTE_MS = 60_000L
         // Sentinel "alarm id" used as the cache-file key for the shared
         // watch-default background (`watch_bg_-1.png` / `watch_bg_-1.bin`).
         // Matches the constant the Settings picker passes to

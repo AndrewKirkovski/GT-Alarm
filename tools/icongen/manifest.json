@@ -1,0 +1,56 @@
+{
+  "_comment": "GT-Alarm icon manifest. Each icon: name (output stem), glyph (Tabler file), variant (outline|filled), mode (raw|grad|circle), paint (key into palette.colors for raw, palette.gradients otherwise), size (px), out (android|watch). See README.md.",
+  "palette": {
+    "_comment": "GT-Alarm brand palette. primary cyan #009EDA, secondary indigo #6373F2, tertiary magenta #E058CE, success green #1EA52C, warning orange #DE6D23, snooze rose #FF678D; error stays true red #DC2626. Gradients are 135deg linear (top-left -> bottom-right).",
+    "colors": {
+      "white": "#FFFFFF",
+      "muted": "#8B82A8",
+      "primary": "#009EDA",
+      "red": "#DC2626"
+    },
+    "gradients": {
+      "circle-primary": ["#3FC4ED", "#0095CC"],
+      "circle-snooze": ["#FF8FAA", "#FF678D"],
+      "circle-stop": ["#DC2626", "#F26D6D"],
+      "stroke-nav": ["#009EDA", "#6373F2"],
+      "fill-green": ["#1EA52C", "#4ADE80"],
+      "fill-orange": ["#DE6D23", "#FB923C"],
+      "fill-violet": ["#EC85DE", "#E058CE"]
+    }
+  },
+  "icons": [
+    { "name": "ic_alarm",          "glyph": "alarm",                    "variant": "outline", "mode": "grad",   "paint": "stroke-nav",     "size": 192, "out": "android", "_use": "bottom-nav Alarms tab" },
+    { "name": "ic_settings",       "glyph": "settings",                 "variant": "outline", "mode": "grad",   "paint": "stroke-nav",     "size": 192, "out": "android", "_use": "bottom-nav Settings tab" },
+    { "name": "ic_help",           "glyph": "help",                     "variant": "outline", "mode": "grad",   "paint": "stroke-nav",     "size": 192, "out": "android", "_use": "bottom-nav Help tab" },
+    { "name": "ic_add",            "glyph": "plus",                     "variant": "outline", "mode": "circle", "paint": "circle-primary", "size": 256, "out": "android", "_use": "FAB add alarm (juicy circle)" },
+    { "name": "ic_alarm_off",      "glyph": "bell-off",                 "variant": "outline", "mode": "circle", "paint": "circle-primary", "size": 384, "out": "android", "_use": "empty-state hero" },
+    { "name": "ic_warning",        "glyph": "alert-triangle",           "variant": "filled",  "mode": "grad",   "paint": "fill-orange",    "size": 256, "out": "android", "_use": "setup-needed banner" },
+    { "name": "ic_delete",         "glyph": "trash",                    "variant": "outline", "mode": "raw",    "paint": "red",            "size": 192, "out": "android", "_use": "swipe-to-delete bg + edit delete action" },
+    { "name": "ic_info",           "glyph": "info-circle",              "variant": "outline", "mode": "raw",    "paint": "muted",          "size": 192, "out": "android", "_use": "voice-status banner, informational" },
+    { "name": "ic_watch",          "glyph": "device-watch",             "variant": "outline", "mode": "grad",   "paint": "circle-primary", "size": 192, "out": "android", "_use": "watch-sync card, connected" },
+    { "name": "ic_watch_off",      "glyph": "device-watch",             "variant": "outline", "mode": "raw",    "paint": "red",            "size": 192, "out": "android", "_use": "watch-sync card, error" },
+    { "name": "ic_sync",           "glyph": "refresh",                  "variant": "outline", "mode": "circle", "paint": "circle-primary", "size": 256, "out": "android", "_use": "watch-sync force-sync button" },
+    { "name": "ic_watch_authorize","glyph": "key",                      "variant": "outline", "mode": "circle", "paint": "circle-primary", "size": 256, "out": "android", "_use": "watch-sync card, authorize-access button" },
+    { "name": "ic_repeat",         "glyph": "repeat",                   "variant": "outline", "mode": "raw",    "paint": "muted",          "size": 192, "out": "android", "_use": "edit: repeat days" },
+    { "name": "ic_label",          "glyph": "tag",                      "variant": "outline", "mode": "raw",    "paint": "muted",          "size": 192, "out": "android", "_use": "edit: label field" },
+    { "name": "ic_music_note",     "glyph": "music",                    "variant": "outline", "mode": "raw",    "paint": "muted",          "size": 192, "out": "android", "_use": "edit: ringtone" },
+    { "name": "ic_image",          "glyph": "photo",                    "variant": "outline", "mode": "raw",    "paint": "muted",          "size": 192, "out": "android", "_use": "edit: background image" },
+    { "name": "ic_vibration",      "glyph": "device-mobile-vibration",  "variant": "outline", "mode": "raw",    "paint": "muted",          "size": 192, "out": "android", "_use": "edit: vibration toggle" },
+    { "name": "ic_snooze",         "glyph": "zzz",                      "variant": "outline", "mode": "raw",    "paint": "muted",          "size": 192, "out": "android", "_use": "edit: snooze minutes" },
+    { "name": "ic_timer",          "glyph": "clock",                    "variant": "outline", "mode": "raw",    "paint": "muted",          "size": 192, "out": "android", "_use": "edit: relative timer" },
+    { "name": "ic_delete_forever", "glyph": "trash-x",                  "variant": "outline", "mode": "raw",    "paint": "muted",          "size": 192, "out": "android", "_use": "edit: self-destruct" },
+    { "name": "ic_play",           "glyph": "player-play",              "variant": "filled",  "mode": "circle", "paint": "circle-primary", "size": 192, "out": "android", "_use": "audio preview play" },
+    { "name": "ic_stop",           "glyph": "player-stop",              "variant": "filled",  "mode": "circle", "paint": "circle-stop",    "size": 192, "out": "android", "_use": "audio preview stop" },
+    { "name": "ic_check",          "glyph": "check",                    "variant": "outline", "mode": "raw",    "paint": "primary",        "size": 192, "out": "android", "_use": "edit: save action" },
+    { "name": "ic_close",          "glyph": "x",                        "variant": "outline", "mode": "raw",    "paint": "muted",          "size": 192, "out": "android", "_use": "top-bar close" },
+    { "name": "ic_arrow_drop_down","glyph": "chevron-down",             "variant": "outline", "mode": "raw",    "paint": "muted",          "size": 192, "out": "android", "_use": "dropdown caret" },
+    { "name": "ic_radio_unchecked","glyph": "circle",                   "variant": "outline", "mode": "raw",    "paint": "muted",          "size": 192, "out": "android", "_use": "permission row, unmet" },
+    { "name": "ic_check_circle",   "glyph": "circle-check",             "variant": "filled",  "mode": "grad",   "paint": "fill-green",     "size": 192, "out": "android", "_use": "permission row, met" },
+
+    { "name": "snooze",            "glyph": "zzz",                      "variant": "outline", "mode": "circle", "paint": "circle-snooze",  "size": 256, "out": "watch",   "_use": "ring screen, snooze button" },
+    { "name": "stop",              "glyph": "player-stop",              "variant": "filled",  "mode": "circle", "paint": "circle-stop",    "size": 256, "out": "watch",   "_use": "ring screen, stop button" },
+    { "name": "sync",              "glyph": "refresh",                  "variant": "outline", "mode": "circle", "paint": "circle-primary", "size": 256, "out": "watch",   "_use": "sync screen, syncing indicator" },
+    { "name": "thumbup",           "glyph": "thumb-up",                 "variant": "filled",  "mode": "grad",   "paint": "fill-green",     "size": 192, "out": "watch",   "_use": "ring screen, dismissed/snoozed confirm" },
+    { "name": "bell",              "glyph": "bell",                     "variant": "filled",  "mode": "raw",    "paint": "white",          "size": 128, "out": "watch",   "_use": "ring screen, alarm bell (white)" }
+  ]
+}

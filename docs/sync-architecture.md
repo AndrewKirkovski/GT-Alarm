@@ -145,7 +145,7 @@ JSON over P2P. Every message is a single line, single object, no nesting.
 | `alarm_toggled` | < 160 B |
 | `alarm_ringing` / `alarm_dismissed_ack` / `alarm_snoozed_ack` | < 128 B |
 | `sync_done` | < 64 B |
-| `alarm_added` / `alarm_updated` with normal label + URI | < 1 KiB |
+| `alarm_added` / `alarm_updated` with audio URI | < 1 KiB |
 | `watch_log_batch` (≤ 8 lines) | < 1 KiB |
 | `sync_replace` (full list, ~12 alarms) | < 2 KiB — guarded against the 4 KiB cap |
 
@@ -158,7 +158,6 @@ The `alarm` envelope (sent with `alarm_added` / `alarm_updated`) carries:
 | field | type | required | clamp |
 | --- | --- | --- | --- |
 | `id` | number | yes (envelope `alarmId` wins on disagreement) | — |
-| `label` | string | no (default `""`) | bounded by §2.1 budget |
 | `hour` | number | yes | 0–23 (sender validates) |
 | `minute` | number | yes | 0–59 (sender validates) |
 | `daysOfWeek` | number | no (default `0`) | 0–127 bitmask |
@@ -169,6 +168,11 @@ The `alarm` envelope (sent with `alarm_added` / `alarm_updated`) carries:
 | `updatedAtEpoch` | number | yes | non-negative |
 | `relativeMinutes` | number\|null | no (default `null` = absolute alarm) | **rejected if outside 1–1440 OR if `daysOfWeek != 0`** |
 | `selfDestruct` | boolean | no (default `false`) | **rejected if `true` AND `daysOfWeek != 0`** |
+
+The alarm **label is phone-only** — it is never serialized into the `alarm`
+payload, never stored on the watch, and never part of `AlarmHash`. The label
+appears only on the phone's ring screen; the watch ring screen shows the time
+alone. Dropping it from the wire also keeps payloads smaller.
 
 The receive-side parser on the phone (`WearJsonCodec`) clamps `snoozeMinutes` with a sentinel ladder: `<= 0` collapses to `Alarm.SNOOZE_DISABLED` (0) meaning "snooze is off", otherwise the value is coerced into `[Alarm.MIN_SNOOZE_MINUTES, Alarm.MAX_SNOOZE_MINUTES]`. A `0` flowing through the wire is preserved — it tells the watch's ring page to hide its snooze affordance. The watch's `AlarmStore` stores whatever arrives; the watch's ring page applies the same range + off-sentinel check before using the value for snooze scheduling.
 
@@ -182,7 +186,6 @@ The receive-side parser on the phone (`WearJsonCodec`) clamps `snoozeMinutes` wi
 - `relativeMinutes ∈ [1, 1440]` when non-null (1 min to 24 h).
 
 Implementation requirements before real P2P is enabled:
-- Reject or trim outbound `alarm.label` to the product limit before building the bridge envelope.
 - Never send ringtone/audio bytes over P2P. `audioUri` is a phone-local identifier only; the watch must not dereference it. If the watch needs an audible cue, it uses a bundled watch-side tone/vibration.
 - Log outbound payload byte length in `HuaweiWearBridge` and watch-side `wearBridge.js`.
 - Add a hardware spike after AGConnect approval that sends 1 KiB, 2 KiB, 4 KiB, 8 KiB, 16 KiB, 32 KiB, and 64 KiB messages to the LiteWearable app and records success, failure code, truncation, latency, and receiver behavior. Do not raise the 4 KiB cap without that measurement.
@@ -415,7 +418,7 @@ Reboot does NOT trigger any cross-device sync — the phone recovers from its ow
 ## 5. Open questions / known gaps
 
 ### 5.1 — Decided: full payload travels with `alarm_added` / `alarm_updated`
-The message body carries the full `Alarm` record (hour, minute, daysOfWeek, label, enabled, audioUri, isVibrationOnly, updatedAtEpoch). Stateless — the receiver applies it directly without a round-trip. Schema-drift risk handled by including a `schemaVersion` field if/when the contract grows; today both sides agree on the v1 shape implicit in `domain/Alarm.kt` (phone) and the LiteWearable port's AlarmItem JS object.
+The message body carries the `Alarm` record (hour, minute, daysOfWeek, enabled, audioUri, isVibrationOnly, updatedAtEpoch) — minus the phone-only `label`. Stateless — the receiver applies it directly without a round-trip. Schema-drift risk handled by including a `schemaVersion` field if/when the contract grows; today both sides agree on the v1 shape implicit in `domain/Alarm.kt` (phone) and the LiteWearable port's AlarmItem JS object.
 
 ### 5.2 — Decided: last-write-wins on offline-edit conflicts (2026-04-25, still applies)
 Per §2's conflict-resolution rule. Both sides MUST stamp `updatedAtEpoch = Date.now()` on every local mutation. Phone-side implementation is complete (Phase 4 + Phase 5a). Watch-side implementation is being ported in Phase 0b — same algorithm, JS instead of ArkTS.
@@ -459,7 +462,7 @@ The phone re-fetches its own alarm list **after** receiving the watch's response
 1. Sort alarms by `id` ascending.
 2. For each alarm, render a single canonical line:
    ```
-   id|label|hour|minute|daysOfWeek|enabled|audioUri|isVibrationOnly|snoozeMinutes|updatedAtEpoch|relativeMinutes|selfDestruct\n
+   id|hour|minute|daysOfWeek|enabled|audioUri|isVibrationOnly|snoozeMinutes|updatedAtEpoch|relativeMinutes|selfDestruct\n
    ```
    - Booleans: `1` / `0`.
    - Null `audioUri` and null `relativeMinutes`: empty string between the pipes.

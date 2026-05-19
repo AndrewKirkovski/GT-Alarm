@@ -62,13 +62,10 @@
     <string name="voice_alarm_failed">无法设置闹钟</string>
 
     <string name="action_open_help">帮助</string>
-    <string name="screen_help_title">语音设置</string>
     <string name="help_intro">Android 没有单一的「默认闹钟应用」设置。当您要求 Google 助理设置闹钟时，系统会使用您之前选择的应用，或在首次使用时显示选择对话框。选择 GT Alarm 并点击「始终」即可将其设为默认。</string>
     <string name="help_status_default">GT Alarm 是此设备上的默认闹钟应用。</string>
     <string name="help_status_disambiguator">已安装多个闹钟应用。下次您说「Hey Google, set an alarm」时，Android 会显示选择对话框 — 请选择 GT Alarm 并点击「始终」。</string>
     <string name="help_status_other">当前默认应用是 %1$s。请使用下面对应您手机品牌的步骤进行切换。</string>
-    <string name="help_status_none">此设备上未注册任何闹钟应用。请尝试重新安装 GT Alarm。</string>
-    <string name="help_open_default_apps">在设置中打开「默认应用」</string>
     <string name="help_reset_hint">如果其他应用被误设为默认：设置 → 应用 → 该应用 → 默认打开 → 清除默认设置。</string>
     <string name="help_pair_watch_title">授权华为手表</string>
     <string name="help_pair_watch_body">连接已通过华为运动健康配对的华为 Sports Watch / GT 系列设备，让闹钟在腕上响铃。需要华为运动健康应用以及通过它配对的手表。在没有华为运动健康的设备上将不执行任何操作。</string>
@@ -80,7 +77,7 @@
     <string name="help_device_unsupported_body">目前仅完整测试了华为 GT 6 Pro。如果你的型号无法同步或界面错位，请联系我。捐赠一台测试设备是添加完整支持的最快方式。</string>
     <string name="help_device_unsupported_button">联系开发者</string>
     <string name="help_credits_title">致谢</string>
-    <string name="help_credits_icons">图标作者：Pixel perfect — Flaticon</string>
+    <string name="help_credits_icons">图标作者：Tabler</string>
     <string name="field_snooze_off_value">关闭</string>
     <string name="field_snooze_off_chip">关闭</string>
     <string name="dialog_keep_editing">继续编辑</string>

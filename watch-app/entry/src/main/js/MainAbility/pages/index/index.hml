@@ -16,7 +16,7 @@
         <text class="diag-line">{{diagLine2}}</text>
         <text class="diag-line">{{bgDiag}}</text>
 
-        <list class="alarm-list" if="{{alarms.length > 0}}">
+        <list class="alarm-list" ref="alarmList" if="{{alarms.length > 0}}">
             <list-item class="alarm-list-row" for="{{alarms}}" tid="id"
                        onclick="onRowTap({{$item.id}})">
                 <div class="alarm-row" if="{{$item.enabled}}">
@@ -133,6 +133,15 @@
 
     <!-- ================= RING screen ================= -->
     <stack class="ring" if="{{screen === 'ring'}}" onswipe="onSwipe">
+        <!-- Hidden, always-scrollable list: the digital crown scrolls the
+             focused <list>, so this one turns the crown into scrollend
+             ticks (crown-to-snooze). Bottom layer + transparent =
+             invisible, and never intercepts touch from the buttons. -->
+        <list class="crown-list" ref="crownList" onscrollend="onCrownTick">
+            <list-item class="crown-item" for="{{crownItems}}">
+                <div class="crown-cell"></div>
+            </list-item>
+        </list>
         <image class="bg-full" src="{{bgSrc}}" if="{{hasBg}}"></image>
         <progress type="arc" percent="100" class="ring-arc" if="{{!ended}}"></progress>
         <progress type="arc" percent="100" class="ring-arc-green" if="{{ended}}"></progress>
@@ -140,30 +149,21 @@
             <image src="common/bell.png" class="ring-bell"></image>
             <text class="ring-title">{{ringTitle}}</text>
             <text class="ring-time">{{ringTime}}</text>
-            <text class="ring-label" if="{{ringLabel}}">{{ringLabel}}</text>
-            <!-- Action row: the two buttons OR, once ended (dismiss /
-                 snooze, by phone or watch), the green DISMISSED/SNOOZED
+            <!-- Action row: the two circle buttons (snooze / stop) OR,
+                 once ended (by phone or watch), the green thumbs-up
                  confirmation in the SAME slot — same width/height/margin
                  as .ring-actions so the Y position is identical. -->
             <div class="ring-actions" if="{{!ended}}">
-                <div class="btn btn-snooze" if="{{!snoozePressed}}"
-                     onclick="onSnooze" ontouchstart="onSnoozeDown" ontouchend="onSnoozeUp">
-                    <text class="btn-text">{{labelSnooze}}</text>
+                <div class="ring-btn" onclick="onSnooze">
+                    <image src="common/snooze.png" class="ring-btn-img"></image>
                 </div>
-                <div class="btn btn-snooze-pressed" if="{{snoozePressed}}"
-                     onclick="onSnooze" ontouchstart="onSnoozeDown" ontouchend="onSnoozeUp">
-                    <text class="btn-text">{{labelSnooze}}</text>
-                </div>
-                <div class="btn btn-dismiss" if="{{!dismissPressed}}"
-                     onclick="onDismiss" ontouchstart="onDismissDown" ontouchend="onDismissUp">
-                    <text class="btn-text">{{labelDismiss}}</text>
-                </div>
-                <div class="btn btn-dismiss-pressed" if="{{dismissPressed}}"
-                     onclick="onDismiss" ontouchstart="onDismissDown" ontouchend="onDismissUp">
-                    <text class="btn-text">{{labelDismiss}}</text>
+                <div class="ring-btn" onclick="onDismiss">
+                    <image src="common/stop.png" class="ring-btn-img"></image>
                 </div>
             </div>
-            <text class="ring-ended" if="{{ended}}">{{endedText}}</text>
+            <div class="ring-ended" if="{{ended}}">
+                <image src="common/thumbup.png" class="ring-thumb"></image>
+            </div>
             <text class="ring-diag">{{ringDiagText}}</text>
         </div>
     </stack>

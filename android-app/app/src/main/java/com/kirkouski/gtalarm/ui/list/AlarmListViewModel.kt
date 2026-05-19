@@ -76,6 +76,26 @@ class AlarmListViewModel @Inject constructor(
     private val _forceSyncRunning = MutableStateFlow(false)
     val forceSyncRunning: StateFlow<Boolean> = _forceSyncRunning.asStateFlow()
 
+    // Wear Engine authorization gate. When the app lacks DEVICE_MANAGER
+    // permission the WatchSyncCard swaps its force-sync button for an
+    // authorize button. hasWatchPermission() is tri-state; only an explicit
+    // `false` flips this on, so devices with no Huawei Health (null) keep the
+    // default sync button rather than being mislabelled.
+    private val _needsWatchAuthorization = MutableStateFlow(false)
+    val needsWatchAuthorization: StateFlow<Boolean> = _needsWatchAuthorization.asStateFlow()
+
+    init {
+        refreshWatchAuthorization()
+    }
+
+    /**
+     * Re-check Wear Engine permission. Called on screen resume and after the
+     * user returns from the Huawei Health authorize dialog.
+     */
+    fun refreshWatchAuthorization() = viewModelScope.launch {
+        _needsWatchAuthorization.value = wearBridge.hasWatchPermission() == false
+    }
+
     fun onForceSync() = viewModelScope.launch {
         if (!forceSyncMutex.tryLock()) {
             // Another sync is already in flight — skip silently so a fast
@@ -97,6 +117,9 @@ class AlarmListViewModel @Inject constructor(
             // alarm list AFTER its sync_check round-trip, closing the
             // TOCTOU window where the user mutates the list mid-sync.
             val result = wearBridge.forceSync { repository.getAll() }
+            // forceSync checks permission before anything else, so any result
+            // other than NotAuthorized proves the app is authorized.
+            _needsWatchAuthorization.value = result is ForceSyncResult.NotAuthorized
             _forceSyncEvents.tryEmit(result)
         } finally {
             _forceSyncRunning.value = false

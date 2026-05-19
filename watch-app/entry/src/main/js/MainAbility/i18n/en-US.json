@@ -24,7 +24,7 @@
         "repeat_weekdays": "Weekdays",
         "repeat_weekends": "Weekends",
         "repeat_timer": "Timer",
-        "repeat_oneoff": "One-off",
+        "repeat_oneoff": "Auto-delete",
         "section_upcoming": "Upcoming",
         "section_others": "Others",
         "edit_on_phone": "Alarms are only editable in phone companion app",

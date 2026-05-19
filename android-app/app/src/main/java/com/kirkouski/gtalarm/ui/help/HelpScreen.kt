@@ -3,8 +3,8 @@
 // top-level helpers = the screen itself + ~8 small composables (status
 // dot, permission row, status banner, action card, debug card, brand tips
 // card, section header, credits footer) + 4 brand-to-resource lookups +
-// 3 deep-link helpers (openDefaultAppsSettings, openExternalUrl,
-// startActivitySafely) + hasUnresolvedSetup. Splitting into multiple
+// 2 deep-link helpers (openExternalUrl, startActivitySafely) +
+// hasUnresolvedSetup. Splitting into multiple
 // files would hide the linear dependency on PermissionAudit + DeviceBrand
 // enums for no reuse — every helper is referenced exactly once, from
 // inside the screen.
@@ -19,41 +19,34 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -64,35 +57,31 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.kirkouski.gtalarm.R
+import com.kirkouski.gtalarm.ui.components.AccordionSection
+import com.kirkouski.gtalarm.ui.components.StatusMarkerDot
 import com.kirkouski.gtalarm.voice.DefaultAlarmDetector
 import com.kirkouski.gtalarm.voice.DeviceBrand
 import com.kirkouski.gtalarm.voice.DeviceBrandDetector
 
 /**
- * Unified Help screen. Replaces the previous split between Voice-setup help
- * and the Setup Status screen — both lived under separate top-bar icons and
- * carried overlapping content, which felt like two pages for one concern.
+ * Unified Help screen. Every section is a collapsible [AccordionSection] so
+ * the screen opens compact.
  *
- * Sections in display order:
- *   1. Voice-default status banner (existing DefaultAlarmDetector readout).
- *   2. Reliability checklist — programmatic permission audit, each row with
- *      a Fix button that deep-links to the matching Settings page.
- *   3. Phone-brand tips — dropdown defaults to detected brand, two subsections
- *      ("Keep awake" + "Voice") per brand.
- *   4. Pair watch card.
- *   5. Debug card (test alarm + fire-now).
+ * Display order: Donate first, then the Reliability checklist (its header
+ * carries a green/red [StatusMarkerDot]), then Brand tips, Voice setup, Pair
+ * watch, Different-watch, Debug, and a plain Credits footer.
+ *
+ * Initial expand state is problem-first: if any reliability check is denied
+ * the checklist opens; otherwise the Donate section opens.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-// reason: HelpScreen is a single linear Scaffold + Column of fixed cards.
-// Each subsection (StatusBanner, ReliabilityCard, BrandCard, etc.) is already
-// factored out. The remaining top-level layout is referenced exactly once
-// and splitting it would just push state-routing across more files.
+// reason: HelpScreen is a single linear Scaffold + Column of accordion
+// sections. Each section body is already factored into its own composable;
+// the remaining layout is referenced once and splitting it would just push
+// accordion open-state routing across more files.
 @Suppress("LongMethod")
 fun HelpScreen(
-    onBack: () -> Unit,
     onPairWatch: () -> Unit,
-    onScheduleTestAlarm: () -> Unit,
     onFireAlarmNow: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -112,111 +101,171 @@ fun HelpScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val hasUnresolved = permissionChecks.any { it.status == PermissionAudit.Status.DENIED }
+    var donateOpen by rememberSaveable { mutableStateOf(!hasUnresolved) }
+    var checklistOpen by rememberSaveable { mutableStateOf(hasUnresolved) }
+    var brandOpen by rememberSaveable { mutableStateOf(false) }
+    var voiceOpen by rememberSaveable { mutableStateOf(false) }
+    var pairOpen by rememberSaveable { mutableStateOf(false) }
+    var deviceOpen by rememberSaveable { mutableStateOf(false) }
+    var debugOpen by rememberSaveable { mutableStateOf(false) }
+
+    val donateUrl = stringResource(R.string.help_donate_url)
+    val contactUrl = stringResource(R.string.help_device_unsupported_url)
+
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.screen_help_title)) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cancel))
-                    }
-                },
-            )
-        },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
         Column(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(vertical = 8.dp),
         ) {
-            // ----- Reliability section -----
-            SectionHeader(
-                titleRes = R.string.help_section_reliability,
-                bodyRes = R.string.help_section_reliability_intro,
-            )
-            permissionChecks.forEach { check ->
-                PermissionRow(
-                    check = check,
-                    onFix = {
-                        val intent = PermissionAudit.intentFor(context, check.item)
-                        startActivitySafely(context, intent)
-                    },
+            AccordionSection(
+                title = stringResource(R.string.help_donate_title),
+                expanded = donateOpen,
+                onToggle = { donateOpen = !donateOpen },
+            ) {
+                AccordionAction(
+                    bodyRes = R.string.help_donate_body,
+                    buttonLabelRes = R.string.help_donate_button,
+                    onClick = { openExternalUrl(context, donateUrl) },
                 )
             }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            HorizontalDivider()
 
-            // ----- Brand tips section -----
-            SectionHeader(
-                titleRes = R.string.help_section_brand_tips,
-                bodyRes = R.string.help_section_brand_tips_intro,
-            )
-            BrandTipsCard()
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-            // ----- Voice-default status + intro (existing concern) -----
-            VoiceStatusBanner(voiceStatus)
-            Text(
-                text = stringResource(R.string.help_intro),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            OutlinedButton(
-                onClick = { openDefaultAppsSettings(context) },
-                modifier = Modifier.fillMaxWidth(),
+            AccordionSection(
+                title = stringResource(R.string.help_section_reliability),
+                expanded = checklistOpen,
+                onToggle = { checklistOpen = !checklistOpen },
+                leading = { StatusMarkerDot(ok = !hasUnresolved) },
             ) {
-                Text(stringResource(R.string.help_open_default_apps))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = stringResource(R.string.help_section_reliability_intro),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    permissionChecks.forEach { check ->
+                        PermissionRow(
+                            check = check,
+                            onFix = {
+                                val intent = PermissionAudit.intentFor(context, check.item)
+                                startActivitySafely(context, intent)
+                            },
+                        )
+                    }
+                }
             }
-            Text(
-                text = stringResource(R.string.help_reset_hint),
-                style = MaterialTheme.typography.bodySmall,
-            )
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            HorizontalDivider()
 
-            // ----- Pair watch card -----
-            ActionCard(
-                titleRes = R.string.help_pair_watch_title,
-                bodyRes = R.string.help_pair_watch_body,
-                buttonLabelRes = R.string.help_pair_watch_button,
-                onClick = onPairWatch,
-            )
+            AccordionSection(
+                title = stringResource(R.string.help_section_brand_tips),
+                expanded = brandOpen,
+                onToggle = { brandOpen = !brandOpen },
+            ) {
+                Text(
+                    text = stringResource(R.string.help_section_brand_tips_intro),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                BrandTipsCard()
+            }
 
-            // ----- Device-not-supported / contact dev (problem-first) -----
-            val contactUrl = stringResource(R.string.help_device_unsupported_url)
-            ActionCard(
-                titleRes = R.string.help_device_unsupported_title,
-                bodyRes = R.string.help_device_unsupported_body,
-                buttonLabelRes = R.string.help_device_unsupported_button,
-                onClick = { openExternalUrl(context, contactUrl) },
-            )
+            HorizontalDivider()
 
-            // ----- Support development (ko-fi donate) -----
-            val donateUrl = stringResource(R.string.help_donate_url)
-            ActionCard(
-                titleRes = R.string.help_donate_title,
-                bodyRes = R.string.help_donate_body,
-                buttonLabelRes = R.string.help_donate_button,
-                onClick = { openExternalUrl(context, donateUrl) },
-            )
+            AccordionSection(
+                title = stringResource(R.string.help_section_voice),
+                expanded = voiceOpen,
+                onToggle = { voiceOpen = !voiceOpen },
+            ) {
+                VoiceStatusBanner(voiceStatus)
+                Text(
+                    text = stringResource(R.string.help_intro),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Text(
+                    text = stringResource(R.string.help_reset_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
 
-            // ----- Debug card (English-only / translatable=false) -----
-            DebugCard(onScheduleTestAlarm, onFireAlarmNow)
+            HorizontalDivider()
 
-            // ----- Credits / attribution footer -----
+            AccordionSection(
+                title = stringResource(R.string.help_pair_watch_title),
+                expanded = pairOpen,
+                onToggle = { pairOpen = !pairOpen },
+            ) {
+                AccordionAction(
+                    bodyRes = R.string.help_pair_watch_body,
+                    buttonLabelRes = R.string.help_pair_watch_button,
+                    onClick = onPairWatch,
+                )
+            }
+
+            HorizontalDivider()
+
+            AccordionSection(
+                title = stringResource(R.string.help_device_unsupported_title),
+                expanded = deviceOpen,
+                onToggle = { deviceOpen = !deviceOpen },
+            ) {
+                AccordionAction(
+                    bodyRes = R.string.help_device_unsupported_body,
+                    buttonLabelRes = R.string.help_device_unsupported_button,
+                    onClick = { openExternalUrl(context, contactUrl) },
+                )
+            }
+
+            HorizontalDivider()
+
+            AccordionSection(
+                title = stringResource(R.string.help_debug_title),
+                expanded = debugOpen,
+                onToggle = { debugOpen = !debugOpen },
+            ) {
+                DebugContent(onFireAlarmNow)
+            }
+
+            HorizontalDivider()
+
             CreditsFooter()
         }
+    }
+}
+
+/** Body text + a full-width action button — the shared layout of the
+ *  Donate / Pair-watch / Different-watch accordions. */
+@Composable
+private fun AccordionAction(
+    bodyRes: Int,
+    buttonLabelRes: Int,
+    onClick: () -> Unit,
+) {
+    Text(
+        text = stringResource(bodyRes),
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    FilledTonalButton(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
+    ) {
+        Text(stringResource(buttonLabelRes))
     }
 }
 
 @Composable
 private fun CreditsFooter() {
     val context = LocalContext.current
-    val url = stringResource(R.string.help_credits_flaticon_url)
-    Column(modifier = Modifier.padding(top = 8.dp)) {
+    val url = stringResource(R.string.help_credits_icons_url)
+    Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
         Text(
             text = stringResource(R.string.help_credits_title),
             style = MaterialTheme.typography.labelLarge,
@@ -234,29 +283,17 @@ private fun CreditsFooter() {
 }
 
 @Composable
-private fun SectionHeader(titleRes: Int, bodyRes: Int) {
-    Column {
-        Text(
-            text = stringResource(titleRes),
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(
-            text = stringResource(bodyRes),
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-    }
-}
-
-@Composable
 private fun PermissionRow(
     check: PermissionAudit.Check,
     onFix: () -> Unit,
 ) {
     val granted = check.status == PermissionAudit.Status.GRANTED
     val skipped = check.status == PermissionAudit.Status.NOT_APPLICABLE
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = MaterialTheme.shapes.medium,
+    ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StatusDot(granted = granted, skipped = skipped)
@@ -288,26 +325,17 @@ private fun PermissionRow(
 
 @Composable
 private fun StatusDot(granted: Boolean, skipped: Boolean) {
-    when {
-        skipped -> Icon(
-            imageVector = Icons.Default.RadioButtonUnchecked,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.outline,
-            modifier = Modifier.size(24.dp),
-        )
-        granted -> Icon(
-            imageVector = Icons.Default.CheckCircle,
-            contentDescription = null,
-            tint = Color(0xFF2E7D32),
-            modifier = Modifier.size(24.dp),
-        )
-        else -> Icon(
-            painter = painterResource(R.drawable.ic_warning),
-            contentDescription = null,
-            tint = Color.Unspecified,
-            modifier = Modifier.size(24.dp),
-        )
+    val iconRes = when {
+        skipped -> R.drawable.ic_radio_unchecked
+        granted -> R.drawable.ic_check_circle
+        else -> R.drawable.ic_warning
     }
+    Icon(
+        painter = painterResource(iconRes),
+        contentDescription = null,
+        tint = Color.Unspecified,
+        modifier = Modifier.size(24.dp),
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -316,85 +344,70 @@ private fun BrandTipsCard() {
     val detected = remember { DeviceBrandDetector.current() }
     var selected by remember { mutableStateOf(detected) }
     var expanded by remember { mutableStateOf(false) }
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            OutlinedButton(
-                onClick = { expanded = true },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    text = stringResource(selected.labelRes()),
-                    modifier = Modifier.padding(end = 8.dp),
-                )
-                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-            }
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                DeviceBrand.entries.forEach { brand ->
-                    DropdownMenuItem(
-                        text = {
-                            val label = if (brand == detected) {
-                                stringResource(R.string.setup_oem_label_detected, stringResource(brand.labelRes()))
-                            } else {
-                                stringResource(brand.labelRes())
-                            }
-                            Text(label)
-                        },
-                        onClick = {
-                            selected = brand
-                            expanded = false
-                        },
-                    )
-                }
-            }
-
-            // Keep-awake subsection
+    Column {
+        FilledTonalButton(
+            onClick = { expanded = true },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+        ) {
             Text(
-                text = stringResource(R.string.help_subsection_keep_awake),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 16.dp),
+                text = stringResource(selected.labelRes()),
+                modifier = Modifier.padding(end = 8.dp),
             )
-            Text(
-                text = stringResource(selected.keepAwakeTipsRes()),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-
-            // Voice subsection
-            Text(
-                text = stringResource(R.string.help_subsection_voice),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 16.dp),
-            )
-            Text(
-                text = stringResource(selected.voiceTipsRes()),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 4.dp),
+            Icon(
+                painter = painterResource(R.drawable.ic_arrow_drop_down),
+                contentDescription = null,
+                tint = Color.Unspecified,
+                modifier = Modifier.size(20.dp),
             )
         }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DeviceBrand.entries.forEach { brand ->
+                DropdownMenuItem(
+                    text = {
+                        val label = if (brand == detected) {
+                            stringResource(R.string.setup_oem_label_detected, stringResource(brand.labelRes()))
+                        } else {
+                            stringResource(brand.labelRes())
+                        }
+                        Text(label)
+                    },
+                    onClick = {
+                        selected = brand
+                        expanded = false
+                    },
+                )
+            }
+        }
+
+        Text(
+            text = stringResource(selected.keepAwakeTipsRes()),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = 16.dp),
+        )
     }
 }
 
 @Composable
 private fun VoiceStatusBanner(status: DefaultAlarmDetector.DefaultStatus) {
-    // reason: rememberVectorPainter wraps a Material ImageVector so the Material
-    // success state shares the same Painter type as the colored PNG drawables.
-    // Lets BannerSpec carry one icon type for the whole when{}.
-    val checkCirclePainter = rememberVectorPainter(Icons.Default.CheckCircle)
+    // Both banner icons are colored PNG drawables; tint stays Unspecified
+    // so each renders with its own palette.
+    val checkCirclePainter = painterResource(R.drawable.ic_check_circle)
     val infoPainter = painterResource(R.drawable.ic_info)
-    val warningPainter = painterResource(R.drawable.ic_warning)
     val spec = when (status) {
         is DefaultAlarmDetector.DefaultStatus.WeAreDefault ->
-            BannerSpec(checkCirclePainter, Color(0xFF2E7D32), R.string.help_status_default, null)
+            BannerSpec(checkCirclePainter, R.string.help_status_default, null)
         is DefaultAlarmDetector.DefaultStatus.Disambiguator ->
-            BannerSpec(infoPainter, Color.Unspecified, R.string.help_status_disambiguator, null)
+            BannerSpec(infoPainter, R.string.help_status_disambiguator, null)
         is DefaultAlarmDetector.DefaultStatus.OtherIsDefault ->
-            BannerSpec(infoPainter, Color.Unspecified, R.string.help_status_other, status.displayName)
-        is DefaultAlarmDetector.DefaultStatus.NoHandlers ->
-            BannerSpec(warningPainter, Color.Unspecified, R.string.help_status_none, null)
+            BannerSpec(infoPainter, R.string.help_status_other, status.displayName)
     }
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = MaterialTheme.shapes.medium,
+    ) {
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -402,7 +415,7 @@ private fun VoiceStatusBanner(status: DefaultAlarmDetector.DefaultStatus) {
             Icon(
                 painter = spec.icon,
                 contentDescription = null,
-                tint = spec.tint,
+                tint = Color.Unspecified,
                 modifier = Modifier.size(28.dp),
             )
             Text(
@@ -418,94 +431,24 @@ private fun VoiceStatusBanner(status: DefaultAlarmDetector.DefaultStatus) {
 
 private data class BannerSpec(
     val icon: Painter,
-    val tint: Color,
     val textRes: Int,
     val arg: String?,
 )
 
 @Composable
-private fun ActionCard(
-    titleRes: Int,
-    bodyRes: Int,
-    buttonLabelRes: Int,
-    onClick: () -> Unit,
-) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = stringResource(titleRes),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = stringResource(bodyRes),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            OutlinedButton(
-                onClick = onClick,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
-            ) {
-                Text(stringResource(buttonLabelRes))
-            }
-        }
+private fun DebugContent(onFireAlarmNow: () -> Unit) {
+    Text(
+        text = stringResource(R.string.help_debug_body),
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    FilledTonalButton(
+        onClick = onFireAlarmNow,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
+    ) {
+        Text(stringResource(R.string.help_debug_fire_now_button))
     }
-}
-
-@Composable
-private fun DebugCard(
-    onScheduleTestAlarm: () -> Unit,
-    onFireAlarmNow: () -> Unit,
-) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = stringResource(R.string.help_debug_title),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = stringResource(R.string.help_debug_body),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            OutlinedButton(
-                onClick = onScheduleTestAlarm,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
-            ) {
-                Text(stringResource(R.string.help_debug_test_alarm_button))
-            }
-            OutlinedButton(
-                onClick = onFireAlarmNow,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-            ) {
-                Text(stringResource(R.string.help_debug_fire_now_button))
-            }
-        }
-    }
-}
-
-private fun openDefaultAppsSettings(context: Context) {
-    val intent = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-    runCatching { context.startActivity(intent) }
-        .onFailure { primary ->
-            android.util.Log.w(TAG, "MANAGE_DEFAULT_APPS_SETTINGS unavailable: ${primary.message}")
-            val fallback = Intent(Settings.ACTION_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            runCatching { context.startActivity(fallback) }
-                .onFailure { secondary ->
-                    android.util.Log.w(TAG, "ACTION_SETTINGS fallback also failed: ${secondary.message}")
-                }
-        }
 }
 
 private fun openExternalUrl(context: Context, url: String) {
@@ -553,15 +496,6 @@ private fun DeviceBrand.keepAwakeTipsRes(): Int = when (this) {
     DeviceBrand.ONEPLUS -> R.string.setup_oem_keep_oneplus
     DeviceBrand.HUAWEI -> R.string.setup_oem_keep_huawei
     DeviceBrand.OTHER -> R.string.setup_oem_keep_other
-}
-
-private fun DeviceBrand.voiceTipsRes(): Int = when (this) {
-    DeviceBrand.PIXEL -> R.string.setup_oem_voice_pixel
-    DeviceBrand.SAMSUNG -> R.string.setup_oem_voice_samsung
-    DeviceBrand.XIAOMI -> R.string.setup_oem_voice_xiaomi
-    DeviceBrand.ONEPLUS -> R.string.setup_oem_voice_oneplus
-    DeviceBrand.HUAWEI -> R.string.setup_oem_voice_huawei
-    DeviceBrand.OTHER -> R.string.setup_oem_voice_other
 }
 
 private fun PermissionAudit.Item.titleRes(): Int = when (this) {

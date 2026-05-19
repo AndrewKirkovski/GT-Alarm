@@ -6,9 +6,10 @@
 // Algorithm:
 //   1. Sort alarms by id ascending
 //   2. Render each as a pipe-delimited line:
-//        id|label|hour|minute|daysOfWeek|enabled|audioUri|
+//        id|hour|minute|daysOfWeek|enabled|audioUri|
 //        isVibrationOnly|snoozeMinutes|updatedAtEpoch|
 //        relativeMinutes|selfDestruct
+//      (alarm label is phone-only — never on the wire, never hashed)
 //      - booleans: '1' / '0'
 //      - null audioUri / undefined relativeMinutes: empty string
 //   3. Join with '\n' (newline after EVERY line, including last)
@@ -48,7 +49,6 @@ function canonicalize(alarms) {
     for (var i = 0; i < sorted.length; i++) {
         var a = sorted[i];
         out += a.id + '|' +
-            strOrEmpty(a.label) + '|' +
             a.hour + '|' +
             a.minute + '|' +
             (a.daysOfWeek || 0) + '|' +

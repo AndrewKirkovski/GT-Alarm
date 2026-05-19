@@ -23,11 +23,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -190,7 +185,12 @@ fun AlarmEditScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = cancel) {
-                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cancel))
+                        Icon(
+                            painter = painterResource(R.drawable.ic_close),
+                            contentDescription = stringResource(R.string.cancel),
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(24.dp),
+                        )
                     }
                 },
                 actions = {
@@ -212,8 +212,10 @@ fun AlarmEditScreen(
                     // still 0 and label is empty so a tap would write garbage).
                     IconButton(onClick = save, enabled = state.loaded) {
                         Icon(
-                            imageVector = Icons.Default.Check,
+                            painter = painterResource(R.drawable.ic_check),
                             contentDescription = stringResource(R.string.action_save),
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(24.dp),
                         )
                     }
                 },
@@ -345,10 +347,14 @@ fun AlarmEditScreen(
                     },
                 ) {
                     Icon(
-                        imageVector = if (previewing) Icons.Default.Stop else Icons.Default.PlayArrow,
+                        painter = painterResource(
+                            if (previewing) R.drawable.ic_stop else R.drawable.ic_play,
+                        ),
                         contentDescription = stringResource(
                             if (previewing) R.string.action_stop_preview else R.string.action_play_preview,
                         ),
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(24.dp),
                     )
                 }
                 OutlinedButton(onClick = pickAudio) {
@@ -506,27 +512,32 @@ private fun SelfDestructRow(checked: Boolean, onToggle: () -> Unit) {
     }
 }
 
+// Snooze duration. Same vertical shape as RelativeRow / the Repeat section:
+// an icon + label header row (current value trailing), then the preset
+// chips on their own full-width row — so no text wraps.
 @Composable
 private fun SnoozeRow(value: Int, onChange: (Int) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            painter = painterResource(R.drawable.ic_snooze),
-            contentDescription = null,
-            tint = Color.Unspecified,
-            modifier = Modifier.padding(end = 12.dp).size(24.dp),
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(stringResource(R.string.field_snooze_minutes))
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                painter = painterResource(R.drawable.ic_snooze),
+                contentDescription = null,
+                tint = Color.Unspecified,
+                modifier = Modifier.padding(end = 8.dp).size(24.dp),
+            )
+            Text(
+                text = stringResource(R.string.field_snooze_minutes),
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Spacer(Modifier.weight(1f))
             Text(
                 text = if (value <= Alarm.SNOOZE_DISABLED) {
                     stringResource(R.string.field_snooze_off_value)
                 } else {
                     stringResource(R.string.field_snooze_minutes_value, value)
                 },
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         // Picker is a row of preset chips. Range-aware: presets within
@@ -701,8 +712,10 @@ private fun BackgroundImageRow(
             // back to SettingsStore.defaultPhoneBackgroundUri).
             IconButton(onClick = onClear) {
                 Icon(
-                    imageVector = Icons.Default.Close,
+                    painter = painterResource(R.drawable.ic_close),
                     contentDescription = stringResource(R.string.field_background_image_clear),
+                    tint = Color.Unspecified,
+                    modifier = Modifier.size(24.dp),
                 )
             }
         }

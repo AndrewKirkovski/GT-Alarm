@@ -59,16 +59,17 @@ class AlarmHashTest {
             selfDestruct = false,
             backgroundImageUri = null,
         )
-        // Canonical line shape per AlarmHash.kt §canonicalize:
-        //   id|label|hour|minute|daysOfWeek|enabled|audioUri|
+        // Canonical line shape per AlarmHash.kt §canonicalize (label is
+        // phone-only — never hashed):
+        //   id|hour|minute|daysOfWeek|enabled|audioUri|
         //   isVibrationOnly|snoozeMinutes|updatedAtEpoch|relativeMinutes|selfDestruct\n
-        val expectedCanonical = "1||7|0|0|1||0|10|1000||0\n"
+        val expectedCanonical = "1|7|0|0|1||0|10|1000||0\n"
         val expectedHex = expectedCanonical.hashCode().toUInt().toString(16).padStart(8, '0')
         assertEquals(expectedHex, AlarmHash.compute(listOf(alarm)))
     }
 
     @Test
-    fun `label, audioUri, and unicode flow through canonical form unchanged`() {
+    fun `audioUri flows through canonical form but label does NOT`() {
         val alarm = Alarm(
             id = 42L,
             label = "Утро ☕",
@@ -84,11 +85,18 @@ class AlarmHashTest {
             relativeMinutes = null,
             selfDestruct = false,
         )
-        // audioName is NOT serialized (phone-local display only).
+        // The label is phone-only — never on the wire, never hashed — so the
+        // canonical form jumps straight from id to hour. audioName is also
+        // not serialized (phone-local display only).
         val expectedCanonical =
-            "42|Утро ☕|6|30|${DaysOfWeek.WEEKDAYS}|1|content://media/external/audio/media/123|0|5|1700000000000||0\n"
+            "42|6|30|${DaysOfWeek.WEEKDAYS}|1|content://media/external/audio/media/123|0|5|1700000000000||0\n"
         val expectedHex = expectedCanonical.hashCode().toUInt().toString(16).padStart(8, '0')
         assertEquals(expectedHex, AlarmHash.compute(listOf(alarm)))
+        // Changing ONLY the label must not move the hash.
+        assertEquals(
+            AlarmHash.compute(listOf(alarm)),
+            AlarmHash.compute(listOf(alarm.copy(label = "a completely different label"))),
+        )
     }
 
     @Test
@@ -98,7 +106,7 @@ class AlarmHashTest {
             audioUri = null, audioName = null, isVibrationOnly = false, snoozeMinutes = 10,
             updatedAtEpoch = 200L, relativeMinutes = 15, selfDestruct = true,
         )
-        val expectedCanonical = "7|Stand|0|0|0|1||0|10|200|15|1\n"
+        val expectedCanonical = "7|0|0|0|1||0|10|200|15|1\n"
         val expectedHex = expectedCanonical.hashCode().toUInt().toString(16).padStart(8, '0')
         assertEquals(expectedHex, AlarmHash.compute(listOf(withRelative)))
     }
@@ -175,7 +183,7 @@ class AlarmHashTest {
         )
         // The "||" around audioUri and relativeMinutes is the smoking gun:
         // any other rendering would shift the canonical string and break.
-        val expectedCanonical = "3||9|0|0|1||0|10|500||0\n"
+        val expectedCanonical = "3|9|0|0|1||0|10|500||0\n"
         val expectedHex = expectedCanonical.hashCode().toUInt().toString(16).padStart(8, '0')
         assertEquals(expectedHex, AlarmHash.compute(listOf(alarm)))
     }
@@ -195,8 +203,8 @@ class AlarmHashTest {
     fun `pin reference vectors for JS-side parity`() {
         // Reference canonical forms (no trailing bg slots — see AlarmHash
         // KDoc for why bg URIs are excluded).
-        val minimal = "1||7|0|0|1||0|10|1000||0\n"
-        val relative = "7|Stand|0|0|0|1||0|10|200|15|1\n"
+        val minimal = "1|7|0|0|1||0|10|1000||0\n"
+        val relative = "7|0|0|0|1||0|10|200|15|1\n"
         // Compute hexes (drift would still pass — see review pass 2: this
         // test only proves the algorithm is internally consistent, not
         // that it matches a frozen contract). Real cross-impl assertion

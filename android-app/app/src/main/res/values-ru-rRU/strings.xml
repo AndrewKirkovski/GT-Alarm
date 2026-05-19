@@ -62,13 +62,10 @@
     <string name="voice_alarm_failed">Не удалось установить будильник</string>
 
     <string name="action_open_help">Справка</string>
-    <string name="screen_help_title">Настройка голоса</string>
     <string name="help_intro">В Android нет единой настройки «приложение будильника по умолчанию». Когда вы просите Google Ассистент поставить будильник, система либо использует ранее выбранное приложение, либо показывает диалог выбора при первом запуске. Выбор GT Alarm и нажатие «Всегда» делает его приложением по умолчанию.</string>
     <string name="help_status_default">GT Alarm — приложение будильника по умолчанию на этом устройстве.</string>
     <string name="help_status_disambiguator">Установлено несколько приложений будильника. В следующий раз, когда вы скажете «Hey Google, set an alarm», Android покажет диалог выбора — выберите GT Alarm и нажмите «Всегда».</string>
     <string name="help_status_other">%1$s — текущее приложение по умолчанию. Используйте инструкцию для марки вашего телефона ниже, чтобы переключить.</string>
-    <string name="help_status_none">На этом устройстве не зарегистрировано ни одного приложения будильника. Попробуйте переустановить GT Alarm.</string>
-    <string name="help_open_default_apps">Открыть «Приложения по умолчанию» в настройках</string>
     <string name="help_reset_hint">Если другое приложение по ошибке установлено как умолчание: Настройки → Приложения → это приложение → Открывать по умолчанию → Очистить.</string>
     <string name="help_pair_watch_title">Авторизация часов Huawei</string>
     <string name="help_pair_watch_body">Подключите уже сопряжённые часы Huawei Sports Watch / GT, чтобы будильники звонили на запястье. Требуется приложение Huawei Health и уже сопряжённые через него часы. На устройствах без Huawei Health ничего не произойдёт.</string>
@@ -80,7 +77,7 @@
     <string name="help_device_unsupported_body">На сегодня полностью протестирован только Huawei GT 6 Pro. Если ваша модель не синхронизируется или вёрстка съезжает — напишите мне. Передача устройства на тесты — самый быстрый путь к полной поддержке.</string>
     <string name="help_device_unsupported_button">Связаться с разработчиком</string>
     <string name="help_credits_title">Авторы</string>
-    <string name="help_credits_icons">Иконки от Pixel perfect — Flaticon</string>
+    <string name="help_credits_icons">Иконки от Tabler</string>
     <string name="field_snooze_off_value">Выкл</string>
     <string name="field_snooze_off_chip">Выкл</string>
     <string name="dialog_keep_editing">Продолжить редактирование</string>

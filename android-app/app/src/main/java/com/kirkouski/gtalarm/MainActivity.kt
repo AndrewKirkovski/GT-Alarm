@@ -13,12 +13,17 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.kirkouski.gtalarm.data.AlarmRepository
@@ -28,7 +33,10 @@ import com.kirkouski.gtalarm.ui.edit.AlarmEditScreen
 import com.kirkouski.gtalarm.ui.help.HelpScreen
 import com.kirkouski.gtalarm.ui.help.PermissionAudit
 import com.kirkouski.gtalarm.ui.list.AlarmListScreen
+import com.kirkouski.gtalarm.ui.nav.AppBottomBar
+import com.kirkouski.gtalarm.ui.nav.BOTTOM_BAR_ROUTES
 import com.kirkouski.gtalarm.ui.nav.Routes
+import com.kirkouski.gtalarm.ui.nav.switchTab
 import com.kirkouski.gtalarm.ui.settings.SettingsScreen
 import com.kirkouski.gtalarm.ui.theme.GtAlarmTheme
 import com.kirkouski.gtalarm.wear.WearBridgeService
@@ -85,51 +93,60 @@ class MainActivity : ComponentActivity() {
         setContent {
             GtAlarmTheme {
                 val navController = rememberNavController()
+                val currentRoute by navController.currentBackStackEntryAsState()
                 LaunchedEffect(startAtEdit) {
                     if (startAtEdit) navController.navigate(Routes.edit(null))
                 }
-                NavHost(
-                    navController = navController,
-                    startDestination = Routes.LIST,
-                ) {
-                    composable(Routes.LIST) {
-                        AlarmListScreen(
-                            onAdd = { navController.navigate(Routes.edit(null)) },
-                            onEdit = { id -> navController.navigate(Routes.edit(id)) },
-                            onOpenExactAlarmSettings = { openExactAlarmSettings() },
-                            onOpenBatteryOptSettings = { openBatteryOptSettings() },
-                            onOpenHelp = { navController.navigate(Routes.HELP) },
-                            onOpenSettings = { navController.navigate(Routes.SETTINGS) },
-                        )
-                    }
-                    composable(Routes.HELP) {
-                        HelpScreen(
-                            onBack = { navController.popBackStack() },
-                            onPairWatch = {
-                                wearBridge.requestPermissionFromActivity(this@MainActivity)
-                            },
-                            onScheduleTestAlarm = { scheduleTestAlarm() },
-                            onFireAlarmNow = { fireAlarmNow() },
-                        )
-                    }
-                    composable(Routes.SETTINGS) {
-                        SettingsScreen(
-                            onBack = { navController.popBackStack() },
-                        )
-                    }
-                    composable(
-                        route = Routes.EDIT_WITH_ARG,
-                        arguments = listOf(navArgument(Routes.EDIT_ARG_ID) {
-                            type = NavType.StringType
-                            nullable = true
-                            defaultValue = null
-                        }),
-                    ) { entry ->
-                        val idArg = entry.arguments?.getString(Routes.EDIT_ARG_ID)?.toLongOrNull()
-                        AlarmEditScreen(
-                            alarmId = idArg,
-                            onDone = { navController.popBackStack() },
-                        )
+                Scaffold(
+                    bottomBar = {
+                        val route = currentRoute?.destination?.route
+                        if (route in BOTTOM_BAR_ROUTES) {
+                            AppBottomBar(route) { navController.switchTab(it) }
+                        }
+                    },
+                ) { innerPadding ->
+                    NavHost(
+                        navController = navController,
+                        startDestination = Routes.LIST,
+                        modifier = Modifier.padding(innerPadding),
+                    ) {
+                        composable(Routes.LIST) {
+                            AlarmListScreen(
+                                onAdd = { navController.navigate(Routes.edit(null)) },
+                                onEdit = { id -> navController.navigate(Routes.edit(id)) },
+                                onOpenExactAlarmSettings = { openExactAlarmSettings() },
+                                onOpenBatteryOptSettings = { openBatteryOptSettings() },
+                                onOpenHelp = { navController.switchTab(Routes.HELP) },
+                                onAuthorizeWatch = {
+                                    wearBridge.requestPermissionFromActivity(this@MainActivity)
+                                },
+                            )
+                        }
+                        composable(Routes.HELP) {
+                            HelpScreen(
+                                onPairWatch = {
+                                    wearBridge.requestPermissionFromActivity(this@MainActivity)
+                                },
+                                onFireAlarmNow = { fireAlarmNow() },
+                            )
+                        }
+                        composable(Routes.SETTINGS) {
+                            SettingsScreen()
+                        }
+                        composable(
+                            route = Routes.EDIT_WITH_ARG,
+                            arguments = listOf(navArgument(Routes.EDIT_ARG_ID) {
+                                type = NavType.StringType
+                                nullable = true
+                                defaultValue = null
+                            }),
+                        ) { entry ->
+                            val idArg = entry.arguments?.getString(Routes.EDIT_ARG_ID)?.toLongOrNull()
+                            AlarmEditScreen(
+                                alarmId = idArg,
+                                onDone = { navController.popBackStack() },
+                            )
+                        }
                     }
                 }
             }
@@ -182,24 +199,6 @@ class MainActivity : ComponentActivity() {
         }
         runCatching { startActivity(intent) }
             .onFailure { Log.w(TAG, "ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT unavailable: ${it.message}") }
-    }
-
-    private fun scheduleTestAlarm() {
-        Log.i(TAG, "test alarm requested")
-        lifecycleScope.launch {
-            runCatching { alarmRepository.scheduleTestFireInOneMinute() }
-                .onSuccess { trigger ->
-                    Log.i(TAG, "test alarm scheduled trigger=$trigger")
-                    Toast.makeText(
-                        this@MainActivity,
-                        getString(R.string.help_debug_test_alarm_toast),
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                }
-                .onFailure { e ->
-                    Log.w(TAG, "test alarm failed: ${e.message}", e)
-                }
-        }
     }
 
     // Fires the alarm-ring path immediately via the EXACT same call

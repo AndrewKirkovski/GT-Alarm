@@ -14,7 +14,7 @@ import Logger from '../../common/logger.js';
 
 // Bump per hardware-test build so the on-screen tag confirms the new
 // HAP actually replaced the old one.
-var BUILD_TAG = 'bg-ui3/05-18';
+var BUILD_TAG = 'crownsnooze/05-19';
 
 // How long the row-tap hint overlay stays up.
 var TAP_HINT_MS = 2600;
@@ -29,7 +29,6 @@ var BG_PATH_KEY = 'bg_path';
 var DAY_BITS = [1, 2, 4, 8, 16, 32, 64];
 var DEFAULT_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 var VIBRATE_INTERVAL_MS = 1500;
-var ROW_RETRY_MS = 1500;
 var PEER_FLASH_MS = 1200;
 
 // Ring auto-terminate. The watch was woken for the alarm; once the
@@ -46,6 +45,20 @@ var _terminateTimer = null;
 // no @system.storage round-trip needed.
 var _peerEndedAtMs = 0;
 var PEER_END_WINDOW_MS = 2500;
+
+// Crown-to-snooze (ring screen). The crown only drives a focused
+// <list>'s scroll — raw rotation is not exposed — so a hidden, always-
+// scrollable <list> on the ring screen turns the crown into a stream of
+// `scrollend` ticks. Those are debounced into gestures (like single/
+// double click): ticks <CROWN_GAP_MS apart are one continuous rotation;
+// one rotation then quiet for CROWN_DOUBLE_MS -> snooze; a second
+// rotation starting within that window -> dismiss. CROWN_GAP_MS and
+// CROWN_DOUBLE_MS are device-tuning knobs.
+var CROWN_ITEM_COUNT = 80;
+var CROWN_MID_INDEX = 40;
+var CROWN_GAP_MS = 250;
+var CROWN_DOUBLE_MS = 550;
+var CROWN_SETTLE_MS = 150;
 
 function fireTerminate(tag) {
     Logger.i('term ' + tag);
@@ -259,16 +272,14 @@ export default {
         // --- ring screen ---
         ringTitle: '',
         ringTime: '--:--',
-        ringLabel: '',
-        labelSnooze: '',
-        labelDismiss: '',
-        snoozePressed: false,
-        dismissPressed: false,
+        // Placeholder rows for the hidden crown-capture <list> (filled in
+        // onInit) — the list needs scrollable content for the crown to
+        // produce scroll events.
+        crownItems: [],
         // `ended` — set once the alarm is dismissed/snoozed (by phone OR
         // watch). Swaps the arc green and replaces the action buttons
-        // with the `endedText` confirmation (DISMISSED / SNOOZED).
+        // with the thumbs-up confirmation image.
         ended: false,
-        endedText: '',
         ringDiagText: 'snt:-- rx:--',
 
         // --- i18n bag (read by helpers via `self`) ---
@@ -291,18 +302,29 @@ export default {
         _tapHintTimer: null,
         _use24Hour: null,
         _dayOrder: DEFAULT_DAY_ORDER,
+        _crownGestureCount: 0,
+        _crownActive: false,
+        _crownCommitted: false,
+        _crownIgnoreScroll: false,
+        _crownGapTimer: null,
+        _crownDecideTimer: null,
     },
 
     onInit: function () {
         var self = this;
+        // Fill the hidden crown-capture <list> with placeholder rows so it
+        // always has scrollable content (see the CROWN_* constants).
+        var crownFill = [];
+        for (var ci = 0; ci < CROWN_ITEM_COUNT; ci++) {
+            crownFill.push(ci);
+        }
+        this.crownItems = crownFill;
         this.title = this.$t('strings.app_name');
         this.emptyText = this.$t('strings.no_alarms');
         this.emptyHint = this.$t('strings.no_alarms_hint');
         this.syncTitle = this.$t('strings.syncing_title');
         this.syncSubtitle = this.$t('strings.syncing_subtitle');
         this.ringTitle = this.$t('strings.reminder_default_title');
-        this.labelSnooze = this.$t('strings.reminder_action_snooze');
-        this.labelDismiss = this.$t('strings.reminder_action_close');
         this.repeatOnce = this.$t('strings.repeat_once');
         this.repeatTimer = this.$t('strings.repeat_timer');
         this.repeatOneOff = this.$t('strings.repeat_oneoff');
@@ -445,6 +467,7 @@ export default {
             this._diagTimer = null;
         }
         this.stopVibrate();
+        this._disarmCrownGesture();
         // Side-button-while-ringing = implicit snooze. Only when the ring
         // screen is up, no explicit Dismiss/Snooze tap happened, and the
         // phone did not just peer-end the alarm.
@@ -486,6 +509,21 @@ export default {
                 rows.push(formatRow(self, sorted[i]));
             }
             self.alarms = rows;
+            // Give the alarm <list> digital-crown focus so the crown
+            // scrolls it (only the focused component receives crown
+            // events). rotation() is idempotent — re-asserting on each
+            // 2 s refresh recovers focus after a ring screen or a
+            // background cycle. SDK: ListElement.rotation({focus}).
+            if (self.screen === 'list' && rows.length > 0) {
+                var listEl = self.$refs.alarmList;
+                if (listEl && listEl.rotation) {
+                    try {
+                        listEl.rotation({ focus: true });
+                    } catch (crownErr) {
+                        Logger.err('index.crownFocus', crownErr);
+                    }
+                }
+            }
             // Background photo debug line + scrim gate. bgSrc is a plain
             // field set by the P2P file handler; the poll surfaces it
             // reliably even if if=/async reactivity is not.
@@ -504,6 +542,103 @@ export default {
     // strength. Recomputed on every screen change + the 2 s poll.
     updateScrim: function () {
         this.showScrim = !!this.bgSrc && this.screen !== 'ring';
+    },
+
+    // ---- CROWN-TO-SNOOZE (ring screen) ----
+    // The digital crown only drives a focused <list>'s scroll, so the
+    // hidden .crown-list captures it as `scrollend` ticks. Ticks are
+    // debounced into gestures: ticks <CROWN_GAP_MS apart are one
+    // continuous rotation; one rotation then quiet -> snooze; a second
+    // rotation within CROWN_DOUBLE_MS -> dismiss.
+    _clearCrownTimers: function () {
+        if (this._crownGapTimer !== null) {
+            clearTimeout(this._crownGapTimer);
+            this._crownGapTimer = null;
+        }
+        if (this._crownDecideTimer !== null) {
+            clearTimeout(this._crownDecideTimer);
+            this._crownDecideTimer = null;
+        }
+    },
+    // Called (deferred) from enterRing once .crown-list has rendered.
+    _armCrownGesture: function () {
+        var self = this;
+        this._crownGestureCount = 0;
+        this._crownActive = false;
+        this._crownCommitted = false;
+        this._crownIgnoreScroll = true;
+        this._clearCrownTimers();
+        var el = this.$refs.crownList;
+        if (el) {
+            try {
+                el.scrollTo({ index: CROWN_MID_INDEX });
+                el.rotation({ focus: true });
+            } catch (e) {
+                Logger.err('index.armCrown', e);
+            }
+        }
+        // Swallow any scrollend the scrollTo() above may emit, then start
+        // honoring real crown ticks.
+        setTimeout(function () {
+            self._crownIgnoreScroll = false;
+        }, CROWN_SETTLE_MS);
+    },
+    // Called when the ring is torn down (action taken / peer-ended /
+    // page hidden) — stop the gesture machine and release crown focus.
+    _disarmCrownGesture: function () {
+        this._clearCrownTimers();
+        this._crownActive = false;
+        var el = this.$refs.crownList;
+        if (el) {
+            try {
+                el.rotation({ focus: false });
+            } catch (e) {
+                Logger.err('index.disarmCrown', e);
+            }
+        }
+    },
+    onCrownTick: function () {
+        if (this.screen !== 'ring' || this.ended ||
+                this._crownCommitted || this._crownIgnoreScroll) {
+            return;
+        }
+        var self = this;
+        if (this._crownGapTimer !== null) {
+            clearTimeout(this._crownGapTimer);
+            this._crownGapTimer = null;
+        }
+        if (!this._crownActive) {
+            // First tick of a fresh rotation burst.
+            this._crownActive = true;
+            this._crownGestureCount = this._crownGestureCount + 1;
+            if (this._crownGestureCount >= 2) {
+                // Second rotation within the double-window -> dismiss.
+                this._clearCrownTimers();
+                this._crownCommitted = true;
+                Logger.i('index.crown gesture=2 -> dismiss');
+                this.onDismiss();
+                return;
+            }
+        }
+        // Burst still running: when ticks stop for CROWN_GAP_MS the
+        // rotation is considered finished.
+        this._crownGapTimer = setTimeout(function () {
+            self._crownGapTimer = null;
+            self._crownActive = false;
+            if (self._crownGestureCount === 1 && !self._crownCommitted) {
+                // One rotation done — wait CROWN_DOUBLE_MS for a second;
+                // if none arrives it was a single rotation -> snooze.
+                self._crownDecideTimer = setTimeout(function () {
+                    self._crownDecideTimer = null;
+                    if (!self._crownCommitted &&
+                            self.screen === 'ring' && !self.ended) {
+                        self._crownCommitted = true;
+                        Logger.i('index.crown gesture=1 -> snooze');
+                        self.onSnooze();
+                    }
+                }, CROWN_DOUBLE_MS);
+            }
+        }, CROWN_GAP_MS);
     },
 
     // Alarms are phone-only — tapping a row shows an on-screen hint.
@@ -586,11 +721,14 @@ export default {
         this._alarmId = alarmId;
         this._explicitAction = null;
         this.ended = false;
-        this.endedText = '';
-        this.ringLabel = '';
         cancelTerminate();
         this.screen = 'ring';
         this.updateScrim();
+        // Arm crown-to-snooze once the ring stack (with .crown-list) has
+        // rendered — the $refs entry resolves only after the render pass.
+        setTimeout(function () {
+            self._armCrownGesture();
+        }, 0);
 
         // Ring time is always "now" — the wake-up instant the user sees.
         var now = new Date();
@@ -609,31 +747,7 @@ export default {
                 Logger.err('index.sendRinging', e);
             }
         }
-        this.lookupRingLabel(idNum, true);
         this.startVibrate();
-    },
-
-    lookupRingLabel: function (idNum, allowRetry) {
-        var self = this;
-        AlarmStore.getAll(function (items) {
-            for (var i = 0; i < items.length; i++) {
-                if (items[i].id === idNum) {
-                    self.ringLabel = items[i].label || '';
-                    var raw = items[i].snoozeMinutes;
-                    if (typeof raw === 'number' && isFinite(raw) && raw >= 1 && raw <= 60) {
-                        self.labelSnooze = self.$t('strings.reminder_action_snooze') + ' ' + raw + 'm';
-                    }
-                    return;
-                }
-            }
-            // alarm_fired can outrace the alarm_added that populates the
-            // row — one retry covers the gap.
-            if (allowRetry) {
-                setTimeout(function () {
-                    self.lookupRingLabel(idNum, false);
-                }, ROW_RETRY_MS);
-            }
-        });
     },
 
     startVibrate: function () {
@@ -658,10 +772,6 @@ export default {
         }
     },
 
-    onSnoozeDown: function () { this.snoozePressed = true; },
-    onSnoozeUp: function () { this.snoozePressed = false; },
-    onDismissDown: function () { this.dismissPressed = true; },
-    onDismissUp: function () { this.dismissPressed = false; },
     onSwipe: function () {},
 
     onDismiss: function () {
@@ -669,11 +779,11 @@ export default {
         var self = this;
         this._explicitAction = 'dismiss';
         this.stopVibrate();
-        // Show the green DISMISSED confirmation in place of the buttons,
+        this._disarmCrownGesture();
+        // Show the green thumbs-up confirmation in place of the buttons,
         // then leave the ring after the same flash window the phone-
         // initiated path uses.
         this.ended = true;
-        this.endedText = 'DISMISSED';
         var alarmId = this._alarmId;
         WearBridge.notifyDismissed(alarmId, function (ok, reason) {
             Logger.i('index.dismiss-ack ok=' + ok + ' r=' + reason);
@@ -707,8 +817,8 @@ export default {
         var self = this;
         this._explicitAction = 'snooze';
         this.stopVibrate();
+        this._disarmCrownGesture();
         this.ended = true;
-        this.endedText = 'SNOOZED';
         WearBridge.notifySnoozed(this._alarmId, function (ok, reason) {
             Logger.i('index.snooze-ack ok=' + ok + ' r=' + reason);
             expediteTerminate('snooze');
@@ -727,6 +837,7 @@ export default {
         Logger.i('index.onPeerEnded type=' + type + ' id=' + alarmId);
         var self = this;
         this.stopVibrate();
+        this._disarmCrownGesture();
         if (this.screen !== 'ring') {
             // No ring up — nothing to flash; just make sure we are home.
             this.screen = 'list';
@@ -735,7 +846,6 @@ export default {
         }
         this._explicitAction = 'peer-ended';
         _peerEndedAtMs = Date.now();
-        this.endedText = (type === 'alarm_snoozed') ? 'SNOOZED' : 'DISMISSED';
         this.ended = true;
         setTimeout(function () {
             self.screen = 'list';

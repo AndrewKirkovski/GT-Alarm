@@ -25,15 +25,17 @@ object DefaultAlarmDetector {
         data class Disambiguator(val handlerCount: Int) : DefaultStatus
         // Another app holds the preferred-activity slot today.
         data class OtherIsDefault(val packageName: String, val displayName: String) : DefaultStatus
-        // Should never happen if we declare the intent-filter; reported for visibility.
-        data object NoHandlers : DefaultStatus
     }
 
     fun detect(context: Context): DefaultStatus {
         val pm = context.packageManager
         val intent = Intent(AlarmClock.ACTION_SET_ALARM).addCategory(Intent.CATEGORY_DEFAULT)
+        // GT Alarm declares the ACTION_SET_ALARM intent-filter, so this query
+        // always resolves at least our own activity. A null result would be a
+        // platform anomaly — treat it as "we handle it" rather than show a
+        // dead-end "no alarm app" message to a user already inside the app.
         val resolved = pm.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
-            ?: return DefaultStatus.NoHandlers
+            ?: return DefaultStatus.WeAreDefault
         val resolvedPackage = resolved.activityInfo.packageName
         // Android returns "android" or a system stub when multiple apps match and
         // no preferred is set. Treat any non-app package as the disambiguator.

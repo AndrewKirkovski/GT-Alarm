@@ -3,19 +3,21 @@
   GT-Alarm watch ring-page overlay. Drawn against the watch's 466 × 466
   native canvas (GT 6 Pro). Source-of-truth for:
     • the actual watch's ring.css (mirrored geometrically)
-    • the .local/watch-ui-preview.html mockup
+    • the watch-references/watch-ui-preview.html mockup
     • the Android picker's "what your photo will look like under the
-      alarm UI" overlay (rendered to PNG via render-watch-overlay.py)
+      alarm UI" overlay (rendered to PNG via render-overlay.py, which
+      also composites the real snooze / stop / bell glyphs from the
+      watch icongen PNGs on top of this geometry)
 
   Background is fully transparent so the picker can composite this on
   top of the user's pinch-zoomed photo.
 
-  Geometry comes from .local/watch-ui-preview.html .ring-* classes:
+  Geometry comes from watch-references/watch-ui-preview.html .ring-* classes:
     - ring-arc:    radius 222, stroke 6, color #FCA5A5
     - ring-title:  font 22, #FCA5A5, centered, y ≈ 173
     - ring-time:   font 84, #F1F5F9, centered, y ≈ 246
-    - buttons:     140 × 76, gap 20, y ≈ 326, snooze #374151 / dismiss #B91C1C
-    - btn-text:    font 22, #F1F5F9
+    - buttons:     Ø 88 circle icons, centers x=171/295, y=354,
+                   snooze #9B6CF5 / stop #DC2626
 
   Position centers vertically based on flex layout in the HTML:
     bell(48) + 6 + title(28) + 8 + time(100) + 8 + label(28) + 20 + actions(76)
@@ -51,30 +53,10 @@
         text-anchor="middle"
         fill="#F1F5F9">07:30</text>
 
-  <!-- Snooze button — slate-700 pill, 140 × 76, centered at (153, 354).
-       Text y = baseline; for a 22 px font centered in 76 px pill
-       (y=316..392), baseline ≈ pill_center + font_size * 0.35
-       = 354 + 22 * 0.35 ≈ 362. cairosvg's `dominant-baseline=middle`
-       is unreliable so we set the baseline explicitly. -->
-  <rect x="83" y="316"
-        width="140" height="76"
-        rx="38" ry="38"
-        fill="#374151"/>
-  <text x="153" y="362"
-        font-size="22"
-        font-weight="500"
-        text-anchor="middle"
-        fill="#F1F5F9">Snooze</text>
-
-  <!-- Dismiss button — red-700 pill, 140 × 76, centered at (313, 354). -->
-  <rect x="243" y="316"
-        width="140" height="76"
-        rx="38" ry="38"
-        fill="#B91C1C"/>
-  <text x="313" y="362"
-        font-size="22"
-        font-weight="500"
-        text-anchor="middle"
-        fill="#F1F5F9">Dismiss</text>
+  <!-- Snooze / stop buttons — solid Ø 88 circles marking position + size.
+       render-overlay.py composites the real icongen glyph PNGs (snooze /
+       stop, and the bell above the title) on top of this geometry. -->
+  <circle cx="171" cy="354" r="44" fill="#9B6CF5"/>
+  <circle cx="295" cy="354" r="44" fill="#DC2626"/>
 
 </svg>
