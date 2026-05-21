@@ -38,9 +38,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import android.os.UserManager
 import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.data.AlarmRepository
 import com.kirkouski.gtalarm.data.SettingsStore
+import com.kirkouski.gtalarm.data.bfu.BfuAlarmCache
 import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.ui.edit.rememberBackgroundBitmap
 import com.kirkouski.gtalarm.util.TimeFormatter
@@ -55,6 +57,10 @@ class AlarmActivity : ComponentActivity() {
 
     @Inject lateinit var repository: AlarmRepository
     @Inject lateinit var settingsStore: SettingsStore
+    @Inject lateinit var bfuCache: BfuAlarmCache
+
+    private val isUserUnlocked: Boolean
+        get() = getSystemService(UserManager::class.java)?.isUserUnlocked == true
 
     // Flips true once the user taps Dismiss/Snooze and the service begins
     // the watch round-trip. Drives the "waiting for watch" UI. Read inside
@@ -93,12 +99,22 @@ class AlarmActivity : ComponentActivity() {
             var alarm by remember { mutableStateOf<Alarm?>(null) }
             var defaultBgUri by remember { mutableStateOf<String?>(null) }
             LaunchedEffect(alarmId) {
-                alarm = repository.getById(alarmId)
-                // One-shot read of the SettingsStore default. The ring screen
-                // is a moment-in-time view — re-collecting the Flow would
-                // make the bg image flicker if the user opens settings on
-                // another device mid-ring, which is the wrong UX.
-                defaultBgUri = settingsStore.defaultPhoneBackgroundUri.first()
+                // Pre-unlock the Activity is brought up by FSI before the
+                // user unlocks — Room and DataStore both live in credential-
+                // encrypted storage and would throw on access. Branch on
+                // UserManager.isUserUnlocked: pre-unlock read alarm fields
+                // from BfuAlarmCache (the same mirror AlarmRingService uses)
+                // and leave defaultBgUri null (SettingsStore is DataStore-
+                // backed; same CE-storage constraint). The ring screen
+                // renders the alarm time + (BFU-omitted) blank label and
+                // the default black background — degraded but functional.
+                if (isUserUnlocked) {
+                    alarm = repository.getById(alarmId)
+                    defaultBgUri = settingsStore.defaultPhoneBackgroundUri.first()
+                } else {
+                    alarm = bfuCache.getAll().firstOrNull { it.id == alarmId }
+                    defaultBgUri = null
+                }
             }
             // Per-alarm URI wins over the user-default. Null on both means
             // "render the existing black background" — preserves legacy

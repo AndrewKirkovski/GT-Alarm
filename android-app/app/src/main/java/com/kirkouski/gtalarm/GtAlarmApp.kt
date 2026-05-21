@@ -24,7 +24,20 @@ class GtAlarmApp : Application() {
         super.onCreate()
         logLaunchBanner()
         AlarmNotifications.ensureChannel(this)
-        wearBridge.setIncomingHandler(incomingHandler)
+        // Direct-boot: defer Wear bridge wiring until first unlock — Huawei
+        // Health auth needs the credential keystore. Picked up by
+        // BootReceiver.BOOT_COMPLETED + MainActivity.onStart.
+        //
+        // TODO(BFU on-device verification): preArmWatch pre-unlock already
+        // exercises the same binder via sendAlarmFired. If on a real GT 6
+        // the watch rings without unlock, wire the receiver here too; if
+        // not, drop the preArmWatch pre-unlock branch as dead code.
+        val um = getSystemService(android.os.UserManager::class.java)
+        if (um?.isUserUnlocked == true) {
+            wearBridge.setIncomingHandler(incomingHandler)
+        } else {
+            Log.i(TAG, "onCreate pre-unlock — deferring wearBridge.setIncomingHandler to first unlock")
+        }
     }
 
     // Single boot-time fingerprint for every launch: build identity + system

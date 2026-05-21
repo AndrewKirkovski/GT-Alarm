@@ -1,6 +1,7 @@
 package com.kirkouski.gtalarm.data
 
 import app.cash.turbine.test
+import com.kirkouski.gtalarm.data.bfu.BfuAlarmCache
 import com.kirkouski.gtalarm.data.db.AlarmDao
 import com.kirkouski.gtalarm.data.db.AlarmEntity
 import com.kirkouski.gtalarm.domain.Alarm
@@ -36,6 +37,7 @@ class AlarmRepositoryTest {
     private lateinit var tombstones: Tombstones
     private lateinit var widgetRefresher: WidgetRefresher
     private lateinit var settingsStore: SettingsStore
+    private lateinit var bfuCache: BfuAlarmCache
     private lateinit var appContext: Context
     private lateinit var repo: AlarmRepository
 
@@ -51,14 +53,18 @@ class AlarmRepositoryTest {
         // null-audio-URI semantics. Per-test overrides where needed.
         settingsStore = mockk(relaxed = true)
         coEvery { settingsStore.snapshot() } returns SettingsState()
+        // BFU cache: relaxed mock — these unit tests don't assert on cache
+        // writes; the cache's correctness is covered separately. Suspending
+        // upsert/remove/replaceAll are no-ops here.
+        bfuCache = mockk(relaxed = true)
         // Context is only used by rescheduleAllOnBoot() for the missed
         // notification — these unit tests don't exercise that path. A
         // relaxed mock is enough; if a test ever hits it, the NotificationManager
         // call would NPE and that's the signal to switch to a real Robolectric ctx.
         appContext = mockk(relaxed = true)
-        // UnconfinedTestDispatcher so the repo's internal appScope.launch
-        // (pushAlarmToWatch) runs in-line under runTest, letting verify()
-        // calls observe the broadcast synchronously.
+        // UnconfinedTestDispatcher so the repo's suspending DB/scheduler
+        // work runs in-line under runTest. Watch sync is debounced onto the
+        // repo's own appScope and is intentionally NOT asserted here.
         repo = AlarmRepository(
             dao = dao,
             scheduler = scheduler,
@@ -66,13 +72,14 @@ class AlarmRepositoryTest {
             tombstones = tombstones,
             widgetRefresher = widgetRefresher,
             settingsStore = settingsStore,
+            bfuCache = bfuCache,
             appContext = appContext,
             ioDispatcher = UnconfinedTestDispatcher(),
         )
     }
 
     @Test
-    fun `save assigns id, stamps updatedAtEpoch, schedules, broadcasts add, refreshes widget`() = runTest {
+    fun `save assigns id, stamps updatedAtEpoch, schedules, refreshes widget`() = runTest {
         val draft = Alarm(id = 0L, label = "Wake", hour = 7, minute = 30, daysOfWeek = DaysOfWeek.NONE, enabled = true)
         val before = System.currentTimeMillis()
 
@@ -83,7 +90,6 @@ class AlarmRepositoryTest {
         assertNotNull(persisted)
         assertTrue("save must stamp updatedAtEpoch", persisted!!.updatedAtEpoch >= before)
         verify { scheduler.schedule(match { it.id == newId && it.enabled }) }
-        verify { wearBridge.sendAlarmAdded(match { it.id == newId }) }
         coVerify { widgetRefresher.refresh() }
     }
 
@@ -109,37 +115,15 @@ class AlarmRepositoryTest {
     }
 
     @Test
-    fun `saveLocalOnly persists fields but does NOT broadcast to watch`() = runTest {
+    fun `saveLocalOnly persists fields and refreshes widget`() = runTest {
         val draft = Alarm(id = 0L, label = "Local", hour = 7, minute = 0, daysOfWeek = 0, enabled = true)
         val newId = repo.saveLocalOnly(draft)
         assertNotNull(dao.getById(newId))
-        verify(exactly = 0) { wearBridge.sendAlarmAdded(any()) }
-        verify(exactly = 0) { wearBridge.sendAlarmUpdated(any()) }
         coVerify { widgetRefresher.refresh() }
     }
 
     @Test
-    fun `pushAlarmToWatch broadcasts the current DAO state via sendAlarmUpdated`() = runTest {
-        // Pre-load a row via the local-only path so the broadcast path has
-        // something to pick up.
-        val newId = repo.saveLocalOnly(Alarm(label = "x", hour = 0, minute = 0, daysOfWeek = 0, enabled = true))
-        repo.pushAlarmToWatch(newId)
-        // UnconfinedTestDispatcher runs the appScope.launch in-line so the
-        // verify can observe the broadcast immediately.
-        verify { wearBridge.sendAlarmUpdated(match { it.id == newId }) }
-    }
-
-    @Test
-    fun `pushAlarmToWatch for a missing id silently no-ops`() = runTest {
-        // Edit-screen race: user edited an alarm, then deleted it on the
-        // list before the flush ran. The push should drop instead of
-        // crashing or broadcasting a stale snapshot.
-        repo.pushAlarmToWatch(99_999L)
-        verify(exactly = 0) { wearBridge.sendAlarmUpdated(any()) }
-    }
-
-    @Test
-    fun `save on existing alarm broadcasts updated, not added`() = runTest {
+    fun `save on existing alarm updates the persisted row`() = runTest {
         // Pre-seed an existing row.
         dao.upsert(AlarmEntity(id = 5L, label = "Old", hour = 7, minute = 0, daysOfWeek = 0, enabled = true,
             audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L))
@@ -147,12 +131,14 @@ class AlarmRepositoryTest {
 
         repo.save(edit)
 
-        verify { wearBridge.sendAlarmUpdated(match { it.id == 5L && it.label == "Updated" }) }
-        verify(exactly = 0) { wearBridge.sendAlarmAdded(any()) }
+        val persisted = dao.getById(5L)
+        assertNotNull(persisted)
+        assertEquals("Updated", persisted!!.label)
+        assertEquals(8, persisted.hour)
     }
 
     @Test
-    fun `setEnabled flips dao state, schedules, broadcasts toggled, refreshes`() = runTest {
+    fun `setEnabled flips dao state, schedules, refreshes`() = runTest {
         dao.upsert(AlarmEntity(id = 9L, label = "X", hour = 7, minute = 0, daysOfWeek = DaysOfWeek.WEEKDAYS,
             enabled = false, audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L))
 
@@ -162,7 +148,6 @@ class AlarmRepositoryTest {
         assertTrue("enabled must flip", after!!.enabled)
         assertTrue("setEnabled must re-stamp updatedAtEpoch", after.updatedAtEpoch > 1L)
         verify { scheduler.schedule(match { it.id == 9L && it.enabled }) }
-        verify { wearBridge.sendAlarmToggled(match { it.id == 9L && it.enabled }) }
         coVerify { widgetRefresher.refresh() }
     }
 
@@ -178,7 +163,7 @@ class AlarmRepositoryTest {
     }
 
     @Test
-    fun `delete cancels scheduler, removes row, writes tombstone with stamp greater than zero, broadcasts deleted`() = runTest {
+    fun `delete cancels scheduler, removes row, writes tombstone with stamp greater than zero`() = runTest {
         dao.upsert(AlarmEntity(id = 7L, label = "Bye", hour = 7, minute = 0, daysOfWeek = 0,
             enabled = true, audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L))
         val before = System.currentTimeMillis()
@@ -188,12 +173,11 @@ class AlarmRepositoryTest {
         assertNull(dao.getById(7L))
         verify { scheduler.cancel(7L) }
         verify { tombstones.add(7L, match { it >= before }, match { it >= before }) }
-        verify { wearBridge.sendAlarmDeleted(7L, match { it >= before }) }
         coVerify { widgetRefresher.refresh() }
     }
 
     @Test
-    fun `snooze with explicit override schedules at trigger, broadcasts snoozed, returns trigger`() = runTest {
+    fun `snooze with explicit override schedules at trigger, returns trigger`() = runTest {
         dao.upsert(AlarmEntity(id = 11L, label = "Z", hour = 8, minute = 0, daysOfWeek = 0,
             enabled = true, audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L,
             snoozeMinutes = 10))
@@ -204,7 +188,6 @@ class AlarmRepositoryTest {
         assertNotNull(trigger)
         assertTrue("snooze must return a future trigger time", trigger!! >= before + 5 * 60_000L - 100L)
         verify { scheduler.scheduleAt(match { it.id == 11L }, eq(trigger)) }
-        verify { wearBridge.sendAlarmSnoozed(11L, eq(trigger)) }
     }
 
     @Test
@@ -225,15 +208,14 @@ class AlarmRepositoryTest {
     }
 
     @Test
-    fun `snooze on missing alarm returns null and does not broadcast`() = runTest {
+    fun `snooze on missing alarm returns null and does not schedule`() = runTest {
         val trigger = repo.snooze(999L)
         assertNull(trigger)
         verify(exactly = 0) { scheduler.scheduleAt(any(), any()) }
-        verify(exactly = 0) { wearBridge.sendAlarmSnoozed(any(), any()) }
     }
 
     @Test
-    fun `snooze without override on snoozeMinutes=0 alarm returns null and does not broadcast`() = runTest {
+    fun `snooze without override on snoozeMinutes=0 alarm returns null and does not schedule`() = runTest {
         // Regression test: a 0-minute "snooze" would compute trigger = now + 0
         // and immediately re-fire the alarm. The guard rejects the call.
         dao.upsert(AlarmEntity(id = 13L, label = "Off", hour = 8, minute = 0, daysOfWeek = 0,
@@ -244,7 +226,6 @@ class AlarmRepositoryTest {
 
         assertNull(trigger)
         verify(exactly = 0) { scheduler.scheduleAt(any(), any()) }
-        verify(exactly = 0) { wearBridge.sendAlarmSnoozed(any(), any()) }
     }
 
     @Test
@@ -328,6 +309,30 @@ class AlarmRepositoryTest {
     }
 
     @Test
+    fun `rescheduleFromBfu re-arms only recurring alarms, skipping one-shots and relatives`() = runTest {
+        // Phase A v1 scope cut: BFU re-arm path skips one-shots because pre-
+        // unlock dismiss can't persist to Room. Recurring alarms have a
+        // well-defined next-occurrence so they re-arm cleanly.
+        val recurring = Alarm(
+            id = 1L, hour = 7, minute = 0, daysOfWeek = DaysOfWeek.WEEKDAYS,
+            enabled = true, updatedAtEpoch = 1L,
+        )
+        val oneShot = Alarm(
+            id = 2L, hour = 8, minute = 0, daysOfWeek = 0,
+            enabled = true, updatedAtEpoch = 1L,
+        )
+        val relative = Alarm(
+            id = 3L, hour = 0, minute = 0, daysOfWeek = 0, enabled = true,
+            updatedAtEpoch = 1L, relativeMinutes = 5,
+        )
+        io.mockk.every { bfuCache.getAll() } returns listOf(recurring, oneShot, relative)
+
+        repo.rescheduleFromBfu()
+
+        verify { scheduler.rescheduleAll(match { it.size == 1 && it[0].id == 1L }) }
+    }
+
+    @Test
     fun `rescheduleAll reschedules only enabled alarms`() = runTest {
         dao.upsert(AlarmEntity(id = 1L, label = "On", hour = 7, minute = 0, daysOfWeek = 0,
             enabled = true, audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L))
@@ -337,6 +342,108 @@ class AlarmRepositoryTest {
         repo.rescheduleAll()
 
         verify { scheduler.rescheduleAll(match { list -> list.size == 1 && list[0].id == 1L }) }
+    }
+
+    @Test
+    fun `snooze fromPeer=false (local) bumps consecutiveSnoozeCount`() = runTest {
+        dao.upsert(AlarmEntity(
+            id = 1L, label = "x", hour = 7, minute = 0, daysOfWeek = DaysOfWeek.WEEKDAYS,
+            enabled = true, audioUri = null, audioName = null, isVibrationOnly = false,
+            snoozeMinutes = 5, updatedAtEpoch = 1L, consecutiveSnoozeCount = 1,
+        ))
+
+        repo.snoozeAt(1L, System.currentTimeMillis() + 60_000L, fromPeer = false)
+
+        assertEquals(2, dao.getById(1L)?.consecutiveSnoozeCount)
+    }
+
+    @Test
+    fun `snoozeAt fromPeer=true ALSO bumps consecutiveSnoozeCount`() = runTest {
+        dao.upsert(AlarmEntity(
+            id = 1L, label = "x", hour = 7, minute = 0, daysOfWeek = DaysOfWeek.WEEKDAYS,
+            enabled = true, audioUri = null, audioName = null, isVibrationOnly = false,
+            snoozeMinutes = 5, updatedAtEpoch = 1L, consecutiveSnoozeCount = 1,
+        ))
+
+        repo.snoozeAt(1L, System.currentTimeMillis() + 60_000L, fromPeer = true)
+
+        // Spec line 499: counter increments on EVERY snooze, local OR
+        // peer-driven. Earlier logic skipped the bump on peer snoozes
+        // ("watch is authoritative"), but that broke the cap when the
+        // user kept tapping Snooze on the watch — the cap never tripped
+        // because the phone-side counter never advanced. Now uniform.
+        assertEquals(2, dao.getById(1L)?.consecutiveSnoozeCount)
+    }
+
+    @Test
+    fun `resetSnoozeCounter clears the counter`() = runTest {
+        dao.upsert(AlarmEntity(
+            id = 1L, label = "x", hour = 7, minute = 0, daysOfWeek = DaysOfWeek.WEEKDAYS,
+            enabled = true, audioUri = null, audioName = null, isVibrationOnly = false,
+            updatedAtEpoch = 1L, consecutiveSnoozeCount = 4,
+        ))
+
+        repo.resetSnoozeCounter(1L)
+
+        assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
+    }
+
+    @Test
+    fun `consumePastSkip clears skipNextEpoch when skip is in the past`() = runTest {
+        val past = System.currentTimeMillis() - 60_000L
+        dao.upsert(AlarmEntity(
+            id = 1L, label = "x", hour = 7, minute = 0, daysOfWeek = DaysOfWeek.WEEKDAYS,
+            enabled = true, audioUri = null, audioName = null, isVibrationOnly = false,
+            updatedAtEpoch = 1L, skipNextEpoch = past,
+        ))
+
+        repo.consumePastSkip(1L)
+
+        assertNull("past skip must be cleared", dao.getById(1L)?.skipNextEpoch)
+    }
+
+    @Test
+    fun `consumePastSkip is no-op when skip is still in the future`() = runTest {
+        val future = System.currentTimeMillis() + 60 * 60_000L
+        dao.upsert(AlarmEntity(
+            id = 1L, label = "x", hour = 7, minute = 0, daysOfWeek = DaysOfWeek.WEEKDAYS,
+            enabled = true, audioUri = null, audioName = null, isVibrationOnly = false,
+            updatedAtEpoch = 1L, skipNextEpoch = future,
+        ))
+
+        repo.consumePastSkip(1L)
+
+        assertEquals(
+            "future skip must be preserved",
+            future,
+            dao.getById(1L)?.skipNextEpoch,
+        )
+    }
+
+    @Test
+    fun `skipNext clears an active snoozedUntilEpoch before computing skip`() = runTest {
+        // A user who skipped-next while the alarm was snoozed used to set
+        // skipNextEpoch = snoozedUntilEpoch (calculator returns the snooze
+        // override). Now we clear the snooze first, then compute the next
+        // CLOCK occurrence as the skip target.
+        val now = System.currentTimeMillis()
+        dao.upsert(AlarmEntity(
+            id = 1L, label = "x",
+            hour = 7, minute = 0,
+            daysOfWeek = DaysOfWeek.WEEKDAYS,
+            enabled = true, audioUri = null, audioName = null, isVibrationOnly = false,
+            updatedAtEpoch = 1L,
+            snoozedUntilEpoch = now + 60_000L,
+        ))
+
+        val skipped = repo.skipNext(1L)
+
+        val row = dao.getById(1L)!!
+        assertNull("snooze override must be cleared by skipNext", row.snoozedUntilEpoch)
+        assertNotNull(skipped)
+        // The skip target is the clock-time next-recurrence, not the now+60s
+        // snooze override.
+        assertTrue("skip target must be strictly after the cleared snooze", (skipped ?: 0L) > now + 60_000L)
     }
 }
 
@@ -381,6 +488,12 @@ private class FakeAlarmDao : AlarmDao {
     override suspend fun setSnoozedUntil(id: Long, until: Long?) {
         rows.update { map ->
             map[id]?.let { map + (id to it.copy(snoozedUntilEpoch = until)) } ?: map
+        }
+    }
+
+    override suspend fun setConsecutiveSnoozeCount(id: Long, count: Int) {
+        rows.update { map ->
+            map[id]?.let { map + (id to it.copy(consecutiveSnoozeCount = count)) } ?: map
         }
     }
 }

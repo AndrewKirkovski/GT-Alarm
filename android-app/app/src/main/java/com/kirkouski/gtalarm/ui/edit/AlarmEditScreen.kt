@@ -11,6 +11,7 @@ package com.kirkouski.gtalarm.ui.edit
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -393,6 +394,25 @@ fun AlarmEditScreen(
                 onChange = vm::updateSnoozeMinutes,
             )
 
+            if (state.snoozeMinutes > Alarm.SNOOZE_DISABLED) {
+                MaxSnoozeRow(
+                    value = state.maxSnoozeCount,
+                    onChange = vm::updateMaxSnoozeCount,
+                )
+            }
+
+            VibrationPatternRow(
+                value = state.vibrationPattern,
+                onChange = vm::updateVibrationPattern,
+            )
+
+            if (!state.isVibrationOnly) {
+                VolumeRampRow(
+                    value = state.volumeRampSeconds,
+                    onChange = vm::updateVolumeRampSeconds,
+                )
+            }
+
             // Self-destruct: only visible when the alarm is one-shot. Hidden
             // entirely (not greyed out) for recurring per the spec — recurring
             // + self-destruct is illegal and there's no UX for it.
@@ -583,6 +603,199 @@ private val SNOOZE_PRESETS = listOf(
     Alarm.DEFAULT_SNOOZE_MINUTES,
     30,
 )
+
+@Composable
+private fun MaxSnoozeRow(value: Int, onChange: (Int) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                painter = painterResource(R.drawable.ic_snooze),
+                contentDescription = null,
+                tint = Color.Unspecified,
+                modifier = Modifier.padding(end = 8.dp).size(24.dp),
+            )
+            Text(
+                text = stringResource(R.string.field_max_snooze),
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = if (value <= Alarm.MAX_SNOOZE_COUNT_UNLIMITED) {
+                    stringResource(R.string.field_max_snooze_unlimited)
+                } else {
+                    stringResource(R.string.field_max_snooze_value, value)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+        ) {
+            MAX_SNOOZE_PRESETS.forEach { preset ->
+                MaxSnoozeChip(
+                    count = preset,
+                    selected = preset == value,
+                    onClick = { onChange(preset) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MaxSnoozeChip(count: Int, selected: Boolean, onClick: () -> Unit) {
+    val bg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+    val fg = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+    val label = if (count <= Alarm.MAX_SNOOZE_COUNT_UNLIMITED) {
+        stringResource(R.string.field_max_snooze_unlimited)
+    } else {
+        "$count"
+    }
+    Box(
+        modifier = Modifier
+            .size(width = 64.dp, height = 36.dp)
+            .clip(CircleShape)
+            .background(bg)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = label, color = fg, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+private val MAX_SNOOZE_PRESETS = listOf(
+    Alarm.MAX_SNOOZE_COUNT_UNLIMITED,
+    1,
+    3,
+    5,
+    10,
+)
+
+@Composable
+private fun VibrationPatternRow(
+    value: com.kirkouski.gtalarm.domain.VibrationPattern,
+    onChange: (com.kirkouski.gtalarm.domain.VibrationPattern) -> Unit,
+) {
+    val current = patternLabelRes(value)
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                painter = painterResource(R.drawable.ic_vibration),
+                contentDescription = null,
+                tint = Color.Unspecified,
+                modifier = Modifier.padding(end = 8.dp).size(24.dp),
+            )
+            Text(
+                text = stringResource(R.string.field_vibration_pattern),
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = stringResource(current),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        // Horizontally scrollable — labels ("Heartbeat", "Three-tap",
+        // "Long-long") plus 5 chips can exceed a 360dp portrait screen's
+        // usable width. Scroll lets the row degrade gracefully.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+        ) {
+            com.kirkouski.gtalarm.domain.VibrationPattern.entries.forEach { pattern ->
+                PatternChip(
+                    label = stringResource(patternLabelRes(pattern)),
+                    selected = pattern == value,
+                    onClick = { onChange(pattern) },
+                )
+            }
+        }
+    }
+}
+
+private fun patternLabelRes(p: com.kirkouski.gtalarm.domain.VibrationPattern): Int = when (p) {
+    com.kirkouski.gtalarm.domain.VibrationPattern.PULSE -> R.string.vibration_pattern_pulse
+    com.kirkouski.gtalarm.domain.VibrationPattern.HEARTBEAT -> R.string.vibration_pattern_heartbeat
+    com.kirkouski.gtalarm.domain.VibrationPattern.THREE_TAP -> R.string.vibration_pattern_three_tap
+    com.kirkouski.gtalarm.domain.VibrationPattern.LONG_LONG -> R.string.vibration_pattern_long_long
+    com.kirkouski.gtalarm.domain.VibrationPattern.OFF -> R.string.vibration_pattern_off
+}
+
+@Composable
+private fun PatternChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val bg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+    val fg = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+    Box(
+        modifier = Modifier
+            .height(36.dp)
+            .clip(CircleShape)
+            .background(bg)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = label, color = fg, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+@Composable
+private fun VolumeRampRow(value: Int, onChange: (Int) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                painter = painterResource(R.drawable.ic_music_note),
+                contentDescription = null,
+                tint = Color.Unspecified,
+                modifier = Modifier.padding(end = 8.dp).size(24.dp),
+            )
+            Text(
+                text = stringResource(R.string.field_volume_ramp),
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = if (value <= 0) {
+                    stringResource(R.string.field_volume_ramp_off)
+                } else {
+                    stringResource(R.string.field_volume_ramp_seconds, value)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            VOLUME_RAMP_PRESETS.forEach { preset ->
+                RampChip(
+                    seconds = preset,
+                    selected = preset == value,
+                    onClick = { onChange(preset) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RampChip(seconds: Int, selected: Boolean, onClick: () -> Unit) {
+    val bg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+    val fg = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+    val label = if (seconds <= 0) stringResource(R.string.field_volume_ramp_off) else "${seconds}s"
+    Box(
+        modifier = Modifier
+            .size(width = 56.dp, height = 36.dp)
+            .clip(CircleShape)
+            .background(bg)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = label, color = fg, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+private val VOLUME_RAMP_PRESETS = listOf(0, 5, 15, 30, 60)
 
 @Composable
 private fun DeleteConfirmDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {

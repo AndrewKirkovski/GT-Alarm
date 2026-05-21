@@ -168,6 +168,10 @@ The `alarm` envelope (sent with `alarm_added` / `alarm_updated`) carries:
 | `updatedAtEpoch` | number | yes | non-negative |
 | `relativeMinutes` | number\|null | no (default `null` = absolute alarm) | **rejected if outside 1–1440 OR if `daysOfWeek != 0`** |
 | `selfDestruct` | boolean | no (default `false`) | **rejected if `true` AND `daysOfWeek != 0`** |
+| `vibrationPattern` | string | no (default `"PULSE"`) | one of `PULSE`/`HEARTBEAT`/`THREE_TAP`/`LONG_LONG`/`OFF`; unknown coerces to `PULSE` |
+| `volumeRampSeconds` | number | no (default `0`) | clamped to 0–60; `0` = no ramp |
+| `maxSnoozeCount` | number | no (default `0`) | `0` = unlimited; otherwise clamped to 1–20 |
+| `skipNextEpoch` | number\|absent | no | only present when the user has swiped-to-skip-next on a recurring alarm; `<= 0` coerces to absent on receive |
 
 The alarm **label is phone-only** — it is never serialized into the `alarm`
 payload, never stored on the watch, and never part of `AlarmHash`. The label
@@ -462,10 +466,13 @@ The phone re-fetches its own alarm list **after** receiving the watch's response
 1. Sort alarms by `id` ascending.
 2. For each alarm, render a single canonical line:
    ```
-   id|hour|minute|daysOfWeek|enabled|audioUri|isVibrationOnly|snoozeMinutes|updatedAtEpoch|relativeMinutes|selfDestruct\n
+   id|hour|minute|daysOfWeek|enabled|audioUri|isVibrationOnly|snoozeMinutes|updatedAtEpoch|relativeMinutes|selfDestruct|vibrationPattern|maxSnoozeCount|volumeRampSeconds|skipNextEpoch\n
    ```
    - Booleans: `1` / `0`.
-   - Null `audioUri` and null `relativeMinutes`: empty string between the pipes.
+   - Null `audioUri`, null `relativeMinutes`, and null `skipNextEpoch`: empty string between the pipes.
+   - Missing `vibrationPattern` (pre-Tier-1 peer): defaults to literal `PULSE` on both sides.
+   - Missing `maxSnoozeCount` / `volumeRampSeconds`: default to `0` on both sides.
+   - `consecutiveSnoozeCount` is **excluded** — phone-side ring-loop state that would force a hash mismatch on every snooze.
 3. Concatenate all lines into a single string (newline after every line, including the last).
 4. Apply Java `String.hashCode()` over UTF-16 code units. On JS this is `((h << 5) - h + s.charCodeAt(i)) | 0` iterated.
 5. Convert signed 32-bit result to unsigned, render as lowercase hex, left-pad with zeros to 8 chars.

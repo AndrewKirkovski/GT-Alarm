@@ -7,6 +7,7 @@
 
 package com.kirkouski.gtalarm.ui.settings
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,6 +35,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -43,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -142,6 +145,12 @@ private fun WatchBackgroundRow(
     onClear: () -> Unit,
 ) {
     var showPicker by remember { mutableStateOf(false) }
+    // Bumped on every save so the preview re-decodes: the watch-bg picker
+    // rewrites a fixed path, so a re-crop changes neither the URI string
+    // nor anything else the thumbnail keys on.
+    var reloadToken by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
+    val savedMessage = stringResource(R.string.settings_watch_background_saved)
     if (showPicker) {
         WatchBackgroundPickerDialog(
             alarmId = DEFAULT_WATCH_BG_ID,
@@ -149,13 +158,16 @@ private fun WatchBackgroundRow(
             onDismiss = { showPicker = false },
             onSaved = { uri ->
                 showPicker = false
+                reloadToken++
                 onPicked(uri)
+                Toast.makeText(context, savedMessage, Toast.LENGTH_LONG).show()
             },
         )
     }
     BackgroundRowLayout(
         titleRes = R.string.settings_default_watch_background,
         currentUri = currentUri,
+        reloadKey = reloadToken,
         onPick = { showPicker = true },
         onClear = onClear,
     )
@@ -189,10 +201,11 @@ private fun BackgroundRowLayout(
     currentUri: String?,
     onPick: () -> Unit,
     onClear: () -> Unit,
+    reloadKey: Any? = null,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (currentUri != null) {
-            val bitmapState = rememberBackgroundBitmap(currentUri)
+            val bitmapState = rememberBackgroundBitmap(currentUri, reloadKey)
             val bm = bitmapState.value
             if (bm != null) {
                 Image(

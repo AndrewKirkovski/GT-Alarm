@@ -8,10 +8,16 @@
 //   2. Render each as a pipe-delimited line:
 //        id|hour|minute|daysOfWeek|enabled|audioUri|
 //        isVibrationOnly|snoozeMinutes|updatedAtEpoch|
-//        relativeMinutes|selfDestruct
-//      (alarm label is phone-only — never on the wire, never hashed)
+//        relativeMinutes|selfDestruct|
+//        vibrationPattern|maxSnoozeCount|volumeRampSeconds|skipNextEpoch
+//      (alarm label is phone-only — never on the wire, never hashed.
+//       consecutiveSnoozeCount is phone-side ring-loop state — excluded
+//       so the hash doesn't churn on every snooze.)
 //      - booleans: '1' / '0'
-//      - null audioUri / undefined relativeMinutes: empty string
+//      - null audioUri / undefined relativeMinutes / null skipNextEpoch:
+//        empty string
+//      - missing vibrationPattern: default 'PULSE'
+//      - missing maxSnoozeCount / volumeRampSeconds: default 0
 //   3. Join with '\n' (newline after EVERY line, including last)
 //   4. hash = Java String.hashCode → unsigned → 8-char lowercase hex
 //
@@ -48,6 +54,13 @@ function canonicalize(alarms) {
     var out = '';
     for (var i = 0; i < sorted.length; i++) {
         var a = sorted[i];
+        // Tier 1+2 fields appended after the v1 block, byte-identical
+        // with the Kotlin canonicalize(). consecutiveSnoozeCount is
+        // NOT hashed (phone-side ring-loop state, would mismatch every
+        // snooze).
+        var pattern = a.vibrationPattern ? ('' + a.vibrationPattern) : 'PULSE';
+        var maxSnooze = (a.maxSnoozeCount == null) ? 0 : a.maxSnoozeCount;
+        var volRamp = (a.volumeRampSeconds == null) ? 0 : a.volumeRampSeconds;
         out += a.id + '|' +
             a.hour + '|' +
             a.minute + '|' +
@@ -58,7 +71,11 @@ function canonicalize(alarms) {
             (a.snoozeMinutes || 0) + '|' +
             (a.updatedAtEpoch || 0) + '|' +
             strOrEmpty(a.relativeMinutes) + '|' +
-            boolFlag(a.selfDestruct) +
+            boolFlag(a.selfDestruct) + '|' +
+            pattern + '|' +
+            maxSnooze + '|' +
+            volRamp + '|' +
+            strOrEmpty(a.skipNextEpoch) +
             '\n';
     }
     return out;

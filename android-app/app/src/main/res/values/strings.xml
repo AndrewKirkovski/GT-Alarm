@@ -69,6 +69,19 @@
          the label is just the bare duration. -->
     <string name="list_relative_off_min" tools:ignore="MissingTranslation">%1$d min</string>
     <string name="list_relative_off_hr_min" tools:ignore="MissingTranslation">%1$d h %2$d min</string>
+    <string name="list_skip_next_hint">next skipped</string>
+    <string name="field_vibration_pattern">Vibration pattern</string>
+    <string name="vibration_pattern_pulse">Pulse</string>
+    <string name="vibration_pattern_heartbeat">Heartbeat</string>
+    <string name="vibration_pattern_three_tap">Three-tap</string>
+    <string name="vibration_pattern_long_long">Long-long</string>
+    <string name="vibration_pattern_off">Off</string>
+    <string name="field_volume_ramp">Volume ramp</string>
+    <string name="field_volume_ramp_off">Off</string>
+    <string name="field_volume_ramp_seconds">%1$d s</string>
+    <string name="field_max_snooze">Max snoozes</string>
+    <string name="field_max_snooze_unlimited">Unlimited</string>
+    <string name="field_max_snooze_value">%1$d×</string>
     <string name="delete">Delete</string>
     <string name="cancel">Cancel</string>
     <string name="add_alarm">Add alarm</string>
@@ -90,7 +103,6 @@
     <string name="repeats_weekdays">Weekdays</string>
     <string name="repeats_weekends">Weekends</string>
     <string name="repeats_timer">Timer</string>
-    <string name="repeats_oneoff">Auto-delete</string>
     <string name="delete_alarm">Delete alarm</string>
 
     <!-- reason: reverse-save edit model strings (Revert + discard + delete
@@ -119,10 +131,6 @@
     <string name="battery_opt_card_dismiss">Not now</string>
 
     <string name="watch_status_card_title">Watch sync</string>
-    <string name="watch_status_card_not_connected">Watch: not connected</string>
-    <string name="watch_status_card_connecting">Watch: connecting…</string>
-    <string name="watch_status_card_connected">Watch: connected</string>
-    <string name="watch_status_card_error">Watch: connection error</string>
     <string name="watch_status_card_needs_auth" tools:ignore="MissingTranslation">Not authorized — tap the key to grant watch access</string>
     <string name="watch_status_card_authorize" tools:ignore="MissingTranslation">Authorize watch access</string>
 
@@ -149,11 +157,12 @@
     <string tools:ignore="MissingTranslation" name="settings_default_ringtone_reset">Use system default</string>
     <string tools:ignore="MissingTranslation" name="settings_section_default_backgrounds">Default background images</string>
     <string tools:ignore="MissingTranslation" name="settings_default_backgrounds_intro">Used when an alarm doesn\'t have its own image. The phone image renders behind the lockscreen alarm; the watch image is cropped to the watch face.</string>
-    <string tools:ignore="MissingTranslation" name="settings_default_phone_background">Phone alarm</string>
-    <string tools:ignore="MissingTranslation" name="settings_default_watch_background">Watch alarm</string>
+    <string tools:ignore="MissingTranslation" name="settings_default_phone_background">Phone alarm background</string>
+    <string tools:ignore="MissingTranslation" name="settings_default_watch_background">Watch alarm background</string>
     <string tools:ignore="MissingTranslation" name="settings_default_background_none">Not set</string>
     <string tools:ignore="MissingTranslation" name="settings_default_background_set">Set</string>
     <string tools:ignore="MissingTranslation" name="settings_default_background_clear">Clear default background</string>
+    <string tools:ignore="MissingTranslation" name="settings_watch_background_saved">Watch background saved. It will appear the next time the watch app opens.</string>
     <string name="help_intro">Android doesn\'t have a single setting called \"default alarm app\". When you ask Google Assistant to set an alarm, the system either uses an app you\'ve picked before, or shows a chooser the first time. Choosing GT Alarm and tapping \"Always\" makes it the default thereafter. On phones without Google services — many Huawei models — voice-set through Google Assistant isn\'t available at all.</string>
     <string name="help_status_default">GT Alarm is the default alarm app on this device.</string>
     <string name="help_status_disambiguator">Multiple alarm apps are installed. The next time you say \"Hey Google, set an alarm\", Android will show a chooser — pick GT Alarm and tap Always.</string>

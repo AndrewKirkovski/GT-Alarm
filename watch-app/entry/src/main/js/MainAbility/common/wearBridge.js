@@ -395,9 +395,20 @@ export default {
     // of recovery window per tap, in addition to the per-send round
     // trips. notifyToggled/notifyDeleted stay fire-and-forget since the
     // user is staring at the list UI and can re-tap if a sync fails.
-    // `cb(success, reason)` fires once on terminal state (success or
-    // exhausted retries). Ring page uses it to expedite app.terminate
-    // after the phone acks, instead of waiting out the hard-cap.
+    //
+    // RETRIES-ONLY BY DESIGN — no blocking wait for a phone application
+    // ack. The watch CANNOT wake the Android app: a watch→phone message
+    // only lands if the phone already has a live Activity in its task
+    // (Wear Engine asymmetry). The watch has no way to know whether the
+    // phone has one, so blocking on a phone reply could hang forever —
+    // and a hidden-page setTimeout never fires anyway (Lite gotcha #13).
+    // `cb(success, reason)` therefore reports only the TRANSPORT outcome
+    // (207 = delivered to the phone's Wear Engine layer, or retries
+    // exhausted), NOT phone-side application confirmation. The phone is
+    // the always-on side and owns reliable convergence: it re-pushes the
+    // full alarm list (debounced forceSync) on every mutation and on
+    // foreground. Ring page uses `cb` to expedite app.terminate once the
+    // transport succeeds, instead of waiting out the hard-cap.
     notifyDismissed: function (alarmId, cb) {
         sendJsonWithRetry({
             type: 'alarm_dismissed',

@@ -5,11 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.kirkouski.gtalarm.data.AlarmRepository
 import com.kirkouski.gtalarm.data.SettingsState
 import com.kirkouski.gtalarm.data.SettingsStore
-import com.kirkouski.gtalarm.wear.WearBridgeService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -23,7 +21,6 @@ import javax.inject.Inject
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val store: SettingsStore,
-    private val wearBridge: WearBridgeService,
     private val alarmRepository: AlarmRepository,
 ) : ViewModel() {
 
@@ -35,23 +32,12 @@ class SettingsViewModel @Inject constructor(
 
     fun setUse24Hour(value: Boolean?) = viewModelScope.launch {
         store.setUse24Hour(value)
-        pushDisplayToWatch()
+        alarmRepository.scheduleWatchSync()
     }
 
     fun setFirstDayOfWeek(value: Int?) = viewModelScope.launch {
         store.setFirstDayOfWeek(value)
-        pushDisplayToWatch()
-    }
-
-    /**
-     * Push the post-edit snapshot of 12/24h + week-start to the watch.
-     * Fire-and-forget — the watch is a thin display, divergence is
-     * cosmetic, and the next forceSync also re-pushes settings as a
-     * backstop (see [com.kirkouski.gtalarm.ui.list.AlarmListViewModel]).
-     */
-    private suspend fun pushDisplayToWatch() {
-        val current = store.state.first()
-        wearBridge.sendSettingsChanged(current.use24Hour, current.firstDayOfWeek)
+        alarmRepository.scheduleWatchSync()
     }
 
     fun setDefaultAbsoluteRingtone(uri: String?, name: String?) = viewModelScope.launch {

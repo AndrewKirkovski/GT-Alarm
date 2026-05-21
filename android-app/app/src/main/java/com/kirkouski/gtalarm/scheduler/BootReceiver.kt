@@ -5,7 +5,10 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.kirkouski.gtalarm.data.AlarmRepository
+import com.kirkouski.gtalarm.data.sync.IncomingMessageHandler
 import com.kirkouski.gtalarm.di.IoDispatcher
+import com.kirkouski.gtalarm.wear.WearBridgeService
+import com.kirkouski.gtalarm.widget.WidgetRefresher
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -16,6 +19,9 @@ import javax.inject.Inject
 class BootReceiver : BroadcastReceiver() {
 
     @Inject lateinit var repository: AlarmRepository
+    @Inject lateinit var wearBridge: WearBridgeService
+    @Inject lateinit var incomingHandler: IncomingMessageHandler
+    @Inject lateinit var widgetRefresher: WidgetRefresher
     @Inject @IoDispatcher lateinit var ioDispatcher: CoroutineDispatcher
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -24,13 +30,26 @@ class BootReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(ioDispatcher).launch {
             try {
-                if (action == Intent.ACTION_BOOT_COMPLETED) {
-                    // Only the boot path needs the "missed during downtime"
-                    // rule. Time/timezone change events fire while the device
-                    // is already up — no downtime to reckon with.
-                    repository.rescheduleAllOnBoot()
-                } else {
-                    repository.rescheduleAll()
+                when (action) {
+                    Intent.ACTION_LOCKED_BOOT_COMPLETED -> {
+                        // Pre-unlock: Room locked, rearm from BFU cache.
+                        repository.rescheduleFromBfu()
+                    }
+                    Intent.ACTION_BOOT_COMPLETED -> {
+                        repository.rescheduleAllOnBoot()
+                        // Idempotent — covers the case where the user
+                        // dismisses morning alarm pre-MainActivity.
+                        wearBridge.setIncomingHandler(incomingHandler)
+                    }
+                    Intent.ACTION_LOCALE_CHANGED -> {
+                        // Locale-sensitive strings need re-render; alarm
+                        // schedule itself is locale-free.
+                        widgetRefresher.refresh()
+                    }
+                    else -> {
+                        // TIMEZONE_CHANGED / TIME_SET / MY_PACKAGE_REPLACED.
+                        repository.rescheduleAll()
+                    }
                 }
             } finally {
                 pending.finish()

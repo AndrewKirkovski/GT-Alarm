@@ -5,6 +5,7 @@
 // context-teardown of the old 3-page design is gone.
 import app from '@system.app';
 import storage from '@system.storage';
+import file from '@system.file';
 import vibrator from '@system.vibrator';
 import AlarmStore from '../../common/alarmStore.js';
 import SettingsStore from '../../common/settingsStore.js';
@@ -29,11 +30,32 @@ var BG_PATH_KEY = 'bg_path';
 var DAY_BITS = [1, 2, 4, 8, 16, 32, 64];
 var DEFAULT_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 var VIBRATE_INTERVAL_MS = 1500;
+
+// Vibration-pattern presets — mirrors VibrationPattern.kt on the phone.
+// Each step is { mode: 'short'|'long', delayAfterMs: number }. The
+// orchestrator calls vibrator.vibrate({mode}) then waits delayAfterMs
+// before the next step. The whole sequence loops while the ring page
+// is visible. ES5 only — plain object literal, no const/arrow.
+var VIBRATION_PATTERNS = {
+    PULSE:     [ { mode: 'long',  delay: 1500 } ],
+    HEARTBEAT: [ { mode: 'short', delay: 150 }, { mode: 'short', delay: 1000 } ],
+    THREE_TAP: [ { mode: 'short', delay: 200 }, { mode: 'short', delay: 200 }, { mode: 'short', delay: 1200 } ],
+    LONG_LONG: [ { mode: 'long',  delay: 800 }, { mode: 'long',  delay: 1200 } ],
+    OFF:       [],
+};
 var PEER_FLASH_MS = 1200;
 
 // Ring auto-terminate. The watch was woken for the alarm; once the
 // action settles, close the app instead of sitting on the watch face.
 var TERMINATE_HARD_CAP_MS = 6000;
+// Longer cap for the dismiss/snooze paths: those fire a watch->phone
+// retry chain (wearBridge.sendJsonWithRetry) whose worst case is
+// maxAttempts(3) x SEND_TIMEOUT_MS(3000) + 2 x 500ms retry gap = 10s.
+// The cap MUST exceed that — otherwise app.terminate() fires mid-chain
+// and the un-sent retries are lost (Lite setTimeout is foreground-only,
+// and the process is gone). Keep this in lock-step with wearBridge.js's
+// SEND_TIMEOUT_MS / retry-count if either changes.
+var TERMINATE_RETRY_CAP_MS = 11000;
 // Long enough that the ring's DISMISSED/SNOOZED confirmation (shown for
 // PEER_FLASH_MS) stays visible before the watch auto-closes.
 var TERMINATE_AFTER_ACK_MS = 1400;
@@ -69,12 +91,12 @@ function fireTerminate(tag) {
     }
 }
 
-function scheduleTerminate(reason) {
+function scheduleTerminate(reason, capMs) {
     if (_terminateScheduled) return;
     _terminateScheduled = true;
     _terminateTimer = setTimeout(function () {
         fireTerminate('cap:' + reason);
-    }, TERMINATE_HARD_CAP_MS);
+    }, capMs || TERMINATE_HARD_CAP_MS);
 }
 
 function expediteTerminate(tag) {
@@ -159,8 +181,11 @@ function formatAlarmTime(alarm, use24Hour, ampmAM, ampmPM) {
 
 function nonRecurringLabel(self, alarm) {
     if (alarm.relativeMinutes) return self.repeatTimer;
-    if (alarm.selfDestruct) return self.repeatOneOff;
-    return self.repeatOnce;
+    // selfDestruct reads "Once" (identical phone + watch). A plain
+    // one-time alarm shows no label at all — the absent day grid already
+    // says "fires once", so a redundant word just adds noise.
+    if (alarm.selfDestruct) return self.repeatOnce;
+    return '';
 }
 
 function letterArrayFromSelf(self, order) {
@@ -280,10 +305,18 @@ export default {
         // watch). Swaps the arc green and replaces the action buttons
         // with the thumbs-up confirmation image.
         ended: false,
+        // Phone owns snoozeMinutes; we hide the Snooze button + suppress
+        // implicit-snooze + crown-snooze when 0. Default true is safe
+        // for an unknown alarm (better to allow snooze than block it).
+        ringSnoozeEnabled: true,
+        // VibrationPattern name resolved from the synced alarm at ring time.
+        // Falls back to PULSE when the alarm isn't in the store yet (thin-
+        // client envelope without prior sync).
+        ringVibrationPattern: 'PULSE',
         ringDiagText: 'snt:-- rx:--',
 
         // --- i18n bag (read by helpers via `self`) ---
-        repeatOnce: '', repeatTimer: '', repeatOneOff: '',
+        repeatOnce: '', repeatTimer: '',
         repeatAll: '', repeatWeekdays: '', repeatWeekends: '',
         noSyncYet: '', syncJustNow: '', syncMinAgo: '',
         syncHrAgo: '', syncDayAgo: '', editOnPhoneToast: '',
@@ -327,7 +360,6 @@ export default {
         this.ringTitle = this.$t('strings.reminder_default_title');
         this.repeatOnce = this.$t('strings.repeat_once');
         this.repeatTimer = this.$t('strings.repeat_timer');
-        this.repeatOneOff = this.$t('strings.repeat_oneoff');
         this.repeatAll = this.$t('strings.repeat_every_day');
         this.repeatWeekdays = this.$t('strings.repeat_weekdays');
         this.repeatWeekends = this.$t('strings.repeat_weekends');
@@ -362,8 +394,11 @@ export default {
 
         // Incoming-envelope -> screen transitions. One page, so the
         // handler updates this page's data directly.
-        IncomingHandler.setOnAlarmFiredNavigator(function (alarmId) {
-            self.enterRing(alarmId);
+        IncomingHandler.setOnAlarmFiredNavigator(function (alarmId, ringHints) {
+            // ringHints (optional) = inline thin-client envelope fields —
+            // vibrationPattern + snoozeAllowed — so the watch rings with
+            // the right pattern + Snooze gating WITHOUT prior sync_replace.
+            self.enterRing(alarmId, ringHints);
         });
         IncomingHandler.setOnPeerEndedRing(function (alarmId, type) {
             self.onPeerEnded(alarmId, type);
@@ -376,8 +411,19 @@ export default {
             }
         });
         IncomingHandler.setOnSyncDone(function () {
-            Logger.i('index.sync_done -> terminate');
-            fireTerminate('sync_done');
+            // Only self-close when this instance was woken PURELY to sync
+            // (screen=='sync', set by onSyncWake). If the user already had
+            // the app open (screen=='list') or an alarm is ringing
+            // (screen=='ring'), the sync applied silently in the
+            // background — terminating here would yank the app out from
+            // under the user, and mid-ring it ends the alarm (onHide ->
+            // implicit snooze). Keep the app where the user left it.
+            if (self.screen === 'sync') {
+                Logger.i('index.sync_done -> terminate (woken for sync)');
+                fireTerminate('sync_done');
+            } else {
+                Logger.i('index.sync_done -> stay (screen=' + self.screen + ')');
+            }
         });
 
         SettingsStore.get(function (s) {
@@ -469,9 +515,9 @@ export default {
         this.stopVibrate();
         this._disarmCrownGesture();
         // Side-button-while-ringing = implicit snooze. Only when the ring
-        // screen is up, no explicit Dismiss/Snooze tap happened, and the
-        // phone did not just peer-end the alarm.
-        if (this.screen === 'ring' && !this._explicitAction) {
+        // screen is up, no explicit Dismiss/Snooze tap happened, the alarm
+        // is snoozable, and the phone did not just peer-end the alarm.
+        if (this.screen === 'ring' && !this._explicitAction && this.ringSnoozeEnabled) {
             var ageMs = Date.now() - _peerEndedAtMs;
             if (_peerEndedAtMs > 0 && ageMs >= 0 && ageMs < PEER_END_WINDOW_MS) {
                 Logger.i('index.onHide peer-ended — suppress implicit snooze');
@@ -631,7 +677,8 @@ export default {
                 self._crownDecideTimer = setTimeout(function () {
                     self._crownDecideTimer = null;
                     if (!self._crownCommitted &&
-                            self.screen === 'ring' && !self.ended) {
+                            self.screen === 'ring' && !self.ended &&
+                            self.ringSnoozeEnabled) {
                         self._crownCommitted = true;
                         Logger.i('index.crown gesture=1 -> snooze');
                         self.onSnooze();
@@ -687,13 +734,16 @@ export default {
 
     applyDiag: function (rxTxt, rawCount) {
         var self = this;
-        storage.get({
-            key: 'diag_inbound',
-            default: '{"total":0}',
+        // diag_inbound migrated to @system.file (incomingHandler.js) since
+        // the JSON byType map grows past @system.storage's 128 B cap with
+        // ~6+ distinct message types accumulated. The file path is the
+        // same one writers use: internal://app/diag_inbound.json.
+        file.readText({
+            uri: 'internal://app/diag_inbound.json',
             success: function (data) {
                 var o;
                 try {
-                    o = JSON.parse(data);
+                    o = (data && data.text) ? JSON.parse(data.text) : null;
                 } catch (e) {
                     o = null;
                 }
@@ -708,22 +758,70 @@ export default {
                     ' raw:' + rawCount + ' in:' + inCount;
             },
             fail: function () {
-                self.diagLine1 = 'rx:' + rxTxt + ' diag:fail';
-                self.ringDiagText = 'snt:' + self._ringSent + ' rx:' + rxTxt;
+                // File not yet created (fresh install / no envelopes received).
+                // Show in:0 rather than a generic "fail" so the diag bar
+                // stays informative on first launch.
+                self.diagLine1 = 'rx:' + rxTxt + ' raw:' + rawCount + ' in:0';
+                self.ringDiagText = 'snt:' + self._ringSent + ' rx:' + rxTxt +
+                    ' raw:' + rawCount + ' in:0';
             },
         });
     },
 
     // ---- RING ----
-    enterRing: function (alarmId) {
+    enterRing: function (alarmId, ringHints) {
         Logger.i('index.enterRing id=' + alarmId);
         var self = this;
         this._alarmId = alarmId;
         this._explicitAction = null;
         this.ended = false;
+        // Default-open: a thin-client envelope without prior sync wins
+        // the "show snooze" by default. ringHints (from alarm_fired
+        // envelope) override below; AlarmStore lookup is the last resort
+        // for old phone builds that didn't ship the hints.
+        this.ringSnoozeEnabled = true;
+        this.ringVibrationPattern = 'PULSE';
         cancelTerminate();
         this.screen = 'ring';
         this.updateScrim();
+        // Apply inline ring hints from the envelope FIRST — that's the
+        // thin-client criterion: the watch must ring with the right
+        // pattern + Snooze gating even on a cold-paired/unsynced state.
+        var hintPattern = (ringHints && ringHints.vibrationPattern) || null;
+        var hintSnoozeAllowed = (ringHints && (typeof ringHints.snoozeAllowed === 'boolean'))
+            ? ringHints.snoozeAllowed : null;
+        if (hintPattern && VIBRATION_PATTERNS[hintPattern]) {
+            this.ringVibrationPattern = hintPattern;
+        }
+        if (hintSnoozeAllowed !== null) {
+            this.ringSnoozeEnabled = hintSnoozeAllowed;
+        }
+        Logger.i('index.enterRing hints pattern=' + hintPattern +
+            ' snoozeAllowed=' + hintSnoozeAllowed +
+            ' → snoozeEnabled=' + this.ringSnoozeEnabled +
+            ' pattern=' + this.ringVibrationPattern);
+        // Fallback AlarmStore resolution — only fills fields the hints
+        // didn't carry (legacy phone build, or hints came back null).
+        AlarmStore.getAll(function (items) {
+            var idNum = Number(alarmId);
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].id === idNum) {
+                    if (hintSnoozeAllowed === null) {
+                        self.ringSnoozeEnabled = (items[i].snoozeMinutes || 0) > 0;
+                    }
+                    if (!hintPattern) {
+                        var p = items[i].vibrationPattern;
+                        if (p && VIBRATION_PATTERNS[p]) {
+                            self.ringVibrationPattern = p;
+                        }
+                    }
+                    Logger.i('index.enterRing store-fallback snoozeEnabled=' +
+                        self.ringSnoozeEnabled + ' pattern=' + self.ringVibrationPattern);
+                    return;
+                }
+            }
+            Logger.i('index.enterRing alarm not in store — keeping hint values');
+        });
         // Arm crown-to-snooze once the ring stack (with .crown-list) has
         // rendered — the $refs entry resolves only after the render pass.
         setTimeout(function () {
@@ -752,24 +850,40 @@ export default {
 
     startVibrate: function () {
         this.stopVibrate();
-        function buzz() {
+        var pattern = VIBRATION_PATTERNS[this.ringVibrationPattern] || VIBRATION_PATTERNS.PULSE;
+        // OFF preset → no vibration at all.
+        if (!pattern || pattern.length === 0) {
+            Logger.i('startVibrate skip pattern=' + this.ringVibrationPattern);
+            return;
+        }
+        var self = this;
+        var stepIdx = 0;
+        function step() {
+            // Guard: stopVibrate() nulls _vibrateTimer; if the page changed
+            // mid-sequence we must not re-fire.
+            if (self._vibrateTimer === null) return;
+            var s = pattern[stepIdx];
             try {
                 if (vibrator && typeof vibrator.vibrate === 'function') {
-                    vibrator.vibrate({ mode: 'long' });
+                    vibrator.vibrate({ mode: s.mode });
                 }
             } catch (e) {
                 Logger.err('vibrate', e);
             }
+            stepIdx = (stepIdx + 1) % pattern.length;
+            self._vibrateTimer = setTimeout(step, s.delay);
         }
-        buzz();
-        this._vibrateTimer = setInterval(buzz, VIBRATE_INTERVAL_MS);
+        // Sentinel so the guard inside step() doesn't trip on the first
+        // synchronous call before setTimeout assigns.
+        this._vibrateTimer = -1;
+        step();
     },
 
     stopVibrate: function () {
-        if (this._vibrateTimer !== null) {
-            clearInterval(this._vibrateTimer);
-            this._vibrateTimer = null;
+        if (this._vibrateTimer !== null && this._vibrateTimer !== -1) {
+            clearTimeout(this._vibrateTimer);
         }
+        this._vibrateTimer = null;
     },
 
     onSwipe: function () {},
@@ -789,7 +903,10 @@ export default {
             Logger.i('index.dismiss-ack ok=' + ok + ' r=' + reason);
             expediteTerminate('dismiss');
         });
-        scheduleTerminate('dismiss');
+        // Retry-cap: must outlast the notifyDismissed retry chain so the
+        // chain is never killed mid-flight. The cb above expedites the
+        // common (fast) case; this cap is the unreachable-phone fallback.
+        scheduleTerminate('dismiss', TERMINATE_RETRY_CAP_MS);
         setTimeout(function () {
             self.screen = 'list';
             self.updateScrim();
@@ -823,7 +940,8 @@ export default {
             Logger.i('index.snooze-ack ok=' + ok + ' r=' + reason);
             expediteTerminate('snooze');
         });
-        scheduleTerminate('snooze');
+        // Retry-cap — see onDismiss: outlasts the notifySnoozed retry chain.
+        scheduleTerminate('snooze', TERMINATE_RETRY_CAP_MS);
         setTimeout(function () {
             self.screen = 'list';
             self.updateScrim();

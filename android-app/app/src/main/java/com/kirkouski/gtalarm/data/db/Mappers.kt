@@ -1,6 +1,7 @@
 package com.kirkouski.gtalarm.data.db
 
 import com.kirkouski.gtalarm.domain.Alarm
+import com.kirkouski.gtalarm.domain.VibrationPattern
 
 fun AlarmEntity.toDomain(): Alarm = Alarm(
     id = id,
@@ -18,6 +19,11 @@ fun AlarmEntity.toDomain(): Alarm = Alarm(
     selfDestruct = selfDestruct,
     snoozedUntilEpoch = snoozedUntilEpoch,
     backgroundImageUri = backgroundImageUri,
+    vibrationPattern = VibrationPattern.fromWireName(vibrationPatternName),
+    volumeRampSeconds = volumeRampSeconds,
+    maxSnoozeCount = maxSnoozeCount,
+    consecutiveSnoozeCount = consecutiveSnoozeCount,
+    skipNextEpoch = skipNextEpoch,
 )
 
 fun Alarm.toEntity(): AlarmEntity = AlarmEntity(
@@ -36,4 +42,9 @@ fun Alarm.toEntity(): AlarmEntity = AlarmEntity(
     selfDestruct = selfDestruct,
     snoozedUntilEpoch = snoozedUntilEpoch,
     backgroundImageUri = backgroundImageUri,
+    vibrationPatternName = vibrationPattern.name,
+    volumeRampSeconds = volumeRampSeconds,
+    maxSnoozeCount = maxSnoozeCount,
+    consecutiveSnoozeCount = consecutiveSnoozeCount,
+    skipNextEpoch = skipNextEpoch,
 )

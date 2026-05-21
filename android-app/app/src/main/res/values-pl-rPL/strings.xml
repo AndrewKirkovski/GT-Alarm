@@ -44,7 +44,6 @@
     <string name="repeats_weekdays">Dni robocze</string>
     <string name="repeats_weekends">Weekendy</string>
     <string name="repeats_timer">Stoper</string>
-    <string name="repeats_oneoff">Jednorazowy</string>
     <string name="delete_alarm">Usuń alarm</string>
 
     <string name="battery_opt_card_title">Niech alarmy będą niezawodne</string>
@@ -53,10 +52,6 @@
     <string name="battery_opt_card_dismiss">Nie teraz</string>
 
     <string name="watch_status_card_title">Synchronizacja zegarka</string>
-    <string name="watch_status_card_not_connected">Zegarek: nie połączony</string>
-    <string name="watch_status_card_connecting">Zegarek: łączenie…</string>
-    <string name="watch_status_card_connected">Zegarek: połączony</string>
-    <string name="watch_status_card_error">Zegarek: błąd połączenia</string>
 
     <string name="voice_alarm_set">Alarm ustawiony na %1$s</string>
     <string name="voice_alarm_failed">Nie udało się ustawić alarmu</string>
@@ -81,4 +76,18 @@
     <string name="field_snooze_off_value">Wył.</string>
     <string name="field_snooze_off_chip">Wył.</string>
     <string name="dialog_keep_editing">Wróć do edycji</string>
+
+    <string name="list_skip_next_hint">nast. pominięty</string>
+    <string name="field_vibration_pattern">Wzór wibracji</string>
+    <string name="vibration_pattern_pulse">Puls</string>
+    <string name="vibration_pattern_heartbeat">Bicie serca</string>
+    <string name="vibration_pattern_three_tap">Trzy stuknięcia</string>
+    <string name="vibration_pattern_long_long">Długi-długi</string>
+    <string name="vibration_pattern_off">Wył.</string>
+    <string name="field_volume_ramp">Narastanie głośności</string>
+    <string name="field_volume_ramp_off">Wył.</string>
+    <string name="field_volume_ramp_seconds">%1$d s</string>
+    <string name="field_max_snooze">Limit drzemek</string>
+    <string name="field_max_snooze_unlimited">Bez limitu</string>
+    <string name="field_max_snooze_value">%1$d×</string>
 </resources>

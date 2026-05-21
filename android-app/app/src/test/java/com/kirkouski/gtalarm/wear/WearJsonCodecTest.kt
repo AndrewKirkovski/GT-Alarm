@@ -512,4 +512,106 @@ class WearJsonCodecTest {
         }) as IncomingMessage.AlarmAdded
         assertTrue(msg.alarm.selfDestruct)
     }
+
+    // ─── Tier 1+2 field parsing (parser-boundary coverage) ───
+    //
+    // The parser is the only gate against malformed peer payloads. A
+    // missed clamp here means a bad watch (or future-version peer) can
+    // poison Room. These tests pin defaults, clamps, and unknown-value
+    // handling for the four new wire fields.
+
+    private fun parseWithExtras(extras: JSONObject.() -> Unit): com.kirkouski.gtalarm.domain.Alarm {
+        val alarm = JSONObject().apply {
+            put("id", 1L); put("hour", 7); put("minute", 0); put("enabled", true)
+            put("daysOfWeek", 0); put("selfDestruct", false)
+            extras()
+        }
+        val msg = WearJsonCodec.parseIncoming(JSONObject().apply {
+            put("type", "alarm_added"); put("alarmId", 1L); put("updatedAtEpoch", 1L)
+            put("alarm", alarm)
+        }) as IncomingMessage.AlarmAdded
+        return msg.alarm
+    }
+
+    @Test fun `parseAlarm defaults vibrationPattern to PULSE when missing`() {
+        assertEquals(
+            com.kirkouski.gtalarm.domain.VibrationPattern.PULSE,
+            parseWithExtras { }.vibrationPattern,
+        )
+    }
+
+    @Test fun `parseAlarm reads known vibrationPattern name`() {
+        assertEquals(
+            com.kirkouski.gtalarm.domain.VibrationPattern.HEARTBEAT,
+            parseWithExtras { put("vibrationPattern", "HEARTBEAT") }.vibrationPattern,
+        )
+    }
+
+    @Test fun `parseAlarm coerces unknown vibrationPattern to PULSE`() {
+        // Forward-compat: a peer running a future build sends a pattern
+        // name we don't recognise. Reject would drop the whole envelope;
+        // coerce keeps everything else intact.
+        assertEquals(
+            com.kirkouski.gtalarm.domain.VibrationPattern.PULSE,
+            parseWithExtras { put("vibrationPattern", "FUTURE_X") }.vibrationPattern,
+        )
+    }
+
+    @Test fun `parseAlarm clamps volumeRampSeconds to MAX_VOLUME_RAMP_SECONDS`() {
+        assertEquals(
+            Alarm.MAX_VOLUME_RAMP_SECONDS,
+            parseWithExtras { put("volumeRampSeconds", 9_999) }.volumeRampSeconds,
+        )
+    }
+
+    @Test fun `parseAlarm clamps negative volumeRampSeconds to 0`() {
+        assertEquals(
+            0,
+            parseWithExtras { put("volumeRampSeconds", -5) }.volumeRampSeconds,
+        )
+    }
+
+    @Test fun `parseAlarm clamps maxSnoozeCount above CAP to CAP`() {
+        assertEquals(
+            Alarm.MAX_SNOOZE_COUNT_CAP,
+            parseWithExtras { put("maxSnoozeCount", 9_999) }.maxSnoozeCount,
+        )
+    }
+
+    @Test fun `parseAlarm coerces negative maxSnoozeCount to UNLIMITED`() {
+        // 0 = unlimited is the sentinel; anything below 0 should also be
+        // treated as unlimited (degraded read of a malformed payload).
+        assertEquals(
+            Alarm.MAX_SNOOZE_COUNT_UNLIMITED,
+            parseWithExtras { put("maxSnoozeCount", -1) }.maxSnoozeCount,
+        )
+    }
+
+    @Test fun `parseAlarm leaves skipNextEpoch null when absent`() {
+        assertNull(parseWithExtras { }.skipNextEpoch)
+    }
+
+    @Test fun `parseAlarm preserves positive skipNextEpoch`() {
+        assertEquals(
+            1_700_000_000_000L,
+            parseWithExtras { put("skipNextEpoch", 1_700_000_000_000L) }.skipNextEpoch,
+        )
+    }
+
+    @Test fun `parseAlarm coerces zero or negative skipNextEpoch to null`() {
+        // <=0 is meaningless (epoch 0 is 1970); treat as absent so the
+        // calculator + UI hint never act on a sentinel value.
+        assertNull(parseWithExtras { put("skipNextEpoch", 0L) }.skipNextEpoch)
+        assertNull(parseWithExtras { put("skipNextEpoch", -1L) }.skipNextEpoch)
+    }
+
+    @Test fun `parseAlarm always zeroes consecutiveSnoozeCount on inbound`() {
+        // consecutiveSnoozeCount is phone-side ring-cycle state; it
+        // never crosses the wire. If a future peer DOES send it, we
+        // ignore the field and reset to 0 (per WearJsonCodec comment).
+        assertEquals(
+            0,
+            parseWithExtras { put("consecutiveSnoozeCount", 42) }.consecutiveSnoozeCount,
+        )
+    }
 }

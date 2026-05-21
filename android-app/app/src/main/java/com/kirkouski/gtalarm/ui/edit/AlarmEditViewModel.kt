@@ -38,6 +38,10 @@ data class AlarmEditUiState(
     val relativeMinutes: Int = 15,
     val selfDestruct: Boolean = true,
     val selfDestructUserSet: Boolean = false,
+    val vibrationPattern: com.kirkouski.gtalarm.domain.VibrationPattern =
+        com.kirkouski.gtalarm.domain.VibrationPattern.DEFAULT,
+    val volumeRampSeconds: Int = 0,
+    val maxSnoozeCount: Int = Alarm.MAX_SNOOZE_COUNT_UNLIMITED,
     val isExistingAlarm: Boolean = false,
     val loaded: Boolean = false,
     val dirty: Boolean = false,
@@ -175,6 +179,22 @@ class AlarmEditViewModel @Inject constructor(
         }
     }
 
+    fun updateVibrationPattern(pattern: com.kirkouski.gtalarm.domain.VibrationPattern) = mutate {
+        it.copy(vibrationPattern = pattern)
+    }
+
+    fun updateVolumeRampSeconds(seconds: Int) = mutate {
+        it.copy(volumeRampSeconds = seconds.coerceIn(0, Alarm.MAX_VOLUME_RAMP_SECONDS))
+    }
+
+    fun updateMaxSnoozeCount(count: Int) = mutate {
+        val clamped = when {
+            count <= Alarm.MAX_SNOOZE_COUNT_UNLIMITED -> Alarm.MAX_SNOOZE_COUNT_UNLIMITED
+            else -> count.coerceAtMost(Alarm.MAX_SNOOZE_COUNT_CAP)
+        }
+        it.copy(maxSnoozeCount = clamped)
+    }
+
     /**
      * In-memory state mutator. Sets `dirty = true` only if the transform
      * actually changes state — otherwise the TimePicker's initial
@@ -204,13 +224,14 @@ class AlarmEditViewModel @Inject constructor(
             // NonCancellable guards against the caller popping the back-
             // stack inside onComplete: navigating away clears the VM,
             // which cancels viewModelScope. Without this, saveLocalOnly /
-            // rescheduleAlarm / pushAlarmToWatch could abort partway
-            // through and leave Room + scheduler + watch in disagreement.
+            // rescheduleAlarm could abort partway through and leave Room +
+            // scheduler in disagreement. scheduleWatchSync only arms a
+            // debounced job on the repo's appScope, so it survives anyway.
             withContext(NonCancellable) {
                 val savedId = repository.saveLocalOnly(alarm)
                 EditingAlarmRegistry.clearEditing(savedId)
                 repository.rescheduleAlarm(savedId)
-                repository.pushAlarmToWatch(savedId)
+                repository.scheduleWatchSync()
             }
             onComplete()
         }
@@ -275,6 +296,12 @@ class AlarmEditViewModel @Inject constructor(
             relativeMinutes = relativeMinutes,
             selfDestruct = selfDestruct,
             backgroundImageUri = s.backgroundImageUri,
+            vibrationPattern = s.vibrationPattern,
+            volumeRampSeconds = s.volumeRampSeconds.coerceIn(0, Alarm.MAX_VOLUME_RAMP_SECONDS),
+            maxSnoozeCount = when {
+                s.maxSnoozeCount <= Alarm.MAX_SNOOZE_COUNT_UNLIMITED -> Alarm.MAX_SNOOZE_COUNT_UNLIMITED
+                else -> s.maxSnoozeCount.coerceAtMost(Alarm.MAX_SNOOZE_COUNT_CAP)
+            },
         )
     }
 
@@ -294,6 +321,9 @@ class AlarmEditViewModel @Inject constructor(
         relativeMinutes = alarm.relativeMinutes ?: DEFAULT_RELATIVE_MINUTES,
         selfDestruct = alarm.selfDestruct,
         selfDestructUserSet = false,
+        vibrationPattern = alarm.vibrationPattern,
+        volumeRampSeconds = alarm.volumeRampSeconds,
+        maxSnoozeCount = alarm.maxSnoozeCount,
         isExistingAlarm = true,
         loaded = true,
     )

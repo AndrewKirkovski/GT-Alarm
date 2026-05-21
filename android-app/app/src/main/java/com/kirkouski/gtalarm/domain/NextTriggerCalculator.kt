@@ -18,6 +18,23 @@ object NextTriggerCalculator {
         alarm: Alarm,
         now: ZonedDateTime = ZonedDateTime.now(ZoneId.systemDefault()),
     ): Long {
+        val raw = nextTriggerEpochMillisIgnoreSkip(alarm, now)
+        // skip-next-occurrence: if the computed next exactly matches the
+        // user's skip mark, advance to the one after. Non-recurring alarms
+        // skip-then-disappear (one-shot ran), so we only roll forward for
+        // recurring; for relative/one-shot the skip just means "never fire".
+        val skip = alarm.skipNextEpoch
+        if (skip == null || raw != skip || alarm.daysOfWeek == DaysOfWeek.NONE) return raw
+        // Recompute as-of just-past the skipped instant.
+        val afterSkip = java.time.Instant.ofEpochMilli(skip).atZone(now.zone).plusSeconds(1)
+        return nextTriggerEpochMillisIgnoreSkip(alarm, afterSkip)
+    }
+
+    @Suppress("ReturnCount", "CyclomaticComplexMethod")
+    private fun nextTriggerEpochMillisIgnoreSkip(
+        alarm: Alarm,
+        now: ZonedDateTime,
+    ): Long {
         // Snooze override: while an alarm is snoozed, its next ring is the
         // snooze trigger, NOT the next recurrence of its clock time. This
         // is what AlarmManager.setAlarmClock was actually scheduled for in

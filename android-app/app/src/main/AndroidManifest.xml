@@ -85,6 +85,7 @@
              window on Samsung DeX. -->
         <activity
             android:name=".ring.AlarmActivity"
+            android:directBootAware="true"
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
@@ -113,6 +114,7 @@
              Google Play for the specialUse FGS path. -->
         <service
             android:name=".ring.AlarmRingService"
+            android:directBootAware="true"
             android:exported="false"
             android:foregroundServiceType="specialUse|mediaPlayback">
             <property
@@ -122,6 +124,7 @@
 
         <receiver
             android:name=".scheduler.AlarmBroadcastReceiver"
+            android:directBootAware="true"
             android:exported="false" />
 
         <receiver
@@ -134,6 +137,7 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
                 <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.LOCALE_CHANGED" />
             </intent-filter>
         </receiver>
 

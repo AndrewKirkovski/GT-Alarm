@@ -207,6 +207,29 @@ internal object WearJsonCodec {
             // Empty string on the wire is treated as null so an absent /
             // explicit-no-bg peer payload doesn't bind a useless string.
             backgroundImageUri = j.optString("backgroundImageUri", "").takeIf { it.isNotEmpty() },
+            vibrationPattern = com.kirkouski.gtalarm.domain.VibrationPattern.fromWireName(
+                if (j.has("vibrationPattern") && !j.isNull("vibrationPattern")) {
+                    j.getString("vibrationPattern")
+                } else {
+                    null
+                },
+            ),
+            volumeRampSeconds = j.optInt("volumeRampSeconds", 0)
+                .coerceIn(0, Alarm.MAX_VOLUME_RAMP_SECONDS),
+            maxSnoozeCount = j.optInt("maxSnoozeCount", Alarm.MAX_SNOOZE_COUNT_UNLIMITED).let {
+                when {
+                    it <= Alarm.MAX_SNOOZE_COUNT_UNLIMITED -> Alarm.MAX_SNOOZE_COUNT_UNLIMITED
+                    else -> it.coerceAtMost(Alarm.MAX_SNOOZE_COUNT_CAP)
+                }
+            },
+            // consecutiveSnoozeCount: never crosses the wire — phone-side
+            // ring-loop state. Default to 0 on inbound.
+            consecutiveSnoozeCount = 0,
+            skipNextEpoch = if (j.has("skipNextEpoch") && !j.isNull("skipNextEpoch")) {
+                j.optLong("skipNextEpoch").takeIf { it > 0L }
+            } else {
+                null
+            },
         )
     }
 

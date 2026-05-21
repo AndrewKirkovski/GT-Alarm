@@ -290,9 +290,42 @@ Landed:
 - **Brand palette** — fixed 6-colour palette (primary cyan `#009EDA`) applied to both apps; Material You dynamic colour dropped in favour of the fixed brand scheme.
 - **Compose UI restyle** — collapsible `AccordionSection` component; Help + Settings rebuilt as edge-to-edge accordion lists; Help-screen content rework (voice-section dedup, brand-tip trim to non-checklist items, single immediate Debug button, dead "Open Default apps" button removed, unreachable `help_status_none` state removed).
 - **Watch-sync authorize flow** — the watch-sync card's button launches the Wear Engine permission dialog directly when permission is missing (tri-state `hasWatchPermission`).
-- **Watch input research + crown-to-snooze** — established (memory `litewearable_input_capabilities.md`) that the GT 6 physical button is system-reserved (no JS event reaches a third-party app) and the crown only drives a focused `<list>`'s scroll. Shipped crown-to-snooze on the ring screen: a hidden, always-scrollable `<list>` debounces `scrollend` ticks into gestures — one rotation → snooze, two → dismiss.
+- **Watch input research + crown-to-snooze** — established (memory `litewearable_input_capabilities.md`) that the GT 6 physical button is system-reserved (no JS event reaches a third-party app) and the crown only drives a focused `<list>`'s scroll. Shipped crown-to-snooze on the ring screen: a hidden, always-scrollable `<list>` debounces `scrollend` ticks into gestures — one rotation → snooze, two → dismiss. **✅ Verified working on GT 6 Pro (2026-05-20).**
 
-Pending device verification: crown-to-snooze timing tuning on the GT 6; the palette / UX pass rendered on the watch.
+Pending device verification: palette / UX pass rendered on the watch.
+
+---
+
+### Tier 1 + Tier 2 landings (2026-05-21)
+
+The first roadmap pass against `acceptance-criteria.md` §"Tier 1 — TODO" / §"Tier 2 — TODO". Status flipped from ❌ to 🟡 on four items; one (BFU) was already 🟡 and stays there until on-device reboot verification.
+
+Landed (Tier 1):
+- **BFU / direct-boot alarms (Phase A v1)** — `BfuAlarmCache` v3, `directBootAware` on the four required components, BootReceiver triage (`LOCKED_BOOT_COMPLETED → rescheduleFromBfu`, `BOOT_COMPLETED → rescheduleAllOnBoot`), pre-unlock ring path with bundled-fallback audio, lock-screen dismiss persisted via `pendingDismissals`, recurring-only re-arm filter, `intendedFireForOneShot` helper. 🟡 — still awaiting reboot+no-unlock smoke test on real hardware.
+- **Custom vibration patterns** — `VibrationPattern` enum (PULSE / HEARTBEAT / THREE_TAP / LONG_LONG / OFF). Phone uses `VibrationEffect.createWaveform(timings, 0)`. Watch orchestrates `mode: 'short' | 'long'` via a setTimeout chain (`pages/index/index.js#VIBRATION_PATTERNS`). Wire format: `vibrationPattern` enum name on the per-alarm payload AND inline on the `alarm_fired` envelope (thin-client criterion).
+
+Landed (Tier 2):
+- **Skip next occurrence** — `Alarm.skipNextEpoch: Long?`, `AlarmRepository.skipNext`, `NextTriggerCalculator` skip-aware, swipe-left UX with neutral bg + timer icon (recurring) vs red+trash (one-shot / right-swipe). `consumePastSkip` clears the field once the skipped instant has elapsed (called from `AlarmRingService.handleRing`).
+- **Max-snooze-count** — `Alarm.maxSnoozeCount` (0=unlimited, 1..20) + `consecutiveSnoozeCount` ring-cycle state. `isSnoozeEnabled` collapses both disablers (snoozeMinutes=0 OR cap reached) into a single boolean shipped on `alarm_fired` as `snoozeAllowed` so the watch hides Snooze verbatim. Counter increments on local AND peer snoozes; resets on real dismiss.
+- **Volume ramp** — `Alarm.volumeRampSeconds` (0..60). `AlarmAudioPlayer.beginPlayback` ticks every 200 ms, linearly raising the MediaPlayer per-player attenuator from 0.01 to 1.0. Player-scoped (NOT `STREAM_ALARM`) by design — see acceptance-criteria.md note.
+
+Wire-format extensions (cross-device):
+- Per-alarm payload + `sync_replace` carry `vibrationPattern`, `maxSnoozeCount`, `volumeRampSeconds`, `skipNextEpoch`.
+- `alarm_fired` envelope carries inline `vibrationPattern` + `snoozeAllowed` (the thin-client hint pair). Watch reads these BEFORE falling back to its AlarmStore.
+- `AlarmHash` canonical form extended in lock-step (Kotlin `AlarmHash.kt` + JS `alarmHash.js`); `consecutiveSnoozeCount` intentionally excluded so the hash doesn't churn every snooze.
+
+Schema bumps:
+- Room DB v8 → v9 (destructive, per `no_migration_until_release` policy).
+- BfuAlarmCache schema v2 → v3.
+
+Watch UI:
+- **`WatchSyncCard` simplification** — dropped textual status line; the crossed-watch `device-watch-off` Tabler glyph (same brand cyan as `ic_watch`) carries the disconnected state. `PairedDeviceInfo` collapsed to a single `displayName: String` produced by `normalizeDeviceLabel` (strips BT serial suffix, normalizes `HUAWEI` casing, drops the redundant `WATCH` word). 8 unit tests on the normalizer.
+
+Pending device verification:
+- BFU pre-unlock fire after reboot (Tier 1A).
+- Wrist-feel of the THREE_TAP / LONG_LONG / HEARTBEAT patterns on real GT 6 Pro (Tier 1B).
+- Cap-vs-snooze visibility on the watch (Tier 2D) — needs paired watch.
+- Volume-ramp audibility at low system volume (Tier 2E).
 
 ---
 

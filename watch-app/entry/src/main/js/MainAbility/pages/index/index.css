@@ -426,6 +426,19 @@
     margin-top: 6px;
 }
 
+/* Stop-only variant for alarms with snoozeMinutes=0. Same Y position
+   and outer dimensions as .ring-actions; single button stays centered
+   via flex justify-content. */
+.ring-actions-stop {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    width: 466px;
+    height: 124px;
+    margin-top: 6px;
+}
+
 /* Snooze / stop are circular icon buttons. 112px circles with 22px side
    margins → 312px total, well inside the round chord at the action-row Y.
    The glyph + gradient is baked into the PNG (tools/icongen). */

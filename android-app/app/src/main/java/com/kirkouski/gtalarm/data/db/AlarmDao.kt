@@ -34,4 +34,7 @@ interface AlarmDao {
 
     @Query("UPDATE alarms SET snoozedUntilEpoch = :until WHERE id = :id")
     suspend fun setSnoozedUntil(id: Long, until: Long?)
+
+    @Query("UPDATE alarms SET consecutiveSnoozeCount = :count WHERE id = :id")
+    suspend fun setConsecutiveSnoozeCount(id: Long, count: Int)
 }

@@ -62,8 +62,9 @@ class AlarmHashTest {
         // Canonical line shape per AlarmHash.kt §canonicalize (label is
         // phone-only — never hashed):
         //   id|hour|minute|daysOfWeek|enabled|audioUri|
-        //   isVibrationOnly|snoozeMinutes|updatedAtEpoch|relativeMinutes|selfDestruct\n
-        val expectedCanonical = "1|7|0|0|1||0|10|1000||0\n"
+        //   isVibrationOnly|snoozeMinutes|updatedAtEpoch|relativeMinutes|selfDestruct|
+        //   vibrationPattern|maxSnoozeCount|volumeRampSeconds|skipNextEpoch\n
+        val expectedCanonical = "1|7|0|0|1||0|10|1000||0|PULSE|0|0|\n"
         val expectedHex = expectedCanonical.hashCode().toUInt().toString(16).padStart(8, '0')
         assertEquals(expectedHex, AlarmHash.compute(listOf(alarm)))
     }
@@ -89,7 +90,8 @@ class AlarmHashTest {
         // canonical form jumps straight from id to hour. audioName is also
         // not serialized (phone-local display only).
         val expectedCanonical =
-            "42|6|30|${DaysOfWeek.WEEKDAYS}|1|content://media/external/audio/media/123|0|5|1700000000000||0\n"
+            "42|6|30|${DaysOfWeek.WEEKDAYS}|1|content://media/external/audio/media/123|0|5|" +
+                "1700000000000||0|PULSE|0|0|\n"
         val expectedHex = expectedCanonical.hashCode().toUInt().toString(16).padStart(8, '0')
         assertEquals(expectedHex, AlarmHash.compute(listOf(alarm)))
         // Changing ONLY the label must not move the hash.
@@ -106,7 +108,7 @@ class AlarmHashTest {
             audioUri = null, audioName = null, isVibrationOnly = false, snoozeMinutes = 10,
             updatedAtEpoch = 200L, relativeMinutes = 15, selfDestruct = true,
         )
-        val expectedCanonical = "7|0|0|0|1||0|10|200|15|1\n"
+        val expectedCanonical = "7|0|0|0|1||0|10|200|15|1|PULSE|0|0|\n"
         val expectedHex = expectedCanonical.hashCode().toUInt().toString(16).padStart(8, '0')
         assertEquals(expectedHex, AlarmHash.compute(listOf(withRelative)))
     }
@@ -183,7 +185,7 @@ class AlarmHashTest {
         )
         // The "||" around audioUri and relativeMinutes is the smoking gun:
         // any other rendering would shift the canonical string and break.
-        val expectedCanonical = "3|9|0|0|1||0|10|500||0\n"
+        val expectedCanonical = "3|9|0|0|1||0|10|500||0|PULSE|0|0|\n"
         val expectedHex = expectedCanonical.hashCode().toUInt().toString(16).padStart(8, '0')
         assertEquals(expectedHex, AlarmHash.compute(listOf(alarm)))
     }
@@ -203,8 +205,8 @@ class AlarmHashTest {
     fun `pin reference vectors for JS-side parity`() {
         // Reference canonical forms (no trailing bg slots — see AlarmHash
         // KDoc for why bg URIs are excluded).
-        val minimal = "1|7|0|0|1||0|10|1000||0\n"
-        val relative = "7|0|0|0|1||0|10|200|15|1\n"
+        val minimal = "1|7|0|0|1||0|10|1000||0|PULSE|0|0|\n"
+        val relative = "7|0|0|0|1||0|10|200|15|1|PULSE|0|0|\n"
         // Compute hexes (drift would still pass — see review pass 2: this
         // test only proves the algorithm is internally consistent, not
         // that it matches a frozen contract). Real cross-impl assertion
@@ -215,5 +217,57 @@ class AlarmHashTest {
         assertEquals(8, relativeHex.length)
         @Suppress("ForbiddenMethodCall") // stdout for cross-impl reference
         println("JS-parity reference: minimal=$minimalHex relative=$relativeHex empty=00000000")
+    }
+
+    // ─── Per-Tier-1+2-field drift tests ───
+    //
+    // Each field must move the hash on its own — otherwise a sync-check
+    // would conclude "already in sync" when the watch is actually missing
+    // a user change. Mirrors the existing `selfDestruct=true alone changes
+    // the hash` pattern.
+
+    private fun base(): Alarm = Alarm(
+        id = 7L, label = "x", hour = 7, minute = 0, daysOfWeek = 0, enabled = true,
+        audioUri = null, audioName = null, isVibrationOnly = false, snoozeMinutes = 10,
+        updatedAtEpoch = 200L, relativeMinutes = null, selfDestruct = false,
+    )
+
+    @Test
+    fun `vibrationPattern alone changes the hash`() {
+        val a = AlarmHash.compute(listOf(base()))
+        val b = AlarmHash.compute(listOf(base().copy(vibrationPattern = com.kirkouski.gtalarm.domain.VibrationPattern.HEARTBEAT)))
+        assert(a != b) { "vibrationPattern PULSE vs HEARTBEAT must move the hash; both got '$a'" }
+    }
+
+    @Test
+    fun `maxSnoozeCount alone changes the hash`() {
+        val a = AlarmHash.compute(listOf(base()))
+        val b = AlarmHash.compute(listOf(base().copy(maxSnoozeCount = 3)))
+        assert(a != b) { "maxSnoozeCount 0 vs 3 must move the hash; both got '$a'" }
+    }
+
+    @Test
+    fun `volumeRampSeconds alone changes the hash`() {
+        val a = AlarmHash.compute(listOf(base()))
+        val b = AlarmHash.compute(listOf(base().copy(volumeRampSeconds = 30)))
+        assert(a != b) { "volumeRampSeconds 0 vs 30 must move the hash; both got '$a'" }
+    }
+
+    @Test
+    fun `skipNextEpoch alone changes the hash`() {
+        val a = AlarmHash.compute(listOf(base()))
+        val b = AlarmHash.compute(listOf(base().copy(skipNextEpoch = 1_700_000_000_000L)))
+        assert(a != b) { "skipNextEpoch null vs set must move the hash; both got '$a'" }
+    }
+
+    @Test
+    fun `consecutiveSnoozeCount is EXCLUDED from the hash`() {
+        // Phone-side ring-cycle state. Including it would force a hash
+        // mismatch on every snooze — pointless churn. The watch never
+        // sees this field; AlarmRingHints.snoozeAllowed is the only
+        // user-visible derivative.
+        val a = AlarmHash.compute(listOf(base()))
+        val b = AlarmHash.compute(listOf(base().copy(consecutiveSnoozeCount = 5)))
+        assertEquals("consecutiveSnoozeCount must not appear in the hash", a, b)
     }
 }

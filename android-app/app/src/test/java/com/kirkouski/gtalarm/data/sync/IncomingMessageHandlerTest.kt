@@ -387,4 +387,10 @@ private class FakeAlarmDao : AlarmDao {
             map[id]?.let { map + (id to it.copy(snoozedUntilEpoch = until)) } ?: map
         }
     }
+
+    override suspend fun setConsecutiveSnoozeCount(id: Long, count: Int) {
+        rows.update { map ->
+            map[id]?.let { map + (id to it.copy(consecutiveSnoozeCount = count)) } ?: map
+        }
+    }
 }

@@ -338,6 +338,11 @@ Do not implement against memory of how an API used to work. APIs change.
 
 **Design pivot 2026-04-27 — phone is sole scheduler.** LiteWearable on GT 6 has no scheduling primitive that survives device sleep, so all scheduling moves to the phone. Watch is online-armed thin client: receives `alarm_fired` pings, renders the ring page, sends back dismiss/snooze acks. See `sync-architecture.md` §3 and §5.3.
 
+**Acceptance criterion — watch rings on command without prior sync (2026-05-20).** The watch is a thin client: it MUST be able to render its ring page from the `alarm_fired` envelope alone, even for an alarm it has never received an `alarm_added` / `sync_replace` for. The phone never assumes the watch's local store is populated when issuing a ring command. Practical implications:
+- `alarm_fired` carries the thin-client ring hints: `alarmId`, `updatedAtEpoch`, `vibrationPattern` (enum name), `snoozeAllowed` (pre-computed `alarm.isSnoozeEnabled` — collapses both `snoozeMinutes==0` and `consecutiveSnoozeCount >= maxSnoozeCount` so the watch hides Snooze verbatim). The watch reads these BEFORE falling back to `AlarmStore`. Hour/minute/daysOfWeek/isVibrationOnly come from the synced cache (it's already there in steady-state; the thin-client criterion targets ring affordances, not the clock readout). `label` is NEVER on the wire (PII, phone-only — see `sync-architecture.md`).
+- Watch ring page reads display fields from the envelope first; AlarmStore lookup is a fallback for older envelopes only, never required.
+- This is the foundation for any "phone fires from a state the watch hasn't synced yet" scenario — Before-First-Unlock (BFU) alarms, cold-start fires, watch reboot-mid-sync, paired-but-never-synced first install.
+
 Wire format both sides agree on (locked 2026-04-25):
 ```json
 {
@@ -455,3 +460,67 @@ i18n is not "wrap a few strings"; it's an end-to-end contract. Both apps must en
 **Receiver-side LWW transport** (the real Wear-Engine P2P read path that delivers messages into the seam above) is gated on Huawei AppGallery dev account approval (~2 weeks per project plan).
 
 Once each gap closes, flip 🟡 / 🟠 / ❌ → ✅ and re-test end-to-end.
+
+---
+
+## ROADMAP — backlog features, tiered by alignment
+
+Recovered from prior-session conversation + memory in 2026-05-20.
+**Product positioning anchor:** the watch is the main control unit — the
+core promise is "you don't reach for the phone." Tiers are set against
+that, NOT against generic alarm-app feature parity. "Using the alarm" =
+ring → dismiss/snooze flow; "creating" stays phone-only by design.
+
+Symbol legend: 🎯 high alignment (watch-first reliability or wrist-only UX) ·
+🤝 supports watch-first indirectly · 📞 phone-side ergonomic · 🧭 orthogonal.
+
+### Tier 1 — TODO (ship pre-1.0)
+The foundation under the watch-first promise. If either of these is missing
+the proposition itself wobbles.
+
+- 🟡 🎯 **BFU / direct-boot alarms** (Phase A v1 coded 2026-05-20, awaiting on-device verification). Fire before the user unlocks the phone after reboot. Without this, an OS update / low-battery shutdown overnight = no morning alarm; the watch can't compensate. Reference: BlackyHawky/Clock (see `docs/references.md`).
+  - **Components made `directBootAware="true"`:** `BootReceiver` (already), `AlarmBroadcastReceiver`, `AlarmRingService`, `AlarmActivity`. The `GtAlarmApp` Application class is NOT direct-boot-aware — the receiver path tolerates a partially-initialised process.
+  - **Storage:** `data/bfu/BfuAlarmCache` — JSON file in `Context.createDeviceProtectedStorageContext().filesDir`. Schema v3. Mirror of enabled alarms (id, hour, minute, daysOfWeek, enabled, isVibrationOnly, snoozeMinutes, updatedAtEpoch, relativeMinutes, selfDestruct, vibrationPattern, volumeRampSeconds, maxSnoozeCount, consecutiveSnoozeCount, skipNextEpoch). Intentionally omits PII (label) and SAF URIs (audio / background) — both phone-only or unresolvable pre-unlock.
+  - **Write-through:** every `AlarmRepository` mutation (`save`, `saveLocalOnly`, `setEnabled`, `setEnabledLocalOnly`, `delete`, `ensureDebugAlarmId`) updates the cache. `rescheduleAll` + `rescheduleAllOnBoot` rebuild the cache from Room as the post-unlock source-of-truth pass.
+  - **Boot branch:** `BootReceiver` routes `LOCKED_BOOT_COMPLETED → repository.rescheduleFromBfu()` (no Room); `BOOT_COMPLETED → repository.rescheduleAllOnBoot()` (Room); other broadcasts → `rescheduleAll()`.
+  - **Ring path pre-unlock:** `AlarmRingService.fetchAlarmForRing` reads Room when unlocked, otherwise the BFU cache. Audio routes through `AlarmAudioPlayer.start(forceBundledFallback = !isUserUnlocked)` which plays `R.raw.fallback_alarm` directly (ContentResolver-backed SAF + system-default URIs return null pre-unlock). Pre-unlock `handleDismiss` notifies the watch via `wearBridge.sendAlarmDismissed` (transport-only suspend) under `PRE_UNLOCK_SEND_TIMEOUT_MS = 3000ms` inside `serviceScope.launch` so the FGS stays alive during the send. `handleSnooze` reads `snoozeMinutes` from the BFU cache, calls `scheduler.scheduleAt`, then sends `wearBridge.sendAlarmSnoozed`.
+  - **Phase A v1 scope cuts (documented):**
+    - **Recurring alarms only re-armed pre-unlock.** `rescheduleFromBfu` filters to `daysOfWeek != 0`. One-shots scheduled to fire pre-unlock get a missed-during-downtime notification + DISABLE (non-self-destruct) or DELETE (self-destruct / relative) on unlock via `rescheduleAllOnBoot`'s `intendedFireForOneShot` helper, which computes the fire time as scheduled at last user action (not "now") so a missed 7 AM doesn't silently roll to tomorrow's 7 AM.
+    - **Lock-screen dismiss persists across unlock.** `AlarmRingService.handleDismiss` pre-unlock calls `bfuCache.markDismissed(id)`, recorded in the BFU cache's `pendingDismissals` set. `AlarmRepository.rescheduleAllOnBoot` drains the set at the start of post-unlock reconcile and applies the same `dismissAction` the live ring path uses (DELETE / DISABLE / KEEP). Without this, a one-shot dismissed at 07:00 pre-unlock would re-fire at 07:00 tomorrow because its Room `enabled` flag was never updated.
+    - **Watch sync best-effort pre-unlock.** Wear Engine binding may or may not work in direct-boot mode (Huawei doesn't document this); the ring envelope is self-sufficient per the thin-client criterion above, so the watch CAN ring without prior sync if Wear Engine functions pre-unlock. **TODO on-device verification required** — `GtAlarmApp.onCreate` defers `setIncomingHandler` pre-unlock on the assumption Huawei Health needs the credential keystore, but `preArmWatch` pre-unlock already calls `sendAlarmFired` through the same binder. Both can't be correct; resolve by reboot + schedule +5min + don't unlock + observe whether watch rings.
+  - **Architecture choice — parallel cache vs DB-in-DPS:** BlackyHawky/Clock (and AOSP DeskClock) move the **whole Room database** to device-protected storage via `Context.moveDatabaseFrom`. That gives full pre-unlock CRUD (dismiss/snooze persists in the same DB) at the cost of putting alarm `label` strings in device-derived-key storage rather than user-credential-encrypted. We chose a **parallel cache** instead: labels stay phone-only (PII), one less migration to ship, and the watch is the primary control surface anyway. Trade-off: pre-unlock dismiss/snooze don't persist in v1, mitigated by the recurring-only re-arm + the watch's own ring-end ack flow. If the parallel-cache scope cuts prove painful on real hardware testing, we can revisit by migrating Room to DPS for Phase A v2.
+- 🟡 🎯 **Custom vibration patterns per alarm** (coded 2026-05-21, awaiting wrist-feel verification on real GT 6 Pro). Distinct wrist buzz per alarm so the user knows what fired without looking (wake-up vs meds vs meeting). The only feature on this list that pays off ONLY on the wrist — squarely on-positioning. Today only `isVibrationOnly` boolean. Phone gets full `VibrationEffect.createWaveform` expressivity. Watch is constrained — Lite Wearable `@system.vibrator.vibrate()` accepts only `{mode: 'short' | 'long'}` (verified against [official docs](https://device.harmonyos.com/en/docs/apiref/lite-wearable-system-vibration-0000001222448285), no `pattern` / `duration` / `intensity` parameter). Custom patterns on the watch = orchestrated `setTimeout` sequence of `short`/`long` calls; we already do interval-driven pulsing today (`startVibrate` / `_vibrateTimer`), so extending to per-pattern timing is a small change. Realistic preset set (Lite-expressible): **Pulse** (`long`, 1500ms loop), **Heartbeat** (`short`, 150ms, `short`, 1000ms loop), **Three-tap** (`short`, 200ms, `short`, 200ms, `short`, 1200ms loop), **Long-long** (`long`, 800ms, `long`, 1200ms loop), **Off** (no vibration — audio-only). Three-tap and Long-long landed with slightly slower pulses than the original pitch because the GT 6 Pro's short-mode envelope clips below ~150ms — the shipped numbers are what the wrist actually feels. Wire format adds `vibrationPattern: String` (enum name) to `alarm_fired` so the watch can ring without prior sync (thin-client criterion above).
+
+### Tier 2 — TODO (ship pre-1.0 if Tier 1 lands with budget left)
+Ring-quality polish + small management features. Cheap-to-mid effort, real
+user value.
+
+- 🟡 🎯 **Skip next occurrence (phone-side, swipe-left on a recurring alarm)** (coded 2026-05-21, verified on emulator with mid-swipe screenshots). For a recurring alarm ("Wake up · Mon–Fri 7:00"), swipe-left on the list row marks the very next firing to be skipped — the alarm stays enabled and recurring, and the firing after that is unaffected. Use case: holiday tomorrow, sick day, one-off late start. Phone-only mutation per the Phase 0b pivot (watch is read-only display + toggle/delete — no edit gestures on the wrist). Implementation: new nullable `skipNextEpoch: Long?` on `Alarm`; `NextTriggerCalculator` advances past it when the skipped instant arrives, then clears the field; phone schedules the post-skip trigger via `setAlarmClock` as usual. Phone list row shows a "next: skipped" subtitle hint when set. Conflicts with current swipe-to-delete direction (`SwipeToDismissBox`) — coordinate gestures: swipe-left = skip-next, swipe-right (or trailing trash icon / long-press) = delete, using a leading-vs-trailing swipe split. Whether to send `skipNextEpoch` to the watch is a sub-decision — it only matters if the watch surfaces a next-firing line; defer until that UI lands.
+- 🟡 🎯 **Max-snooze-count limit** (coded 2026-05-21). Cap consecutive snoozes (e.g. 3 in a row), then the Snooze button disappears on **both** the phone (AlarmActivity + notification action) AND the watch (`snoozeAllowed=false` inlined into the `alarm_fired` envelope so the watch gates without prior sync). Phone-side counter `Alarm.consecutiveSnoozeCount` increments on every snooze (local OR peer-driven), resets on real dismiss. Distinct from `snoozeMinutes=0` (which disables snooze from the start). `Alarm.isSnoozeEnabled` collapses both conditions into one boolean the watch applies verbatim.
+- 🟡 🤝 **Volume ramp / crescendo / fade-in** (coded 2026-05-21). Phone-side audio change; linearly ramps the alarm MediaPlayer's per-player attenuator from near-silence (0.01) to full (1.0) over N seconds (0..60, configurable per alarm). Softer wake, no user interaction required. Passive, on-positioning by virtue of not competing with the watch flow. **Design choice:** ramp is the player-scoped float `setVolume`, NOT `AudioManager.setStreamVolume(STREAM_ALARM, …)`. Programmatically raising STREAM_ALARM would clobber the user's system volume across other alarms / future sessions and would need `MODIFY_AUDIO_SETTINGS`. The per-player ramp respects the user's stream level — if STREAM_ALARM is at 30%, ramp 0→1 means silence→30% (relative ramp). The semantically-equivalent "ramp to whatever the user has set" is the better default.
+
+### Tier 3 — somewhere in future (de-prioritised, not pre-1.0)
+Lower alignment with the watch-first positioning OR pure parity features.
+Parked here so they don't keep re-surfacing as "did we forget X" — we
+didn't, they're just lower priority. Each can graduate to a higher tier
+if the product direction shifts (e.g. a user is reliably without a watch).
+
+- ❌ 🤝 **Per-alarm volume override.** Phone-side per-alarm volume slider. Niche — the user is increasingly on the watch path and not hearing the phone anyway.
+- ❌ 📞 **Shake to dismiss.** Accelerometer-based dismiss on the phone. Phone-in-hand assumption, contradicts the positioning. Useful only when the watch is dead / charging.
+- ❌ 📞 **Volume +/− buttons as dismiss / snooze.** Phone hardware buttons configurable as alarm actions. Same phone-in-hand assumption.
+- ❌ 📞 **Alarm label on the phone lockscreen ring.** Label already bounded (256 chars) but `AlarmActivity` doesn't surface it prominently. Looking at the phone defeats the positioning.
+- ❌ 🧭 **Ringtone library / white-noise presets.** Bundled tones beyond the SAF picker. Generic parity feature, not watch-specific.
+
+### To investigate (research before tiering)
+- 🔬 **Watch playing alarm audio (ringtone).** Today the watch only vibrates while the phone plays audio. Open question: can the watch play a custom audio file (uploaded from the phone the way the watch background is)? Lite Wearable `@system.audio` / `@system.media` capabilities + bundle-size cap + file-transfer + GT 6 speaker quality all need probing before this can be tiered. Until verified, the watch is intentionally vibration-only.
+
+### Out of scope (recorded so they don't re-surface)
+Searched memory + transcripts; these are aspirational alarm-app ideas that
+were NEVER planned for GT Alarm. Listed for the record:
+
+- 📋 Calendar / holiday skip, sleep tracking + smart wake via HR sensor, weather-based alarms, wake puzzles / math / captcha dismiss, cloud backup-restore, voice / assistant integration.
+
+A Tier-3 item can be promoted to Tier 2 (or higher) when a real user need
+shows up. When work starts on any backlog item: cut a phase entry in
+`execution-plan.md`, move the line up to "KNOWN GAPS TO CLOSE NEXT" with
+the proper status icon, and link the implementation file.

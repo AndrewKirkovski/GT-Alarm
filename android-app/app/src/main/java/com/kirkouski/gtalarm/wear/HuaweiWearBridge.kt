@@ -88,12 +88,11 @@ class HuaweiWearBridge @Inject constructor(
     private var pairedDevice: Device? = null
     private var receiverRegistered: Boolean = false
 
-    // Separate mutex for the ping-wake poll. Without this, sync-on-fire's N
-    // concurrent sendAlarmAdded calls each launch their own
-    // ensurePeerAppRunning, all miss the cache simultaneously, and N parallel
-    // ping floods race the Wear Engine channel. With the mutex, only the
-    // first caller polls; the rest queue and inherit the cache hit when the
-    // first one succeeds.
+    // Separate mutex for the ping-wake poll. Without this, concurrent sends
+    // each launch their own ensurePeerAppRunning, all miss the cache
+    // simultaneously, and N parallel ping floods race the Wear Engine
+    // channel. With the mutex, only the first caller polls; the rest queue
+    // and inherit the cache hit when the first one succeeds.
     private val wakeMutex = Mutex()
 
     // Cache of "ping returned 202 (APP_RUNNING) at this wall-clock ms". Used
@@ -293,43 +292,37 @@ class HuaweiWearBridge @Inject constructor(
         }
     }
 
-    override fun sendAlarmAdded(alarm: Alarm) {
-        if (!validateStamp("sendAlarmAdded", alarm.updatedAtEpoch)) return
-        sendJson(buildAlarmEnvelope("alarm_added", alarm))
-    }
-
-    override fun sendAlarmUpdated(alarm: Alarm) {
-        if (!validateStamp("sendAlarmUpdated", alarm.updatedAtEpoch)) return
-        sendJson(buildAlarmEnvelope("alarm_updated", alarm))
-    }
-
-    override fun sendAlarmToggled(alarm: Alarm) {
-        if (!validateStamp("sendAlarmToggled", alarm.updatedAtEpoch)) return
-        sendJson(JSONObject().apply {
-            put("type", "alarm_toggled")
-            put("alarmId", alarm.id)
-            put("updatedAtEpoch", alarm.updatedAtEpoch)
-            put("enabled", alarm.enabled)
-        })
-    }
-
-    override fun sendAlarmDeleted(alarmId: Long, updatedAtEpoch: Long) {
-        if (!validateStamp("sendAlarmDeleted", updatedAtEpoch)) return
-        sendJson(JSONObject().apply {
-            put("type", "alarm_deleted")
-            put("alarmId", alarmId)
-            put("updatedAtEpoch", updatedAtEpoch)
-        })
-    }
-
-    override fun sendAlarmFired(alarmId: Long) {
+    override fun sendAlarmFired(alarmId: Long, ringHints: AlarmRingHints?) {
         val now = System.currentTimeMillis()
         if (!validateStamp("sendAlarmFired", now)) return
-        sendJson(JSONObject().apply {
-            put("type", "alarm_fired")
-            put("alarmId", alarmId)
-            put("updatedAtEpoch", now)
-        })
+        sendJson(buildAlarmFiredEnvelope(alarmId, now, ringHints))
+    }
+
+    override suspend fun sendAlarmDismissed(alarmId: Long): Boolean {
+        val now = System.currentTimeMillis()
+        if (!validateStamp("sendAlarmDismissed", now)) return false
+        return performSend(
+            JSONObject().apply {
+                put("type", "alarm_dismissed")
+                put("alarmId", alarmId)
+                put("updatedAtEpoch", now)
+            },
+            retryOnError = true,
+        )
+    }
+
+    override suspend fun sendAlarmSnoozed(alarmId: Long, rescheduleEpoch: Long): Boolean {
+        val now = System.currentTimeMillis()
+        if (!validateStamp("sendAlarmSnoozed", now)) return false
+        return performSend(
+            JSONObject().apply {
+                put("type", "alarm_snoozed")
+                put("alarmId", alarmId)
+                put("updatedAtEpoch", now)
+                put("rescheduleEpoch", rescheduleEpoch)
+            },
+            retryOnError = true,
+        )
     }
 
     // Pre-arm path: send alarm_fired then AWAIT the watch's `alarm_ringing`
@@ -348,14 +341,14 @@ class HuaweiWearBridge @Inject constructor(
     // class-level ACTIVITY RULE it only resolves while an Activity is in
     // the task. The fire path satisfies that for free: FSI launches
     // AlarmActivity concurrently with this call.
-    override suspend fun sendAlarmFiredAwaiting(alarmId: Long, timeoutMs: Long): Boolean {
+    override suspend fun sendAlarmFiredAwaiting(
+        alarmId: Long,
+        timeoutMs: Long,
+        ringHints: AlarmRingHints?,
+    ): Boolean {
         val now = System.currentTimeMillis()
         if (!validateStamp("sendAlarmFiredAwaiting", now)) return false
-        val envelope = JSONObject().apply {
-            put("type", "alarm_fired")
-            put("alarmId", alarmId)
-            put("updatedAtEpoch", now)
-        }
+        val envelope = buildAlarmFiredEnvelope(alarmId, now, ringHints)
         return pendingAlarmRingingMutex.withLock {
             val deferred = CompletableDeferred<Unit>()
             pendingAlarmRinging.set(PendingRing(alarmId, deferred))
@@ -388,17 +381,6 @@ class HuaweiWearBridge @Inject constructor(
                 }
             }
         }
-    }
-
-    override fun sendAlarmDismissed(alarmId: Long) {
-        val now = System.currentTimeMillis()
-        if (!validateStamp("sendAlarmDismissed", now)) return
-        val envelope = JSONObject().apply {
-            put("type", "alarm_dismissed")
-            put("alarmId", alarmId)
-            put("updatedAtEpoch", now)
-        }
-        sendJson(envelope, retryOnError = true)
     }
 
     // Suspending dismiss: wait up to timeoutMs for the WATCH'S APPLICATION-
@@ -498,18 +480,6 @@ class HuaweiWearBridge @Inject constructor(
         }
     }
 
-    override fun sendAlarmSnoozed(alarmId: Long, rescheduleEpoch: Long) {
-        val now = System.currentTimeMillis()
-        if (!validateStamp("sendAlarmSnoozed", now)) return
-        val envelope = JSONObject().apply {
-            put("type", "alarm_snoozed")
-            put("alarmId", alarmId)
-            put("updatedAtEpoch", now)
-            put("rescheduleEpoch", rescheduleEpoch)
-        }
-        sendJson(envelope, retryOnError = true)
-    }
-
     // Suspending snooze: same rationale + protocol as
     // sendAlarmDismissedAwaiting — see sendAwaitingAck.
     override suspend fun sendAlarmSnoozedAwaiting(
@@ -564,7 +534,13 @@ class HuaweiWearBridge @Inject constructor(
             return false
         }
         val device = ensurePairedDevice() ?: return false
-        if (!ensurePeerAppRunning(device)) {
+        // force=true: bypass the "app running" cache and do a real
+        // wake-and-poll-to-202. A settings-time background change usually
+        // happens while the watch app is asleep; a stale cache hit would
+        // let the file send into the void (delivered to nothing), which is
+        // why the image only landed after a home-screen forceSync — that
+        // path hard-wakes the same way.
+        if (!ensurePeerAppRunning(device, force = true)) {
             Log.w(TAG, "uploadDefaultWatchBackground: peer not running")
             return false
         }
@@ -612,6 +588,11 @@ class HuaweiWearBridge @Inject constructor(
     }
 
     override fun setIncomingHandler(handler: IncomingMessageHandler?) {
+        // Idempotent on same non-null re-install — re-launching
+        // ensureReceiverRegistered can interrupt awaitTask between SDK
+        // register and our local flag. null path is NOT skipped
+        // (force-detach must always run).
+        if (handler != null && incomingHandler === handler) return
         attachJob?.cancel()
         incomingHandler = handler
         if (handler != null) {
@@ -897,8 +878,7 @@ class HuaweiWearBridge @Inject constructor(
         }
         _pairedDeviceInfo.value = candidate?.let {
             PairedDeviceInfo(
-                name = it.name.orEmpty(),
-                model = it.model.orEmpty(),
+                displayName = normalizeDeviceLabel(it.name, it.model),
                 connected = it.isConnected,
             )
         }
@@ -989,6 +969,57 @@ class HuaweiWearBridge @Inject constructor(
         // degradation. The watch currently ignores it; future watch
         // builds may consume it for a custom ring backdrop.
         alarm.backgroundImageUri?.let { put("backgroundImageUri", it) }
+        // vibrationPattern: wire name of the preset enum. Old watch builds
+        // without the field fall back to the default phone pattern on
+        // their side (PULSE) — correct degradation.
+        put("vibrationPattern", alarm.vibrationPattern.name)
+        // maxSnoozeCount: 0 = unlimited. Old watch builds default to
+        // unlimited (current behavior) — correct degradation.
+        put("maxSnoozeCount", alarm.maxSnoozeCount)
+        // volumeRampSeconds: 0 = off. Watch doesn't use this today
+        // (single ringtone, no ramp on Lite Wearable), forwarded for
+        // forward-compat / log telemetry only.
+        put("volumeRampSeconds", alarm.volumeRampSeconds)
+        // skipNextEpoch: optional — only sent when set. Used by the
+        // watch for its display ("next skipped" hint) and to compute
+        // the right ring time after one skipped occurrence.
+        alarm.skipNextEpoch?.let { put("skipNextEpoch", it) }
+    }
+
+    /**
+     * Thin-client `alarm_fired` envelope. The spec calls this out explicitly:
+     * the watch MUST be able to ring with the correct pattern and Snooze
+     * affordance state WITHOUT prior `sync_replace` (cold-paired watch, sync
+     * drift, etc). So we ship the per-fire fields inline:
+     *
+     *  - `vibrationPattern` — enum name; watch reads VIBRATION_PATTERNS[name]
+     *    and falls back to PULSE on unknown / missing.
+     *  - `snoozeAllowed` — pre-computed boolean = `alarm.isSnoozeEnabled`
+     *    (collapses snoozeMinutes==0 OR consecutiveSnoozeCount >= cap). The
+     *    watch hides its Snooze button when false. Pre-computing on the phone
+     *    avoids shipping the raw counter (transient ring-cycle state that
+     *    would force hash mismatches) and avoids reimplementing the
+     *    cap-vs-minutes logic on the watch.
+     *
+     * The phone-side caller resolves the alarm from BFU cache pre-unlock
+     * (Room locked) or Room post-unlock; either path yields a domain Alarm
+     * with the right consecutiveSnoozeCount because BfuAlarmCache mirrors it.
+     */
+    private fun buildAlarmFiredEnvelope(
+        alarmId: Long,
+        now: Long,
+        ringHints: AlarmRingHints?,
+    ): JSONObject = JSONObject().apply {
+        put("type", "alarm_fired")
+        put("alarmId", alarmId)
+        put("updatedAtEpoch", now)
+        // Hints are nullable so the legacy missed-cache path (no domain Alarm
+        // resolvable) still ships a valid envelope; the watch falls back to
+        // its AlarmStore for the missing fields.
+        if (ringHints != null) {
+            put("vibrationPattern", ringHints.vibrationPatternName)
+            put("snoozeAllowed", ringHints.snoozeAllowed)
+        }
     }
 
     private fun buildAlarmEnvelope(type: String, alarm: Alarm): JSONObject = JSONObject().apply {

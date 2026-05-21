@@ -44,7 +44,6 @@
     <string name="repeats_weekdays">Будни</string>
     <string name="repeats_weekends">Выходные</string>
     <string name="repeats_timer">Таймер</string>
-    <string name="repeats_oneoff">Одноразовый</string>
     <string name="delete_alarm">Удалить будильник</string>
 
     <string name="battery_opt_card_title">Чтобы будильники были надёжными</string>
@@ -53,10 +52,6 @@
     <string name="battery_opt_card_dismiss">Не сейчас</string>
 
     <string name="watch_status_card_title">Синхронизация с часами</string>
-    <string name="watch_status_card_not_connected">Часы: не подключены</string>
-    <string name="watch_status_card_connecting">Часы: подключение…</string>
-    <string name="watch_status_card_connected">Часы: подключены</string>
-    <string name="watch_status_card_error">Часы: ошибка подключения</string>
 
     <string name="voice_alarm_set">Будильник установлен на %1$s</string>
     <string name="voice_alarm_failed">Не удалось установить будильник</string>
@@ -81,4 +76,18 @@
     <string name="field_snooze_off_value">Выкл</string>
     <string name="field_snooze_off_chip">Выкл</string>
     <string name="dialog_keep_editing">Продолжить редактирование</string>
+
+    <string name="list_skip_next_hint">след. пропущен</string>
+    <string name="field_vibration_pattern">Тип вибрации</string>
+    <string name="vibration_pattern_pulse">Пульс</string>
+    <string name="vibration_pattern_heartbeat">Сердцебиение</string>
+    <string name="vibration_pattern_three_tap">Три стука</string>
+    <string name="vibration_pattern_long_long">Длинная-длинная</string>
+    <string name="vibration_pattern_off">Выкл</string>
+    <string name="field_volume_ramp">Нарастание громкости</string>
+    <string name="field_volume_ramp_off">Выкл</string>
+    <string name="field_volume_ramp_seconds">%1$d с</string>
+    <string name="field_max_snooze">Лимит отложений</string>
+    <string name="field_max_snooze_unlimited">Без лимита</string>
+    <string name="field_max_snooze_value">%1$d×</string>
 </resources>

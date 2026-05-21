@@ -15,9 +15,11 @@ import com.kirkouski.gtalarm.domain.Alarm
  *
  * **Canonical form:** alarms sorted by id ascending, each rendered as a
  * pipe-delimited line `id|hour|minute|daysOfWeek|enabled|audioUri|
- * isVibrationOnly|snoozeMinutes|updatedAtEpoch|relativeMinutes|selfDestruct`
+ * isVibrationOnly|snoozeMinutes|updatedAtEpoch|relativeMinutes|selfDestruct|
+ * vibrationPattern|maxSnoozeCount|volumeRampSeconds|skipNextEpoch`
  * with `\n` separator. Booleans render as `1`/`0`; null audioUri / null
- * relativeMinutes render as empty string between the surrounding pipes.
+ * relativeMinutes / null skipNextEpoch render as empty string between
+ * the surrounding pipes.
  *
  * Match the JS implementation in `watch-app/.../common/alarmHash.js` BYTE
  * FOR BYTE — any divergence makes the hash compare always-fail and the
@@ -53,7 +55,16 @@ object AlarmHash {
                 .append(a.snoozeMinutes).append('|')
                 .append(a.updatedAtEpoch).append('|')
                 .append(a.relativeMinutes?.toString().orEmpty()).append('|')
-                .append(if (a.selfDestruct) '1' else '0')
+                .append(if (a.selfDestruct) '1' else '0').append('|')
+                // Tier 1+2 fields. Appended after v1 fields in stable
+                // order so the watch hashing JS can be extended in
+                // lock-step. consecutiveSnoozeCount is intentionally
+                // EXCLUDED — it's phone-side ring-loop state and would
+                // force a hash mismatch every snooze.
+                .append(a.vibrationPattern.name).append('|')
+                .append(a.maxSnoozeCount).append('|')
+                .append(a.volumeRampSeconds).append('|')
+                .append(a.skipNextEpoch?.toString().orEmpty())
                 .append('\n')
         }
         return sb.toString()

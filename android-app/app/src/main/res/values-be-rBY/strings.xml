@@ -44,7 +44,6 @@
     <string name="repeats_weekdays">Будныя дні</string>
     <string name="repeats_weekends">Выходныя</string>
     <string name="repeats_timer">Таймер</string>
-    <string name="repeats_oneoff">Аднаразовы</string>
     <string name="delete_alarm">Выдаліць будзільнік</string>
 
     <string name="battery_opt_card_title">Каб будзільнікі былі надзейнымі</string>
@@ -53,10 +52,6 @@
     <string name="battery_opt_card_dismiss">Не зараз</string>
 
     <string name="watch_status_card_title">Сінхранізацыя з гадзіннікам</string>
-    <string name="watch_status_card_not_connected">Гадзіннік: не падключаны</string>
-    <string name="watch_status_card_connecting">Гадзіннік: падключэнне…</string>
-    <string name="watch_status_card_connected">Гадзіннік: падключаны</string>
-    <string name="watch_status_card_error">Гадзіннік: памылка падключэння</string>
 
     <string name="voice_alarm_set">Будзільнік зададзены на %1$s</string>
     <string name="voice_alarm_failed">Не атрымалася задаць будзільнік</string>
@@ -81,4 +76,18 @@
     <string name="field_snooze_off_value">Выкл</string>
     <string name="field_snooze_off_chip">Выкл</string>
     <string name="dialog_keep_editing">Працягнуць рэдагаванне</string>
+
+    <string name="list_skip_next_hint">наст. прапушчаны</string>
+    <string name="field_vibration_pattern">Тып вібрацыі</string>
+    <string name="vibration_pattern_pulse">Пульс</string>
+    <string name="vibration_pattern_heartbeat">Сэрцабіцце</string>
+    <string name="vibration_pattern_three_tap">Тры пастуквання</string>
+    <string name="vibration_pattern_long_long">Доўгая-доўгая</string>
+    <string name="vibration_pattern_off">Выкл</string>
+    <string name="field_volume_ramp">Нарастанне гучнасці</string>
+    <string name="field_volume_ramp_off">Выкл</string>
+    <string name="field_volume_ramp_seconds">%1$d с</string>
+    <string name="field_max_snooze">Ліміт адкладанняў</string>
+    <string name="field_max_snooze_unlimited">Без ліміту</string>
+    <string name="field_max_snooze_value">%1$d×</string>
 </resources>

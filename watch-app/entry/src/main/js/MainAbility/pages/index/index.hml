@@ -149,14 +149,19 @@
             <image src="common/bell.png" class="ring-bell"></image>
             <text class="ring-title">{{ringTitle}}</text>
             <text class="ring-time">{{ringTime}}</text>
-            <!-- Action row: the two circle buttons (snooze / stop) OR,
-                 once ended (by phone or watch), the green thumbs-up
-                 confirmation in the SAME slot — same width/height/margin
-                 as .ring-actions so the Y position is identical. -->
-            <div class="ring-actions" if="{{!ended}}">
+            <!-- Action row: snooze + stop when snoozable, stop-only when
+                 the alarm has snoozeMinutes=0, OR the green thumbs-up
+                 confirmation once ended. SAME Y position via identical
+                 width/height/margin on all three slots. -->
+            <div class="ring-actions" if="{{!ended && ringSnoozeEnabled}}">
                 <div class="ring-btn" onclick="onSnooze">
                     <image src="common/snooze.png" class="ring-btn-img"></image>
                 </div>
+                <div class="ring-btn" onclick="onDismiss">
+                    <image src="common/stop.png" class="ring-btn-img"></image>
+                </div>
+            </div>
+            <div class="ring-actions-stop" if="{{!ended && !ringSnoozeEnabled}}">
                 <div class="ring-btn" onclick="onDismiss">
                     <image src="common/stop.png" class="ring-btn-img"></image>
                 </div>

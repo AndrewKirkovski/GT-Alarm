@@ -47,11 +47,28 @@ data class Alarm(
     // don't round-trip between devices (each peer's resolver mints its
     // own opaque IDs) — including it would mismatch every sync forever.
     val backgroundImageUri: String? = null,
+    // Per-alarm wrist character + audio crescendo + snooze-count cap (Tier 1+2).
+    val vibrationPattern: VibrationPattern = VibrationPattern.DEFAULT,
+    val volumeRampSeconds: Int = 0,
+    val maxSnoozeCount: Int = MAX_SNOOZE_COUNT_UNLIMITED,
+    val consecutiveSnoozeCount: Int = 0,
+    /** Epoch of the NEXT firing the user marked as skipped (swipe-left).
+     *  `NextTriggerCalculator` rolls past it; null = no skip pending. */
+    val skipNextEpoch: Long? = null,
 ) {
     init {
         require(snoozeMinutes == SNOOZE_DISABLED || snoozeMinutes in MIN_SNOOZE_MINUTES..MAX_SNOOZE_MINUTES) {
             "snoozeMinutes=$snoozeMinutes invalid — must be SNOOZE_DISABLED (0) or in " +
                 "[$MIN_SNOOZE_MINUTES, $MAX_SNOOZE_MINUTES]"
+        }
+        require(volumeRampSeconds in 0..MAX_VOLUME_RAMP_SECONDS) {
+            "volumeRampSeconds=$volumeRampSeconds out of range [0, $MAX_VOLUME_RAMP_SECONDS]"
+        }
+        require(maxSnoozeCount in 0..MAX_SNOOZE_COUNT_CAP) {
+            "maxSnoozeCount=$maxSnoozeCount out of range [0, $MAX_SNOOZE_COUNT_CAP]"
+        }
+        require(consecutiveSnoozeCount >= 0) {
+            "consecutiveSnoozeCount=$consecutiveSnoozeCount must be >= 0"
         }
         // Label cap: defense against a compromised / buggy peer pushing a
         // multi-megabyte label that would bloat the DB row, full-screen
@@ -80,8 +97,13 @@ data class Alarm(
     /** True if this is a "in N minutes" relative-time alarm. */
     val isRelative: Boolean get() = relativeMinutes != null
 
-    /** True when snooze is set up — the ring UI shows a Snooze button only in this case. */
-    val isSnoozeEnabled: Boolean get() = snoozeMinutes > 0
+    /** True when snooze is set up — the ring UI shows a Snooze button only in this case.
+     *  Combines the static config (snoozeMinutes>0) with the runtime cap
+     *  (consecutiveSnoozeCount<maxSnoozeCount), so once the cap is hit the
+     *  button hides until a real dismiss resets the counter. */
+    val isSnoozeEnabled: Boolean
+        get() = snoozeMinutes > 0 &&
+            (maxSnoozeCount == MAX_SNOOZE_COUNT_UNLIMITED || consecutiveSnoozeCount < maxSnoozeCount)
 
     /**
      * Fire time for relative alarms. For absolute alarms returns
@@ -101,5 +123,9 @@ data class Alarm(
         const val MIN_RELATIVE_MINUTES = 1
         const val MAX_RELATIVE_MINUTES = 1440 // 24 hours
         const val MAX_LABEL_LENGTH = 256
+        const val MAX_VOLUME_RAMP_SECONDS = 60
+        /** Sentinel: no cap on consecutive snoozes. */
+        const val MAX_SNOOZE_COUNT_UNLIMITED = 0
+        const val MAX_SNOOZE_COUNT_CAP = 20
     }
 }

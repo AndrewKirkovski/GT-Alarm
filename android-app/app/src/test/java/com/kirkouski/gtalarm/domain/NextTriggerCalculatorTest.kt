@@ -163,4 +163,56 @@ class NextTriggerCalculatorTest {
         val trigger = NextTriggerCalculator.nextTriggerEpochMillis(alarm, now)
         assertTrue(trigger > now.toInstant().toEpochMilli())
     }
+
+    @Test
+    fun `skipNextEpoch advances past the matched occurrence`() {
+        // Friday 2026-04-24 06:00; recurring Fri+Mon at 07:00.
+        // Without skip, next is Friday 07:00. With skipNextEpoch=Friday 07:00,
+        // calculator returns the FOLLOWING occurrence — Monday 07:00.
+        val now = at(2026, 4, 24, 6, 0)
+        val fridayMatch = at(2026, 4, 24, 7, 0).toInstant().toEpochMilli()
+        val mondayMatch = at(2026, 4, 27, 7, 0).toInstant().toEpochMilli()
+        val alarm = Alarm(
+            hour = 7,
+            minute = 0,
+            daysOfWeek = DaysOfWeek.FRI or DaysOfWeek.MON,
+            skipNextEpoch = fridayMatch,
+        )
+        val trigger = NextTriggerCalculator.nextTriggerEpochMillis(alarm, now)
+        assertEquals(mondayMatch, trigger)
+    }
+
+    @Test
+    fun `skipNextEpoch with no exact match passes through unchanged`() {
+        // Skip pointing at an instant that isn't the next trigger (stale
+        // skip, or skip pointing at yesterday). Calculator returns the
+        // raw next-trigger without advancing.
+        val now = at(2026, 4, 24, 6, 0)
+        val staleSkip = at(2026, 4, 23, 7, 0).toInstant().toEpochMilli()  // yesterday
+        val alarm = Alarm(
+            hour = 7,
+            minute = 0,
+            daysOfWeek = DaysOfWeek.FRI,
+            skipNextEpoch = staleSkip,
+        )
+        val trigger = NextTriggerCalculator.nextTriggerEpochMillis(alarm, now)
+        assertEquals(at(2026, 4, 24, 7, 0).toInstant().toEpochMilli(), trigger)
+    }
+
+    @Test
+    fun `skipNextEpoch ignored when alarm is not recurring`() {
+        // One-shots can be just disabled; the skip-next path is recurring-only.
+        // If somehow set on a one-shot, the calculator must NOT roll past — that
+        // would push the fire arbitrarily far into the future.
+        val now = at(2026, 4, 24, 6, 0)
+        val target = at(2026, 4, 24, 7, 0).toInstant().toEpochMilli()
+        val alarm = Alarm(
+            hour = 7,
+            minute = 0,
+            daysOfWeek = DaysOfWeek.NONE,
+            skipNextEpoch = target,
+        )
+        val trigger = NextTriggerCalculator.nextTriggerEpochMillis(alarm, now)
+        assertEquals(target, trigger)
+    }
 }

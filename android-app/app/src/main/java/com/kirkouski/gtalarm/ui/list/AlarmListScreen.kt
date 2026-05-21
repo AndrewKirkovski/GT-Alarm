@@ -218,6 +218,7 @@ fun AlarmListScreen(
                             onToggle = { enabled -> vm.onToggle(alarm.id, enabled) },
                             onClick = { onEdit(alarm.id) },
                             onDelete = { vm.onDelete(alarm.id) },
+                            onSkipNext = { vm.onSkipNext(alarm.id) },
                         )
                     }
                 }
@@ -241,25 +242,17 @@ private fun WatchSyncCard(
     onForceSync: () -> Unit,
     onAuthorize: () -> Unit,
 ) {
-    val bodyRes = when (status) {
-        WatchSyncStatus.NOT_CONNECTED -> R.string.watch_status_card_not_connected
-        WatchSyncStatus.CONNECTING -> R.string.watch_status_card_connecting
-        WatchSyncStatus.CONNECTED -> R.string.watch_status_card_connected
-        WatchSyncStatus.ERROR -> R.string.watch_status_card_error
-    }
+    // State is conveyed by the icon alone (regular watch when connected,
+    // crossed-watch when not). The previous "Watch: connected / not connected"
+    // status text was redundant with the icon and added visual noise — we
+    // drop it. When the app lacks Wear Engine permission we still surface
+    // that explicitly because the user has to take action.
     val iconRes = if (status == WatchSyncStatus.CONNECTED) R.drawable.ic_watch else R.drawable.ic_watch_off
-    val deviceText = pairedDevice?.let { info ->
-        listOf(info.name, info.model).filter { it.isNotBlank() }.joinToString(" · ")
-    }?.takeIf { it.isNotBlank() }
-    // When the app lacks Wear Engine permission the authorization prompt is
-    // the only useful action — the status line says so and the trailing
-    // circle becomes the authorize button instead of force-sync.
-    val statusLine = if (needsAuthorization) {
-        stringResource(R.string.watch_status_card_needs_auth)
-    } else {
-        stringResource(bodyRes).let { body ->
-            if (deviceText != null) "$body  ·  $deviceText" else body
-        }
+    val deviceText = pairedDevice?.displayName?.takeIf { it.isNotBlank() }
+    val subtitle = when {
+        needsAuthorization -> stringResource(R.string.watch_status_card_needs_auth)
+        deviceText != null -> deviceText
+        else -> null
     }
     ElevatedCard(
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -286,12 +279,14 @@ private fun WatchSyncCard(
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                 )
-                Text(
-                    text = statusLine,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
             }
             WatchSyncActionButton(
                 needsAuthorization = needsAuthorization,
@@ -442,8 +437,11 @@ private fun BatteryOptRationaleCard(
 
 // reason: the confirm-dialog declaration and the SwipeToDismissBox it
 // coordinates with both live in this composable so the showConfirm state
-// doesn't have to be threaded across composable boundaries.
-@Suppress("LongMethod")
+// doesn't have to be threaded across composable boundaries. Complexity is
+// >10 because the backgroundContent now branches on (skip vs delete) ×
+// (start vs end vs settled) for icon + bg color + alignment — each branch
+// maps to a distinct user-visible affordance.
+@Suppress("LongMethod", "CyclomaticComplexMethod")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SwipeToDeleteRow(
@@ -452,8 +450,13 @@ private fun SwipeToDeleteRow(
     onToggle: (Boolean) -> Unit,
     onClick: () -> Unit,
     onDelete: () -> Unit,
+    onSkipNext: () -> Unit = {},
 ) {
     var showConfirm by remember { mutableStateOf(false) }
+    // Swipe-left on a recurring alarm marks the next firing as skipped
+    // (non-destructive, no confirm dialog). All other swipes route to the
+    // delete confirm.
+    val canSkip = alarm.daysOfWeek != 0
     // reason: returning `false` from confirmValueChange on a dismiss value
     // prevents M3 from settling the row into the dismissed anchor — the box
     // animates back to Settled on its own. We trigger the confirm dialog
@@ -468,7 +471,15 @@ private fun SwipeToDeleteRow(
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
-                SwipeToDismissBoxValue.EndToStart,
+                SwipeToDismissBoxValue.EndToStart -> {
+                    if (canSkip) {
+                        onSkipNext()
+                        false
+                    } else {
+                        showConfirm = true
+                        false
+                    }
+                }
                 SwipeToDismissBoxValue.StartToEnd -> {
                     showConfirm = true
                     false
@@ -513,16 +524,38 @@ private fun SwipeToDeleteRow(
             .padding(horizontal = 8.dp)
             .clip(MaterialTheme.shapes.medium),
         backgroundContent = {
+            // EndToStart on a recurring alarm = skip-next (neutral bg + skip
+            // icon). Every other case (StartToEnd, or EndToStart on a one-
+            // shot) opens the delete-confirm dialog — surface the destructive
+            // intent with the error background so the gesture target reads
+            // as red-before-confirm.
+            val isSkipGesture = canSkip &&
+                dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
+            val bg = if (isSkipGesture) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                MaterialTheme.colorScheme.errorContainer
+            }
+            val iconRes = if (isSkipGesture) R.drawable.ic_timer else R.drawable.ic_delete
+            val cd = if (isSkipGesture) {
+                stringResource(R.string.list_skip_next_hint)
+            } else {
+                stringResource(R.string.delete_alarm)
+            }
+            val alignment = when (dismissState.dismissDirection) {
+                SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+                else -> Alignment.CenterEnd
+            }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .background(bg)
                     .padding(horizontal = 24.dp),
-                contentAlignment = Alignment.CenterEnd,
+                contentAlignment = alignment,
             ) {
                 Icon(
-                    painter = painterResource(R.drawable.ic_delete),
-                    contentDescription = stringResource(R.string.delete_alarm),
+                    painter = painterResource(iconRes),
+                    contentDescription = cd,
                     tint = Color.Unspecified,
                     modifier = Modifier.size(28.dp),
                 )
@@ -613,25 +646,38 @@ private fun AlarmRow(
 
 @Composable
 private fun subtitleLine(alarm: Alarm, firstDayOverride: Int?): String {
-    val days = repeatLabel(alarm, firstDayOverride)
+    val daysBase = repeatLabel(alarm, firstDayOverride)
+    val skipActive = alarm.skipNextEpoch != null &&
+        alarm.skipNextEpoch > System.currentTimeMillis()
+    val skipHint = if (skipActive) stringResource(R.string.list_skip_next_hint) else ""
+    val days = if (skipHint.isNotEmpty()) {
+        if (daysBase.isEmpty()) skipHint else "$daysBase · $skipHint"
+    } else {
+        daysBase
+    }
     if (!alarm.enabled) return days
     // Relative alarms show the live countdown in the prominent text; the
     // subtitle is just the "Timer" repeat label (parity with the watch).
     if (alarm.isRelative) return days
     val nextTrigger = remember(alarm) { NextTriggerCalculator.nextTriggerEpochMillis(alarm) }
     val relative = RelativeTime.formatUntil(nextTrigger)
-    return if (relative.isEmpty()) days else "$days  ·  $relative"
+    return when {
+        days.isEmpty() -> relative
+        relative.isEmpty() -> days
+        else -> "$days  ·  $relative"
+    }
 }
 
 // Repeat label — mirrors the watch's nonRecurringLabel logic so the same
 // alarm reads identically on both devices: recurring -> day label;
-// otherwise Timer (relative) / One-off (self-destruct) / Once.
+// Timer (relative); Once (self-destruct); a plain one-time alarm has no
+// label (empty) — the absence of any day/repeat text already says it.
 @Composable
 private fun repeatLabel(alarm: Alarm, firstDayOverride: Int?): String = when {
     alarm.daysOfWeek != DaysOfWeek.NONE -> daysLabel(alarm.daysOfWeek, firstDayOverride)
     alarm.isRelative -> stringResource(R.string.repeats_timer)
-    alarm.selfDestruct -> stringResource(R.string.repeats_oneoff)
-    else -> stringResource(R.string.repeats_once)
+    alarm.selfDestruct -> stringResource(R.string.repeats_once)
+    else -> ""
 }
 
 // Ticks the countdown for a relative alarm. Cadence:
@@ -667,7 +713,15 @@ private fun rememberRelativeCountdownText(alarm: Alarm): String {
             stringResource(R.string.list_relative_off_min, rel)
         }
     }
-    val target = alarm.computedFireEpoch()
+    // Active snooze overrides the original fire time — without this, a
+    // snoozed relative alarm shows "firing now" forever because the original
+    // computedFireEpoch is in the past while the snoozed-until is in the future.
+    val snoozeUntil = alarm.snoozedUntilEpoch
+    val target = if (snoozeUntil != null && snoozeUntil > System.currentTimeMillis()) {
+        snoozeUntil
+    } else {
+        alarm.computedFireEpoch()
+    }
     // mutableLongStateOf keyed on target so we restart the tick if the
     // user edits the duration (which bumps updatedAtEpoch → new target).
     var now by remember(alarm.id, target) {

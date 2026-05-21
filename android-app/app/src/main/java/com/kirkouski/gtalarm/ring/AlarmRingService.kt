@@ -9,8 +9,10 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.UserManager
 import android.util.Log
 import com.kirkouski.gtalarm.data.AlarmRepository
+import com.kirkouski.gtalarm.data.bfu.BfuAlarmCache
 import com.kirkouski.gtalarm.di.IoDispatcher
 import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.scheduler.AlarmScheduler
@@ -24,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -32,7 +35,13 @@ class AlarmRingService : Service() {
     @Inject lateinit var repository: AlarmRepository
     @Inject lateinit var scheduler: AlarmScheduler
     @Inject lateinit var wearBridge: WearBridgeService
+    @Inject lateinit var bfuCache: BfuAlarmCache
     @Inject @IoDispatcher lateinit var ioDispatcher: CoroutineDispatcher
+
+    // Default-locked: a null UserManager (some OEM ROMs in the early-boot
+    // window) routes to BFU; a wrong-unlocked read would crash the FGS.
+    private val isUserUnlocked: Boolean
+        get() = getSystemService(UserManager::class.java)?.isUserUnlocked == true
 
     private val serviceScope by lazy { CoroutineScope(SupervisorJob() + ioDispatcher) }
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -120,7 +129,7 @@ class AlarmRingService : Service() {
         // If the row is missing (deleted in a narrow window between
         // schedule and fire) we still post the placeholder so the FG
         // contract holds, then tear down.
-        val alarm = runBlocking { repository.getById(alarmId) }
+        val alarm = runBlocking { fetchAlarmForRing(alarmId) }
         if (alarm == null) {
             Log.w(TAG, "no alarm found for id=$alarmId — placeholder + tear down")
             startForegroundPlaceholder()
@@ -138,20 +147,45 @@ class AlarmRingService : Service() {
             if (alarm.snoozedUntilEpoch != null) {
                 repository.clearSnoozedUntil(alarmId)
             }
+            // Skip-next consumed: if a skip was active for an earlier
+            // instant, NextTriggerCalculator already advanced past it and
+            // THIS fire is the post-skip occurrence. Clear the now-stale
+            // skipNextEpoch so the row doesn't leak ambiguous state into
+            // sync hash + UI.
+            //
+            // Pre-unlock branch: Room is locked so consumePastSkip's
+            // dao.upsert would throw. Write the cleared field straight
+            // to the BFU mirror; the post-unlock reconcile will replay
+            // BFU's authoritative values into Room (rescheduleAllOnBoot
+            // → replaceAll(keep)). Without this, a pre-unlock fire on a
+            // skipped alarm previously crashed the launch block before
+            // startRingingAudioAndUi could play audio.
+            if (alarm.skipNextEpoch != null) {
+                if (isUserUnlocked) {
+                    repository.consumePastSkip(alarmId)
+                } else {
+                    bfuCache.upsert(
+                        alarm.copy(
+                            skipNextEpoch = null,
+                            updatedAtEpoch = System.currentTimeMillis(),
+                        ),
+                    )
+                    Log.i(TAG, "skip-next pre-unlock-cleared id=$alarmId (BFU only)")
+                }
+            }
             try {
                 // STEP 2: pre-arm — if watch is paired+connected, await
                 // alarm_fired delivery up to PREARM_TIMEOUT_MS. Returns
                 // immediately false if no watch is reachable.
                 val prearmStartMs = System.currentTimeMillis()
-                val watchReady = preArmWatch(alarmId)
+                val watchReady = preArmWatch(alarmId, alarm)
                 val prearmTookMs = System.currentTimeMillis() - prearmStartMs
                 Log.i(TAG, "preArmWatch id=$alarmId ready=$watchReady took=${prearmTookMs}ms")
                 // STEP 3: start audio + show AlarmActivity. By now phone +
                 // watch are both presenting (or we timed out waiting).
                 startRingingAudioAndUi(alarm)
-                // STEP 4: sync-on-fire (fire-and-forget). Watch is awake,
-                // push the rest of the alarm list.
-                opportunisticFullSync(originatingAlarmId = alarmId)
+                // No sync-on-fire — forceSync's sync_check/sync_replace
+                // would yank the watch off its ring screen.
                 scheduleAutoStop()
                 if (alarm.daysOfWeek != 0) {
                     scheduler.schedule(alarm)
@@ -180,6 +214,16 @@ class AlarmRingService : Service() {
         }
     }
 
+    // Pre-unlock: read BFU cache; audio fallback handled by
+    // forceBundledFallback in AlarmAudioPlayer.start().
+    private suspend fun fetchAlarmForRing(alarmId: Long): Alarm? {
+        if (isUserUnlocked) {
+            return repository.getById(alarmId)
+        }
+        Log.i(TAG, "fetchAlarmForRing pre-unlock id=$alarmId — reading BFU cache")
+        return bfuCache.getAll().firstOrNull { it.id == alarmId }
+    }
+
     private fun startForegroundPlaceholder() {
         // Minimal notification so we satisfy Android's startForeground
         // deadline. Upgraded by startForegroundOnly() once we have the
@@ -192,24 +236,27 @@ class AlarmRingService : Service() {
     // Try to wake the watch so it shows its own ring page in time with the
     // phone. Returns true if a 207 (COMM_SUCCESS) came back within budget;
     // false if no watch is paired/connected OR we timed out waiting.
-    private suspend fun preArmWatch(alarmId: Long): Boolean {
+    private suspend fun preArmWatch(alarmId: Long, alarm: Alarm): Boolean {
+        // Thin-client envelope hints — see AlarmRingHints KDoc. Computed
+        // once here, sent on every send/await variant below so the watch
+        // can ring with the right pattern + Snooze gating WITHOUT prior
+        // sync (cold-paired watch, dropped sync_replace, etc.).
+        val ringHints = com.kirkouski.gtalarm.wear.AlarmRingHints.from(alarm)
         val info = wearBridge.pairedDeviceInfo.value
         if (info == null || !info.connected) {
             Log.d(TAG, "preArmWatch: no connected watch (info=$info) — skipping wait")
             // Still fire the message so when the watch DOES come back online
             // it gets the historical event (cheap, fire-and-forget).
-            wearBridge.sendAlarmFired(alarmId)
+            wearBridge.sendAlarmFired(alarmId, ringHints)
             return false
         }
-        return wearBridge.sendAlarmFiredAwaiting(alarmId, PREARM_TIMEOUT_MS)
-    }
-
-    private suspend fun opportunisticFullSync(originatingAlarmId: Long) {
-        val all = repository.getAll()
-        Log.d(TAG, "sync-on-fire pushing ${all.size} alarm(s) to watch (origin id=$originatingAlarmId)")
-        for (alarm in all) {
-            wearBridge.sendAlarmAdded(alarm)
+        if (!isUserUnlocked) {
+            // Pre-unlock: no incoming receiver, so await would hang. Fire-and-forget.
+            Log.i(TAG, "preArmWatch: pre-unlock — sending fire-and-forget, no await")
+            wearBridge.sendAlarmFired(alarmId, ringHints)
+            return false
         }
+        return wearBridge.sendAlarmFiredAwaiting(alarmId, PREARM_TIMEOUT_MS, ringHints)
     }
 
     private fun startForegroundOnly(alarm: Alarm) {
@@ -265,7 +312,14 @@ class AlarmRingService : Service() {
         // MediaPlayer leaks until GC.
         val p = AlarmAudioPlayer(applicationContext)
         player = p
-        p.start(alarm.audioUri, alarm.isVibrationOnly)
+        // Pre-unlock: SAF/system-default URIs return null; use bundled tone.
+        p.start(
+            uri = alarm.audioUri,
+            vibrateOnly = alarm.isVibrationOnly,
+            pattern = alarm.vibrationPattern,
+            volumeRampSeconds = alarm.volumeRampSeconds,
+            forceBundledFallback = !isUserUnlocked,
+        )
 
         // CANONICAL Huawei Wear Engine compliance path: ensure AlarmActivity
         // is in the task at fire time. Huawei P2P receive REQUIRES an Activity
@@ -342,6 +396,12 @@ class AlarmRingService : Service() {
     // deliberately does NOT finishAndRemoveTask() on the dismiss tap; it
     // stays up showing "waiting for watch" until stopForegroundAndSelf()
     // below emits RingEndedSignal. Do not "optimise" the Activity away.
+    // reason: complexity rose past 10 because dismissAction() now branches
+    // on KEEP/DISABLE/DELETE × fromPeer (LocalOnly vs broadcasting variant),
+    // and there's a separate pre-unlock branch + a serviceScope.launch
+    // gating on user-unlocked. Each branch maps to a distinct end state;
+    // collapsing would smear the data/peer rules.
+    @Suppress("CyclomaticComplexMethod")
     private fun handleDismiss(alarmId: Long, fromPeer: Boolean) {
         Log.d(TAG, "dismiss id=$alarmId fromPeer=$fromPeer")
         if (alarmId < 0) {
@@ -362,6 +422,22 @@ class AlarmRingService : Service() {
         autoStopRunnable?.let { mainHandler.removeCallbacks(it) }
         autoStopRunnable = null
 
+        if (!isUserUnlocked) {
+            // Pre-unlock: Room locked, transport-only watch send; serviceScope
+            // keeps the FGS alive so a process reap can't kill the send.
+            // markDismissed records the intent for post-unlock dismissAction.
+            Log.i(TAG, "dismiss id=$alarmId pre-unlock — notifying watch + recording intent")
+            serviceScope.launch {
+                bfuCache.markDismissed(alarmId)
+                val delivered = withTimeoutOrNull(PRE_UNLOCK_SEND_TIMEOUT_MS) {
+                    wearBridge.sendAlarmDismissed(alarmId)
+                } ?: false
+                Log.i(TAG, "dismiss id=$alarmId pre-unlock send delivered=$delivered")
+                stopForegroundAndSelf()
+            }
+            return
+        }
+
         serviceScope.launch {
             handlerMutex.withLock {
                 // Commit local truth FIRST, then broadcast. If the OS kills
@@ -369,6 +445,10 @@ class AlarmRingService : Service() {
                 // sync hash mismatch; the phone DB can't recover its own
                 // inconsistent state, so it gets priority.
                 val alarm = repository.getById(alarmId)
+                // Reset the consecutive-snooze counter — a real dismiss
+                // ends the snooze cycle. Done BEFORE the action so DELETE
+                // (which removes the row) doesn't no-op the reset.
+                if (alarm != null) repository.resetSnoozeCounter(alarmId)
                 when (dismissAction(alarm)) {
                     DismissAction.KEEP -> Unit
                     DismissAction.DISABLE -> {
@@ -379,11 +459,7 @@ class AlarmRingService : Service() {
                         }
                     }
                     DismissAction.DELETE -> {
-                        // Tombstone + propagation via repository.delete().
-                        // Idempotent on the peer if it also originated this
-                        // dismiss (the alarm_dismissed envelope already told
-                        // the watch it's done; the alarm_deleted that delete()
-                        // sends back is a redundant-but-harmless cleanup).
+                        // Idempotent if peer originated this dismiss.
                         repository.delete(alarmId)
                     }
                 }
@@ -401,6 +477,9 @@ class AlarmRingService : Service() {
     // while AlarmActivity is alive in the task. AlarmActivity stays up
     // ("waiting for watch") until stopForegroundAndSelf() emits
     // RingEndedSignal.
+    // reason: 3 paths (pre-unlock, snooze-disabled→dismiss, happy path)
+    // sharing player/handler teardown; splitting smears the Mutex contract.
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
     private fun handleSnooze(alarmId: Long, fromPeer: Boolean, rescheduleEpochFromPeer: Long) {
         Log.d(TAG, "snooze id=$alarmId fromPeer=$fromPeer reschedule=$rescheduleEpochFromPeer")
         // Stop audio + vibration NOW (same rationale as handleDismiss) —
@@ -410,6 +489,49 @@ class AlarmRingService : Service() {
         player = null
         autoStopRunnable?.let { mainHandler.removeCallbacks(it) }
         autoStopRunnable = null
+
+        if (!isUserUnlocked) {
+            // Pre-unlock: schedule directly via AlarmManager (direct-boot
+            // OK); BFU cache carries per-alarm snoozeMinutes.
+            serviceScope.launch {
+                val alarm = bfuCache.getAll().firstOrNull { it.id == alarmId }
+                if (alarm == null) {
+                    Log.w(TAG, "snooze id=$alarmId pre-unlock — not in BFU cache, dropping snooze")
+                    stopForegroundAndSelf()
+                    return@launch
+                }
+                if (!alarm.isSnoozeEnabled) {
+                    Log.i(TAG, "snooze id=$alarmId pre-unlock — snooze-disabled, collapse to dismiss")
+                    bfuCache.markDismissed(alarmId)
+                    val delivered = withTimeoutOrNull(PRE_UNLOCK_SEND_TIMEOUT_MS) {
+                        wearBridge.sendAlarmDismissed(alarmId)
+                    } ?: false
+                    Log.i(TAG, "snooze→dismiss id=$alarmId pre-unlock send delivered=$delivered")
+                    stopForegroundAndSelf()
+                    return@launch
+                }
+                val trigger = System.currentTimeMillis() + alarm.snoozeMinutes * 60_000L
+                scheduler.scheduleAt(alarm, trigger)
+                // Pre-unlock: Room is locked so we can't bump consecutiveSnoozeCount
+                // directly. Record the bump in BFU; post-unlock reconcile drains
+                // it into Room so the cap applies uniformly across the unlock
+                // boundary. Without this, lockscreen-snoozers escape the cap.
+                if (!fromPeer) {
+                    bfuCache.markPendingSnoozeBump(alarmId)
+                }
+                val delivered = withTimeoutOrNull(PRE_UNLOCK_SEND_TIMEOUT_MS) {
+                    wearBridge.sendAlarmSnoozed(alarmId, trigger)
+                } ?: false
+                Log.i(
+                    TAG,
+                    "snooze id=$alarmId pre-unlock — +${alarm.snoozeMinutes}min " +
+                        "trigger=$trigger delivered=$delivered fromPeer=$fromPeer " +
+                        "(BFU bump=${!fromPeer})",
+                )
+                stopForegroundAndSelf()
+            }
+            return
+        }
 
         serviceScope.launch {
             // Read the row OUTSIDE the Mutex to decide whether to collapse to
@@ -445,7 +567,7 @@ class AlarmRingService : Service() {
                 } else {
                     System.currentTimeMillis() + alarm.snoozeMinutes * 60_000L
                 }
-                repository.snoozeAt(alarmId, trigger)
+                repository.snoozeAt(alarmId, trigger, fromPeer = fromPeer)
                 if (!fromPeer) {
                     val acked = wearBridge.sendAlarmSnoozedAwaiting(
                         alarmId,
@@ -526,6 +648,8 @@ class AlarmRingService : Service() {
         // the service just stays in the foreground a few extra seconds
         // while the deliverable settles.
         private const val BROADCAST_AWAIT_MS = 12_000L
+        // FGS-alive budget for a pre-unlock dismiss/snooze transport ACK.
+        private const val PRE_UNLOCK_SEND_TIMEOUT_MS = 3_000L
         private const val TAG = "AlarmRing"
 
         // Request-code high bit for the direct-launch PendingIntent that

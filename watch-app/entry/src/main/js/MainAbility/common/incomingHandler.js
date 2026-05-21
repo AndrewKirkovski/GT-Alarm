@@ -14,6 +14,7 @@
 // All apply paths are tombstone-aware and LWW-resolved.
 import app from '@system.app';
 import storage from '@system.storage';
+import file from '@system.file';
 import AlarmStore from './alarmStore.js';
 import SettingsStore from './settingsStore.js';
 import Tombstones from './tombstones.js';
@@ -62,33 +63,44 @@ var _ringActive = false;
 // Cross-bundle-shared diagnostic counter for inbound P2P messages. Per
 // gotcha #11, app.js and pages/*.js have isolated module state, so a
 // plain `var inboundCount = 0` here would not be visible from index.js's
-// bundle. Persisting to @system.storage lets the index page read it.
+// bundle. Persisting to @system.file lets the index page read it.
+//
+// File API (not @system.storage) because the JSON includes a per-type
+// counter map that grows past @system.storage's 128 B per-value cap
+// once ~6+ distinct types accumulate. The file path has no equivalent
+// cap on Lite Wearable (verified working at 2 KB+ via alarmStore.js).
+var DIAG_INBOUND_URI = 'internal://app/diag_inbound.json';
 function bumpInboundDiag(type) {
-    storage.get({
-        key: 'diag_inbound',
-        default: '{"total":0,"byType":{}}',
+    file.readText({
+        uri: DIAG_INBOUND_URI,
         success: function (data) {
-            var obj;
-            try {
-                obj = JSON.parse(data);
-            } catch (e) {
-                obj = { total: 0, byType: {} };
-            }
-            obj.total = (obj.total || 0) + 1;
-            obj.lastType = type;
-            obj.lastTs = Date.now();
-            obj.byType = obj.byType || {};
-            obj.byType[type] = (obj.byType[type] || 0) + 1;
-            storage.set({
-                key: 'diag_inbound',
-                value: JSON.stringify(obj),
-                success: function () {},
-                fail: function (data2, code) {
-                    Logger.err('diag_inbound.write fail code=' + code, null);
-                },
-            });
+            applyAndWriteDiag((data && data.text) ? data.text : null, type);
         },
-        fail: function () {},
+        fail: function () {
+            // Fresh install / first wake — no file yet. Treat as empty.
+            applyAndWriteDiag(null, type);
+        },
+    });
+}
+function applyAndWriteDiag(rawText, type) {
+    var obj;
+    try {
+        obj = rawText ? JSON.parse(rawText) : { total: 0, byType: {} };
+    } catch (e) {
+        obj = { total: 0, byType: {} };
+    }
+    obj.total = (obj.total || 0) + 1;
+    obj.lastType = type;
+    obj.lastTs = Date.now();
+    obj.byType = obj.byType || {};
+    obj.byType[type] = (obj.byType[type] || 0) + 1;
+    file.writeText({
+        uri: DIAG_INBOUND_URI,
+        text: JSON.stringify(obj),
+        success: function () {},
+        fail: function (data2, code) {
+            Logger.err('diag_inbound.write fail code=' + code, null);
+        },
     });
 }
 
@@ -452,7 +464,18 @@ export default {
             // mid-alarm. The ring page's own onHide/dismiss/snooze paths
             // own the eventual app.terminate.
             markRingActive();
-            if (onAlarmFired) onAlarmFired(msg.alarmId);
+            // Thin-client hints (see AlarmRingHints.kt) — when the phone
+            // can resolve the alarm it inlines vibrationPattern + the
+            // pre-computed snoozeAllowed flag so the watch rings with the
+            // right pattern + Snooze visibility WITHOUT relying on a
+            // prior sync_replace. Undefined fields = older phone build /
+            // no resolution; the ring page falls back to AlarmStore.
+            if (onAlarmFired) {
+                onAlarmFired(msg.alarmId, {
+                    vibrationPattern: msg.vibrationPattern,
+                    snoozeAllowed: msg.snoozeAllowed,
+                });
+            }
         } else if (type === 'alarm_dismissed' || type === 'alarm_snoozed') {
             Logger.i('incoming.peer-ended type=' + type + ' id=' + msg.alarmId);
             // If our ring page is showing for this alarm, close it. The

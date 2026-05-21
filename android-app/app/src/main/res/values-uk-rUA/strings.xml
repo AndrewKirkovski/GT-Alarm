@@ -44,7 +44,6 @@
     <string name="repeats_weekdays">Будні</string>
     <string name="repeats_weekends">Вихідні</string>
     <string name="repeats_timer">Таймер</string>
-    <string name="repeats_oneoff">Одноразовий</string>
     <string name="delete_alarm">Видалити будильник</string>
 
     <string name="battery_opt_card_title">Щоб будильники були надійними</string>
@@ -53,10 +52,6 @@
     <string name="battery_opt_card_dismiss">Не зараз</string>
 
     <string name="watch_status_card_title">Синхронізація з годинником</string>
-    <string name="watch_status_card_not_connected">Годинник: не підключено</string>
-    <string name="watch_status_card_connecting">Годинник: підключення…</string>
-    <string name="watch_status_card_connected">Годинник: підключено</string>
-    <string name="watch_status_card_error">Годинник: помилка підключення</string>
 
     <string name="voice_alarm_set">Будильник встановлено на %1$s</string>
     <string name="voice_alarm_failed">Не вдалося встановити будильник</string>
@@ -81,4 +76,18 @@
     <string name="field_snooze_off_value">Вимк.</string>
     <string name="field_snooze_off_chip">Вимк.</string>
     <string name="dialog_keep_editing">Продовжити редагування</string>
+
+    <string name="list_skip_next_hint">наст. пропущено</string>
+    <string name="field_vibration_pattern">Тип вібрації</string>
+    <string name="vibration_pattern_pulse">Пульс</string>
+    <string name="vibration_pattern_heartbeat">Серцебиття</string>
+    <string name="vibration_pattern_three_tap">Три стуки</string>
+    <string name="vibration_pattern_long_long">Довга-довга</string>
+    <string name="vibration_pattern_off">Вимк.</string>
+    <string name="field_volume_ramp">Наростання гучності</string>
+    <string name="field_volume_ramp_off">Вимк.</string>
+    <string name="field_volume_ramp_seconds">%1$d с</string>
+    <string name="field_max_snooze">Ліміт відкладень</string>
+    <string name="field_max_snooze_unlimited">Без ліміту</string>
+    <string name="field_max_snooze_value">%1$d×</string>
 </resources>

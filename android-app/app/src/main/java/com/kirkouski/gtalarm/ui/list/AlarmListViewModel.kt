@@ -104,19 +104,11 @@ class AlarmListViewModel @Inject constructor(
         }
         try {
             _forceSyncRunning.value = true
-            // Re-push display prefs (12/24h + week-start) on force sync so
-            // a re-pair or post-install watch picks them up without the
-            // user having to re-toggle each setting. Cheap — single small
-            // envelope, fire-and-forget. Watch overwrites unconditionally.
-            val currentSettings = settingsStore.snapshot()
-            wearBridge.sendSettingsChanged(
-                currentSettings.use24Hour,
-                currentSettings.firstDayOfWeek,
-            )
-            // Pass a fresh-snapshot lambda so the bridge re-reads the
-            // alarm list AFTER its sync_check round-trip, closing the
-            // TOCTOU window where the user mutates the list mid-sync.
-            val result = wearBridge.forceSync { repository.getAll() }
+            // syncWatchNow re-pushes display prefs (12/24h + week-start)
+            // then runs the bridge's hash-prechecked forceSync. It's
+            // mutex-serialized against the debounced auto-sync so a manual
+            // tap and an in-flight auto-sync can't race the bridge.
+            val result = repository.syncWatchNow()
             // forceSync checks permission before anything else, so any result
             // other than NotAuthorized proves the app is authorized.
             _needsWatchAuthorization.value = result is ForceSyncResult.NotAuthorized
@@ -147,6 +139,10 @@ class AlarmListViewModel @Inject constructor(
 
     fun onDelete(id: Long) = viewModelScope.launch {
         repository.delete(id)
+    }
+
+    fun onSkipNext(id: Long) = viewModelScope.launch {
+        repository.skipNext(id)
     }
 
     private fun computeShowBatteryOptCard(): Boolean {

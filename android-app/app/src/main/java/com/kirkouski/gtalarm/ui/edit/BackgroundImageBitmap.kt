@@ -38,9 +38,14 @@ import kotlinx.coroutines.withContext
  * because the picker produces a fresh URI for each pick.
  */
 @Composable
-fun rememberBackgroundBitmap(uriString: String?): State<ImageBitmap?> {
+fun rememberBackgroundBitmap(uriString: String?, reloadKey: Any? = null): State<ImageBitmap?> {
     val context = LocalContext.current
-    val cacheKey = remember(uriString) { computeCacheKey(uriString) }
+    // [reloadKey] in the remember key forces a re-decode when the caller
+    // knows the file content changed but the URI string did NOT — the
+    // watch-bg picker rewrites a fixed path (watch_bg_<id>.png), so a
+    // re-crop is invisible to both the URI string and computeCacheKey's
+    // mtime read (which is itself remembered on uriString).
+    val cacheKey = remember(uriString, reloadKey) { computeCacheKey(uriString) }
     val bitmapState = remember(cacheKey) { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(cacheKey, context) {
         bitmapState.value = uriString?.let { loadImageBitmap(context, it) }

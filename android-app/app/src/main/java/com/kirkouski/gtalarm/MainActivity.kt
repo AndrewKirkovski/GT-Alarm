@@ -57,6 +57,9 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var alarmRepository: AlarmRepository
     @Inject lateinit var onboardingState: OnboardingState
 
+    // Wired in onStart — see GtAlarmApp direct-boot guard.
+    @Inject lateinit var incomingHandler: com.kirkouski.gtalarm.data.sync.IncomingMessageHandler
+
     // Tracks the user's POST_NOTIFICATIONS choice. We don't gate any
     // functionality on it (alarms still ring without notifications via
     // the AlarmActivity full-screen path), but logging the denial makes
@@ -151,6 +154,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Idempotent — covers the pre-unlock-deferred wire from GtAlarmApp.
+        wearBridge.setIncomingHandler(incomingHandler)
+        // Foreground-driven phone→watch reconcile (watch can't wake the phone).
+        alarmRepository.scheduleWatchSync()
     }
 
     private fun requestNotificationPermission() {

@@ -3,6 +3,7 @@ package com.kirkouski.gtalarm.data.db
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.kirkouski.gtalarm.domain.Alarm
+import com.kirkouski.gtalarm.domain.VibrationPattern
 
 @Entity(tableName = "alarms")
 data class AlarmEntity(
@@ -34,4 +35,11 @@ data class AlarmEntity(
     // "fall back to the default from SettingsStore". Pre-release schema
     // bump uses destructive migration (no installs to preserve).
     val backgroundImageUri: String? = null,
+    // Schema v9: vibration pattern (enum name), audio crescendo seconds,
+    // consecutive-snooze cap + counter, and skip-next-occurrence epoch.
+    val vibrationPatternName: String = VibrationPattern.DEFAULT.name,
+    val volumeRampSeconds: Int = 0,
+    val maxSnoozeCount: Int = Alarm.MAX_SNOOZE_COUNT_UNLIMITED,
+    val consecutiveSnoozeCount: Int = 0,
+    val skipNextEpoch: Long? = null,
 )

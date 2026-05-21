@@ -13,11 +13,8 @@ import kotlinx.coroutines.flow.StateFlow
  * the send when the stamp is below an NTP-sane threshold rather than crash
  * the caller.
  */
-// reason: function count grew past 11 with the suspending pre-arm /
-// dismiss / snooze variants (each needed separately so AlarmRingService
-// can await delivery before tearing down). Splitting into a base
-// interface + a "synchronized" addendum would smear the same fan-out
-// across more types without changing logic.
+// reason: ring round-trip needs fire-and-forget AND await variants per state;
+// pre-unlock variant has no live receiver.
 @Suppress("TooManyFunctions")
 interface WearBridgeService {
     /** UI-observable connection-state stream. */
@@ -31,13 +28,17 @@ interface WearBridgeService {
      */
     val pairedDeviceInfo: StateFlow<PairedDeviceInfo?>
 
-    fun sendAlarmAdded(alarm: Alarm)
-    fun sendAlarmUpdated(alarm: Alarm)
-    fun sendAlarmToggled(alarm: Alarm)
-    fun sendAlarmDeleted(alarmId: Long, updatedAtEpoch: Long)
-    fun sendAlarmFired(alarmId: Long)
-    fun sendAlarmDismissed(alarmId: Long)
-    fun sendAlarmSnoozed(alarmId: Long, rescheduleEpoch: Long)
+    /** Fire-and-forget alarm_fired — queued for a later-reconnecting watch.
+     *  [ringHints] satisfies the thin-client criterion (watch can ring with
+     *  the right pattern + Snooze gating without a prior sync_replace). Pass
+     *  `null` only when the alarm can't be resolved (best-effort fallback). */
+    fun sendAlarmFired(alarmId: Long, ringHints: AlarmRingHints?)
+
+    /** Pre-unlock dismiss — awaits transport 207 only (no app-level receiver pre-unlock). */
+    suspend fun sendAlarmDismissed(alarmId: Long): Boolean
+
+    /** Pre-unlock snooze (transport-only, like [sendAlarmDismissed]). */
+    suspend fun sendAlarmSnoozed(alarmId: Long, rescheduleEpoch: Long): Boolean
 
     /**
      * Pre-arm: send `alarm_fired` then await the watch's `alarm_ringing`
@@ -50,7 +51,11 @@ interface WearBridgeService {
      *
      * Returns false on timeout / send failure / no paired watch.
      */
-    suspend fun sendAlarmFiredAwaiting(alarmId: Long, timeoutMs: Long): Boolean
+    suspend fun sendAlarmFiredAwaiting(
+        alarmId: Long,
+        timeoutMs: Long,
+        ringHints: AlarmRingHints?,
+    ): Boolean
 
     /**
      * Suspending dismiss: waits up to [timeoutMs] for the watch to ACK
@@ -133,10 +138,12 @@ interface WearBridgeService {
     suspend fun hasWatchPermission(): Boolean?
 
     /**
-     * User-initiated "Force sync" button. Pings the peer Lite Wearable app
-     * (which auto-launches it on Lite), runs an optional hash precheck
-     * round-trip, then dispatches `alarm_added` envelopes for the alarms
-     * returned by [freshAlarms].
+     * Reliable full reconcile. Pings the peer Lite Wearable app (which
+     * auto-launches it on Lite), runs an optional hash precheck round-trip,
+     * then pushes a `sync_replace` envelope carrying the alarms returned by
+     * [freshAlarms]. This is the only reliable phone→watch sync path —
+     * per-mutation fire-and-forget sends were retired in favour of a
+     * debounced call to this from [com.kirkouski.gtalarm.data.AlarmRepository].
      *
      * `freshAlarms` is a **suspending function**, not a snapshot list, so
      * the bridge can call it AFTER the hash precheck completes — closing
