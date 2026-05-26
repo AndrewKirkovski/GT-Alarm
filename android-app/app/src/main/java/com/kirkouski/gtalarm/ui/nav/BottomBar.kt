@@ -3,9 +3,9 @@ package com.kirkouski.gtalarm.ui.nav
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,18 +13,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.kirkouski.gtalarm.R
 
@@ -59,23 +58,31 @@ private const val BAR_HEIGHT_DP = 60
 
 @Composable
 fun AppBottomBar(currentRoute: String?, onSelect: (String) -> Unit) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        tonalElevation = 3.dp,
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .height(BAR_HEIGHT_DP.dp),
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 6.dp,
         ) {
-            BOTTOM_TABS.forEach { tab ->
-                BottomTabItem(
-                    tab = tab,
-                    selected = currentRoute == tab.route,
-                    onClick = { onSelect(tab.route) },
-                    modifier = Modifier.weight(1f),
-                )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(BAR_HEIGHT_DP.dp),
+            ) {
+                BOTTOM_TABS.forEach { tab ->
+                    BottomTabItem(
+                        tab = tab,
+                        selected = currentRoute == tab.route,
+                        onClick = { onSelect(tab.route) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
     }
@@ -88,25 +95,26 @@ private fun BottomTabItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
+    Box(
         modifier = modifier
             .fillMaxHeight()
-            .clickable(onClick = onClick)
-            .alpha(if (selected) 1f else 0.45f),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
+        if (selected) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
+            )
+        }
         Image(
             painter = painterResource(tab.iconRes),
             contentDescription = stringResource(tab.labelRes),
-            modifier = Modifier.size(24.dp),
-        )
-        Text(
-            text = stringResource(tab.labelRes),
-            fontSize = 12.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(top = 3.dp),
+            modifier = Modifier
+                .size(24.dp)
+                .alpha(if (selected) 1f else 0.45f),
         )
     }
 }

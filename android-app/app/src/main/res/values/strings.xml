@@ -21,17 +21,14 @@
     <string name="missed_notification_text_unlabeled" tools:ignore="MissingTranslation">An \"in N min\" reminder was missed while the device was off.</string>
 
     <string name="screen_list_title">Alarms</string>
-    <string name="screen_edit_title_new">New alarm</string>
-    <string name="screen_edit_title_edit">Edit alarm</string>
-    <string name="field_label">Label</string>
     <string name="field_label_placeholder">Wake up</string>
     <string name="field_audio">Audio</string>
     <string name="field_audio_default">System default</string>
     <string name="field_audio_pick">Choose…</string>
+    <string name="field_audio_unknown" tools:ignore="MissingTranslation">Unknown ringtone</string>
     <!-- reason: new for per-alarm phone background image. Translations
          land in a follow-up; tools:ignore silences the lint until then. -->
     <string name="field_background_image" tools:ignore="MissingTranslation">Background image</string>
-    <string name="field_background_image_none" tools:ignore="MissingTranslation">None (uses default)</string>
     <string name="field_background_image_pick" tools:ignore="MissingTranslation">Choose…</string>
     <string name="field_background_image_clear" tools:ignore="MissingTranslation">Clear background image</string>
     <!-- reason: shared watch-background picker (Settings → Default watch
@@ -44,7 +41,6 @@
     <string name="action_play_preview" tools:ignore="MissingTranslation">Play preview</string>
     <string name="action_stop_preview" tools:ignore="MissingTranslation">Stop preview</string>
     <string name="field_vibration_only">Vibration only</string>
-    <string name="field_repeat">Repeat</string>
     <string name="field_snooze_minutes">Snooze duration</string>
     <string name="field_snooze_minutes_value">%1$d min</string>
     <string name="field_snooze_off_value">Off</string>
@@ -52,8 +48,6 @@
 
     <!-- reason: new for relative-alarm + self-destruct MVP. Translations
          will land in a follow-up; tools:ignore silences the lint until then. -->
-    <string name="alarm_mode_absolute" tools:ignore="MissingTranslation">At time</string>
-    <string name="alarm_mode_relative" tools:ignore="MissingTranslation">In…</string>
     <string name="field_relative_minutes" tools:ignore="MissingTranslation">Fires in</string>
     <string name="field_relative_minutes_custom" tools:ignore="MissingTranslation">Custom (1–1440 min)</string>
     <string name="field_self_destruct" tools:ignore="MissingTranslation">Delete after firing</string>
@@ -86,6 +80,9 @@
     <string name="cancel">Cancel</string>
     <string name="add_alarm">Add alarm</string>
     <string name="no_alarms">No alarms yet — tap + to add one.</string>
+    <!-- reason: hero-area countdown on the alarm list. Translations land in a follow-up. -->
+    <string name="screen_list_hero_alarm_in_hr_min" tools:ignore="MissingTranslation">Alarm in %1$d hr %2$d min</string>
+    <string name="screen_list_hero_alarm_in_min" tools:ignore="MissingTranslation">Alarm in %1$d min</string>
 
     <string name="day_sun_short">Su</string>
     <string name="day_mon_short">Mo</string>

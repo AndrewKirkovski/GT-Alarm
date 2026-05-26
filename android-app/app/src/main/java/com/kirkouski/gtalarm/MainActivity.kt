@@ -38,7 +38,12 @@ import com.kirkouski.gtalarm.ui.nav.BOTTOM_BAR_ROUTES
 import com.kirkouski.gtalarm.ui.nav.Routes
 import com.kirkouski.gtalarm.ui.nav.switchTab
 import com.kirkouski.gtalarm.ui.settings.SettingsScreen
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.graphics.Color
 import com.kirkouski.gtalarm.ui.theme.GtAlarmTheme
+import com.kirkouski.gtalarm.ui.theme.gtBackgroundBrush
 import com.kirkouski.gtalarm.wear.WearBridgeService
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
@@ -95,12 +100,19 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             GtAlarmTheme {
+                val brush = gtBackgroundBrush()
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(brush),
+                ) {
                 val navController = rememberNavController()
                 val currentRoute by navController.currentBackStackEntryAsState()
                 LaunchedEffect(startAtEdit) {
                     if (startAtEdit) navController.navigate(Routes.edit(null))
                 }
                 Scaffold(
+                    containerColor = Color.Transparent,
                     bottomBar = {
                         val route = currentRoute?.destination?.route
                         if (route in BOTTOM_BAR_ROUTES) {
@@ -152,6 +164,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+                } // Box
             }
         }
     }

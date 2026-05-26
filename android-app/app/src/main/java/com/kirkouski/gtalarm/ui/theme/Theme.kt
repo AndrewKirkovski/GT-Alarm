@@ -5,6 +5,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
 // GT-Alarm brand palette. Material You dynamic color is intentionally NOT used
@@ -54,6 +56,30 @@ private val DarkColors = darkColorScheme(
     errorContainer = Color(0xFF93000A),
     onErrorContainer = Color(0xFFFFDAD6),
 )
+
+// Pastel gradient derived from brand palette — light indigo (top-left) →
+// near-white (centre) → light cyan (bottom-right).
+private val GtBackgroundBrushLight = Brush.linearGradient(
+    0.00f to Color(0xFFF0F1FF),
+    0.45f to Color(0xFFFAFAFF),
+    1.00f to Color(0xFFE5F7FD),
+    start = Offset.Zero,
+    end = Offset.Infinite,
+)
+
+// Deep navy/indigo gradient for dark theme — all stops derived from the same
+// brand colours at very low lightness.
+private val GtBackgroundBrushDark = Brush.linearGradient(
+    0.00f to Color(0xFF0F1235),
+    0.45f to Color(0xFF0D1628),
+    1.00f to Color(0xFF12102E),
+    start = Offset.Zero,
+    end = Offset.Infinite,
+)
+
+@Composable
+fun gtBackgroundBrush(): Brush =
+    if (isSystemInDarkTheme()) GtBackgroundBrushDark else GtBackgroundBrushLight
 
 @Composable
 fun GtAlarmTheme(

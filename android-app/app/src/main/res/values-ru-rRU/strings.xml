@@ -12,15 +12,11 @@
     <string name="ring_waiting_for_watch">Ожидание часов…</string>
 
     <string name="screen_list_title">Будильники</string>
-    <string name="screen_edit_title_new">Новый будильник</string>
-    <string name="screen_edit_title_edit">Редактировать будильник</string>
-    <string name="field_label">Название</string>
     <string name="field_label_placeholder">Подъём</string>
     <string name="field_audio">Звук</string>
     <string name="field_audio_default">Системный по умолчанию</string>
     <string name="field_audio_pick">Выбрать…</string>
     <string name="field_vibration_only">Только вибрация</string>
-    <string name="field_repeat">Повтор</string>
     <string name="field_snooze_minutes">Длительность откладывания</string>
     <string name="field_snooze_minutes_value">%1$d мин</string>
     <string name="delete">Удалить</string>

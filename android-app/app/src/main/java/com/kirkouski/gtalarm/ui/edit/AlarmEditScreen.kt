@@ -9,39 +9,46 @@
 package com.kirkouski.gtalarm.ui.edit
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.foundation.Image as FoundationImage
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,26 +56,26 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.anhaki.picktime.PickHourMinute
 import com.anhaki.picktime.utils.PickTimeFocusIndicator
 import com.anhaki.picktime.utils.PickTimeTextStyle
 import com.anhaki.picktime.utils.TimeFormat
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.domain.DaysOfWeek
@@ -79,19 +86,9 @@ import com.kirkouski.gtalarm.util.shortLabelResForDayBit
 // reason: Compose top-level screen composables are inherently long because
 // they declare a tree of layout, state hoisting, and side-effects in one
 // function. Splitting AlarmEditScreen into private sub-composables is a
-// Phase 3 polish item (docs/execution-plan.md §3a/§3b) once we settle on
-// the final layout (predictive back, edge-to-edge, MaterialExpressiveTheme
-// migration may all touch this file). Suppressing locally rather than
-// disabling LongMethod globally — we still want it firing on non-UI code.
-@OptIn(ExperimentalMaterial3Api::class)
+// Phase 3 polish item once the layout stabilises. Suppressing locally rather
+// than disabling LongMethod globally.
 @Composable
-// reason: complexity rose past 10 because the reverse-save UX added two
-// confirm-dialog states (delete + discard-new-draft) plus a Revert action
-// that's only shown when state.isExistingAlarm && state.dirty, and the
-// title resource picks between new/existing. Each branch maps to a distinct
-// user-facing affordance (X / Revert / Delete / Discard); collapsing them
-// would just smear the conditional into the @Composable body where it'd
-// be harder to read at a glance.
 @Suppress("LongMethod", "CyclomaticComplexMethod")
 fun AlarmEditScreen(
     alarmId: Long?,
@@ -111,8 +108,6 @@ fun AlarmEditScreen(
     //   new draft + dirty   → "Discard new alarm?" (row never existed)
     //   existing + dirty    → "Discard changes?" (row stays at pre-edit state)
     //   anything + !dirty   → silent exit
-    // The VM's onCleared() is a backstop that clears the editing-registry
-    // flag if the screen is destroyed without an explicit Save/Cancel.
     val cancel: () -> Unit = remember(onDone, vm) {
         {
             val s = vm.state.value
@@ -131,8 +126,6 @@ fun AlarmEditScreen(
 
     val audioPreview = rememberAudioPreview()
     val pickAudio = rememberAudioPicker { picked ->
-        // Stop any in-flight preview before swapping the audio — keeps the
-        // user from hearing the old tone after picking a new one.
         audioPreview.stop()
         vm.updateAudio(picked.uri, picked.name)
     }
@@ -171,55 +164,18 @@ fun AlarmEditScreen(
         )
     }
 
-    val isNewDraft = !state.isExistingAlarm
+    val is24h = TimeFormatter.resolveUses24HourFormat(context, settings.use24Hour)
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    val title = if (isNewDraft) {
-                        R.string.screen_edit_title_new
-                    } else {
-                        R.string.screen_edit_title_edit
-                    }
-                    Text(stringResource(title))
-                },
-                navigationIcon = {
-                    IconButton(onClick = cancel) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_close),
-                            contentDescription = stringResource(R.string.cancel),
-                            tint = Color.Unspecified,
-                            modifier = Modifier.size(24.dp),
-                        )
-                    }
-                },
-                actions = {
-                    // Delete (existing alarms only): confirms then deletes
-                    // the row + writes a tombstone. New drafts cancel via
-                    // the X close icon — no DB row exists yet to delete.
-                    if (state.isExistingAlarm) {
-                        IconButton(onClick = { showDeleteConfirm = true }) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_delete),
-                                contentDescription = stringResource(R.string.delete),
-                                tint = Color.Unspecified,
-                                modifier = Modifier.size(24.dp),
-                            )
-                        }
-                    }
-                    // Save: commits the in-memory edits to Room, pushes to
-                    // watch, and exits. Disabled until loaded (state.id is
-                    // still 0 and label is empty so a tap would write garbage).
-                    IconButton(onClick = save, enabled = state.loaded) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_check),
-                            contentDescription = stringResource(R.string.action_save),
-                            tint = Color.Unspecified,
-                            modifier = Modifier.size(24.dp),
-                        )
-                    }
-                },
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        bottomBar = {
+            CancelSaveBar(
+                onCancel = cancel,
+                onSave = save,
+                enabled = state.loaded,
+                isExisting = state.isExistingAlarm,
+                onDelete = { showDeleteConfirm = true },
             )
         },
     ) { padding ->
@@ -228,28 +184,18 @@ fun AlarmEditScreen(
         Column(
             modifier = Modifier
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .statusBarsPadding()
+                .fillMaxSize(),
         ) {
-            // Mode toggle [At time] / [In…] — only on new alarms. Existing
-            // alarms keep their mode locked (per spec: switching types is a
-            // create+delete operation, not an in-place edit).
-            if (!state.isExistingAlarm) {
-                ModeToggle(
-                    mode = state.mode,
-                    onChange = vm::updateMode,
-                )
-            }
-
+            // Time picker — top portion with transparent background so
+            // the gradient behind AlarmEditScreen shows through.
             if (state.mode == AlarmMode.ABSOLUTE) {
-                // Wheel/odometer time picker (PickTime-Compose, Apache-2.0).
-                // 24h vs 12h follows the Settings override; the picker rolls
-                // its own AM/PM column in 12h mode. We re-mount on state.id
-                // change so the picker's initial values track an alarm load
-                // (the lib's `initial*` params are remembered internally).
-                val is24h = TimeFormatter.resolveUses24HourFormat(context, settings.use24Hour)
-                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 280.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
                     key(state.id, is24h) {
                         PickHourMinute(
                             initialHour = state.hour,
@@ -259,194 +205,321 @@ fun AlarmEditScreen(
                             timeFormat = if (is24h) TimeFormat.HOUR_24 else TimeFormat.HOUR_12,
                             isLooping = true,
                             extraRow = 2,
-                            containerColor = MaterialTheme.colorScheme.surface,
+                            containerColor = Color.Transparent,
                             selectedTextStyle = PickTimeTextStyle(
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 28.sp,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                fontSize = 64.sp,
                                 fontFamily = FontFamily.Default,
                                 fontWeight = FontWeight.Bold,
                             ),
                             unselectedTextStyle = PickTimeTextStyle(
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 18.sp,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f),
+                                fontSize = 32.sp,
                                 fontFamily = FontFamily.Default,
                                 fontWeight = FontWeight.Normal,
                             ),
                             focusIndicator = PickTimeFocusIndicator(
-                                enabled = true,
+                                enabled = false,
                                 widthFull = false,
-                                background = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(20.dp),
-                                border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
+                                background = Color.Transparent,
+                                shape = RoundedCornerShape(4.dp),
+                                border = BorderStroke(0.dp, Color.Transparent),
                             ),
                         )
                     }
                 }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_repeat),
-                        contentDescription = null,
-                        tint = Color.Unspecified,
-                        modifier = Modifier.padding(end = 8.dp).size(24.dp),
-                    )
-                    Text(
-                        text = stringResource(R.string.field_repeat),
-                        style = MaterialTheme.typography.labelLarge,
-                    )
-                }
-                DayRow(
-                    mask = state.daysOfWeek,
-                    firstDayOverride = settings.firstDayOfWeek,
-                    onToggle = vm::toggleDay,
-                )
             } else {
-                RelativeRow(
-                    minutes = state.relativeMinutes,
-                    onChange = vm::updateRelativeMinutes,
-                )
-            }
-
-            OutlinedTextField(
-                value = state.label,
-                onValueChange = vm::updateLabel,
-                label = { Text(stringResource(R.string.field_label)) },
-                placeholder = { Text(stringResource(R.string.field_label_placeholder)) },
-                leadingIcon = {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_label),
-                        contentDescription = null,
-                        tint = Color.Unspecified,
-                        modifier = Modifier.size(24.dp),
-                    )
-                },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_music_note),
-                    contentDescription = null,
-                    tint = Color.Unspecified,
-                    modifier = Modifier.padding(end = 12.dp).size(24.dp),
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.field_audio))
-                    Text(
-                        text = state.audioName ?: stringResource(R.string.field_audio_default),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                val previewing by audioPreview.playing
-                IconButton(
-                    onClick = {
-                        if (previewing) audioPreview.stop() else audioPreview.play(state.audioUri)
-                    },
+                // Existing RELATIVE alarms — show duration picker in top area.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 16.dp),
                 ) {
-                    Icon(
-                        painter = painterResource(
-                            if (previewing) R.drawable.ic_stop else R.drawable.ic_play,
-                        ),
-                        contentDescription = stringResource(
-                            if (previewing) R.string.action_stop_preview else R.string.action_play_preview,
-                        ),
-                        tint = Color.Unspecified,
-                        modifier = Modifier.size(24.dp),
+                    RelativeRow(
+                        minutes = state.relativeMinutes,
+                        onChange = vm::updateRelativeMinutes,
                     )
                 }
-                OutlinedButton(onClick = pickAudio) {
-                    Text(stringResource(R.string.field_audio_pick))
+            }
+
+            // Settings card — fills remaining height, scrollable.
+            // Rounded top corners only; bottom sits against the CancelSaveBar.
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
+            ) {
+                val divider = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    // Day repeat row (ABSOLUTE mode only)
+                    if (state.mode == AlarmMode.ABSOLUTE) {
+                        DayRow(
+                            mask = state.daysOfWeek,
+                            firstDayOverride = settings.firstDayOfWeek,
+                            onToggle = vm::toggleDay,
+                        )
+                        HorizontalDivider(thickness = 0.5.dp, color = divider)
+                    }
+
+                    // Alarm name — underline field
+                    LabelUnderlineField(
+                        value = state.label,
+                        onValueChange = vm::updateLabel,
+                    )
+                    HorizontalDivider(thickness = 0.5.dp, color = divider)
+
+                    // Ringtone
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_music_note),
+                            contentDescription = null,
+                            tint = Color.Unspecified,
+                            modifier = Modifier.padding(end = 12.dp).size(24.dp),
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.field_audio),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Text(
+                                text = if (state.audioUri != null) {
+                                    state.audioName ?: stringResource(R.string.field_audio_unknown)
+                                } else {
+                                    (if (state.mode == AlarmMode.RELATIVE) {
+                                        settings.defaultRelativeRingtoneName
+                                    } else {
+                                        settings.defaultAbsoluteRingtoneName
+                                    }) ?: stringResource(R.string.field_audio_default)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        val previewing by audioPreview.playing
+                        val previewUri = state.audioUri
+                            ?: if (state.mode == AlarmMode.RELATIVE) {
+                                settings.defaultRelativeRingtoneUri
+                            } else {
+                                settings.defaultAbsoluteRingtoneUri
+                            }
+                        IconButton(
+                            onClick = {
+                                if (previewing) audioPreview.stop() else audioPreview.play(previewUri)
+                            },
+                        ) {
+                            Icon(
+                                painter = painterResource(
+                                    if (previewing) R.drawable.ic_stop else R.drawable.ic_play,
+                                ),
+                                contentDescription = stringResource(
+                                    if (previewing) {
+                                        R.string.action_stop_preview
+                                    } else {
+                                        R.string.action_play_preview
+                                    },
+                                ),
+                                tint = Color.Unspecified,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                        OutlinedButton(onClick = pickAudio) {
+                            Text(stringResource(R.string.field_audio_pick))
+                        }
+                    }
+                    HorizontalDivider(thickness = 0.5.dp, color = divider)
+
+                    // Background image — large centered phone-frame preview
+                    val previewTimeText = if (state.mode == AlarmMode.ABSOLUTE) {
+                        TimeFormatter.formatHourMinute(context, state.hour, state.minute, is24h)
+                    } else {
+                        "--:--"
+                    }
+                    BackgroundImageRow(
+                        uri = state.backgroundImageUri,
+                        timeText = previewTimeText,
+                        labelText = state.label.takeIf { it.isNotBlank() }.orEmpty(),
+                        onPick = pickBackgroundImage,
+                        onClear = { vm.updateBackgroundImage(null) },
+                    )
+                    HorizontalDivider(thickness = 0.5.dp, color = divider)
+
+                    // Vibration only
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_vibration),
+                            contentDescription = null,
+                            tint = Color.Unspecified,
+                            modifier = Modifier.padding(end = 12.dp).size(24.dp),
+                        )
+                        Text(
+                            text = stringResource(R.string.field_vibration_only),
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = state.isVibrationOnly,
+                            onCheckedChange = { vm.toggleVibrationOnly() },
+                        )
+                    }
+                    HorizontalDivider(thickness = 0.5.dp, color = divider)
+
+                    // Snooze duration
+                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                        SnoozeRow(value = state.snoozeMinutes, onChange = vm::updateSnoozeMinutes)
+                    }
+                    if (state.snoozeMinutes > Alarm.SNOOZE_DISABLED) {
+                        HorizontalDivider(thickness = 0.5.dp, color = divider)
+                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                            MaxSnoozeRow(
+                                value = state.maxSnoozeCount,
+                                onChange = vm::updateMaxSnoozeCount,
+                            )
+                        }
+                    }
+                    HorizontalDivider(thickness = 0.5.dp, color = divider)
+
+                    // Vibration pattern
+                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                        VibrationPatternRow(
+                            value = state.vibrationPattern,
+                            onChange = vm::updateVibrationPattern,
+                        )
+                    }
+
+                    // Volume ramp (hidden when vibration-only)
+                    if (!state.isVibrationOnly) {
+                        HorizontalDivider(thickness = 0.5.dp, color = divider)
+                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                            VolumeRampRow(
+                                value = state.volumeRampSeconds,
+                                onChange = vm::updateVolumeRampSeconds,
+                            )
+                        }
+                    }
+
+                    // Self-destruct (one-shot alarms only)
+                    val isOneShot = state.mode == AlarmMode.RELATIVE || state.daysOfWeek == 0
+                    if (isOneShot) {
+                        HorizontalDivider(thickness = 0.5.dp, color = divider)
+                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                            SelfDestructRow(
+                                checked = state.selfDestruct,
+                                onToggle = vm::toggleSelfDestruct,
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
                 }
             }
-
-            BackgroundImageRow(
-                uri = state.backgroundImageUri,
-                onPick = pickBackgroundImage,
-                onClear = { vm.updateBackgroundImage(null) },
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_vibration),
-                    contentDescription = null,
-                    tint = Color.Unspecified,
-                    modifier = Modifier.padding(end = 12.dp).size(24.dp),
-                )
-                Text(
-                    text = stringResource(R.string.field_vibration_only),
-                    modifier = Modifier.weight(1f),
-                )
-                Switch(
-                    checked = state.isVibrationOnly,
-                    onCheckedChange = { vm.toggleVibrationOnly() },
-                )
-            }
-
-            SnoozeRow(
-                value = state.snoozeMinutes,
-                onChange = vm::updateSnoozeMinutes,
-            )
-
-            if (state.snoozeMinutes > Alarm.SNOOZE_DISABLED) {
-                MaxSnoozeRow(
-                    value = state.maxSnoozeCount,
-                    onChange = vm::updateMaxSnoozeCount,
-                )
-            }
-
-            VibrationPatternRow(
-                value = state.vibrationPattern,
-                onChange = vm::updateVibrationPattern,
-            )
-
-            if (!state.isVibrationOnly) {
-                VolumeRampRow(
-                    value = state.volumeRampSeconds,
-                    onChange = vm::updateVolumeRampSeconds,
-                )
-            }
-
-            // Self-destruct: only visible when the alarm is one-shot. Hidden
-            // entirely (not greyed out) for recurring per the spec — recurring
-            // + self-destruct is illegal and there's no UX for it.
-            val isOneShot = state.mode == AlarmMode.RELATIVE || state.daysOfWeek == 0
-            if (isOneShot) {
-                SelfDestructRow(
-                    checked = state.selfDestruct,
-                    onToggle = vm::toggleSelfDestruct,
-                )
-            }
-
-            Spacer(Modifier.height(16.dp))
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ModeToggle(mode: AlarmMode, onChange: (AlarmMode) -> Unit) {
-    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-        AlarmMode.entries.forEachIndexed { idx, m ->
-            SegmentedButton(
-                selected = mode == m,
-                onClick = { onChange(m) },
-                shape = SegmentedButtonDefaults.itemShape(idx, AlarmMode.entries.size),
-            ) {
-                val labelRes = when (m) {
-                    AlarmMode.ABSOLUTE -> R.string.alarm_mode_absolute
-                    AlarmMode.RELATIVE -> R.string.alarm_mode_relative
+private fun CancelSaveBar(
+    onCancel: () -> Unit,
+    onSave: () -> Unit,
+    enabled: Boolean,
+    isExisting: Boolean,
+    onDelete: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 8.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .height(56.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (isExisting) {
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.padding(start = 4.dp),
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_delete),
+                        contentDescription = stringResource(R.string.delete),
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(22.dp),
+                    )
                 }
-                Text(stringResource(labelRes))
+                VerticalDivider(modifier = Modifier.height(28.dp))
+            }
+            TextButton(
+                onClick = onCancel,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+            ) {
+                Text(stringResource(R.string.cancel))
+            }
+            VerticalDivider(modifier = Modifier.height(28.dp))
+            TextButton(
+                onClick = onSave,
+                enabled = enabled,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+            ) {
+                Text(
+                    text = stringResource(R.string.action_save),
+                    fontWeight = FontWeight.Bold,
+                )
             }
         }
     }
+}
+
+@Composable
+private fun LabelUnderlineField(value: String, onValueChange: (String) -> Unit) {
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = onSurface),
+        singleLine = true,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .drawBehind {
+                drawLine(
+                    color = onSurface.copy(alpha = 0.3f),
+                    start = Offset(0f, size.height),
+                    end = Offset(size.width, size.height),
+                    strokeWidth = 1.dp.toPx(),
+                )
+            },
+        decorationBox = { innerTextField ->
+            Box {
+                if (value.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.field_label_placeholder),
+                        color = onSurface.copy(alpha = 0.4f),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
+                innerTextField()
+            }
+        },
+    )
 }
 
 @Composable
@@ -474,8 +547,6 @@ private fun RelativeRow(minutes: Int, onChange: (Int) -> Unit) {
             }
         }
         // Custom field — accepts any value in [MIN_RELATIVE_MINUTES, MAX_RELATIVE_MINUTES].
-        // Updates state only when the input is a valid integer in range; otherwise
-        // the prior value persists.
         OutlinedTextField(
             value = minutes.toString(),
             onValueChange = { raw ->
@@ -532,9 +603,6 @@ private fun SelfDestructRow(checked: Boolean, onToggle: () -> Unit) {
     }
 }
 
-// Snooze duration. Same vertical shape as RelativeRow / the Repeat section:
-// an icon + label header row (current value trailing), then the preset
-// chips on their own full-width row — so no text wraps.
 @Composable
 private fun SnoozeRow(value: Int, onChange: (Int) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -560,10 +628,6 @@ private fun SnoozeRow(value: Int, onChange: (Int) -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        // Picker is a row of preset chips. Range-aware: presets within
-        // [MIN, MAX] are shown; the live `value` highlights whichever
-        // preset matches. Custom non-preset values (set via wire format /
-        // migration) just unhighlight all chips but stay valid.
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SNOOZE_PRESETS.forEach { preset ->
                 SnoozeChip(
@@ -593,9 +657,6 @@ private fun SnoozeChip(minutes: Int, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-// Compact preset list: 0 ("Off"), 1 (debug-friendly), 5, 10 (legacy default), 30.
-// Values outside this list still flow through the wire format / migration —
-// SnoozeRow's "$value min" text always reflects the actual state.
 private val SNOOZE_PRESETS = listOf(
     Alarm.SNOOZE_DISABLED,
     Alarm.MIN_SNOOZE_MINUTES,
@@ -698,9 +759,6 @@ private fun VibrationPatternRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        // Horizontally scrollable — labels ("Heartbeat", "Three-tap",
-        // "Long-long") plus 5 chips can exceed a 360dp portrait screen's
-        // usable width. Scroll lets the row degrade gracefully.
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -854,86 +912,103 @@ private fun UnsavedChangesDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
     )
 }
 
+// Flat letter day selector — active days shown in primary/bold, Sunday
+// shown in error tint when inactive so it visually reads as a weekend marker.
 @Composable
 private fun DayRow(mask: Int, firstDayOverride: Int?, onToggle: (Int) -> Unit) {
     val orderedBits = rememberOrderedDayBits(firstDayOverride)
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         orderedBits.forEach { bit ->
             val on = DaysOfWeek.contains(mask, bit)
-            val bg = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-            val fg = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+            val isSunday = bit == DaysOfWeek.SUN
+            val color = when {
+                on -> MaterialTheme.colorScheme.primary
+                isSunday -> MaterialTheme.colorScheme.error.copy(alpha = 0.4f)
+                else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+            }
             Box(
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(bg)
+                    .size(36.dp)
                     .clickable { onToggle(bit) },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(text = stringResource(shortLabelResForDayBit(bit)), color = fg)
+                Text(
+                    text = stringResource(shortLabelResForDayBit(bit)),
+                    color = color,
+                    fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                    fontSize = 14.sp,
+                )
             }
         }
     }
 }
 
+// reason: Box wraps preview + clear overlay; column + row wraps label +
+// pick button. Both together push past 60 lines but splitting would require
+// passing the URI decode state across functions for no readability gain.
+@Suppress("LongMethod")
 @Composable
 private fun BackgroundImageRow(
     uri: String?,
+    timeText: String,
+    labelText: String,
     onPick: () -> Unit,
     onClear: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            painter = painterResource(R.drawable.ic_image),
-            contentDescription = null,
-            tint = Color.Unspecified,
-            modifier = Modifier.padding(end = 12.dp).size(24.dp),
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(stringResource(R.string.field_background_image))
-            // Show a small thumbnail preview when a URI is bound. The
-            // bitmap loader is shared with the AlarmActivity full-screen
-            // background, so the decode cost is paid once per edit-session
-            // recomposition and stays cheap (single small inputstream).
-            val bitmapState = rememberBackgroundBitmap(uri)
-            val bm = bitmapState.value
-            if (uri != null && bm != null) {
-                FoundationImage(
-                    bitmap = bm,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .padding(top = 4.dp)
-                        .size(48.dp)
-                        .clip(MaterialTheme.shapes.small),
-                )
-            } else {
-                Text(
-                    text = stringResource(R.string.field_background_image_none),
-                    style = MaterialTheme.typography.bodySmall,
-                )
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_image),
+                contentDescription = null,
+                tint = Color.Unspecified,
+                modifier = Modifier.padding(end = 12.dp).size(24.dp),
+            )
+            Text(
+                text = stringResource(R.string.field_background_image),
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f),
+            )
+            OutlinedButton(onClick = onPick) {
+                Text(stringResource(R.string.field_background_image_pick))
             }
         }
-        if (uri != null) {
-            // Clear restores "use default" (null in the alarm row → fall
-            // back to SettingsStore.defaultPhoneBackgroundUri).
-            IconButton(onClick = onClear) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_close),
-                    contentDescription = stringResource(R.string.field_background_image_clear),
-                    tint = Color.Unspecified,
-                    modifier = Modifier.size(24.dp),
+        Spacer(Modifier.height(12.dp))
+        // Centre the phone-frame preview; overlay the × clear button at
+        // the top-right corner of the frame itself (inner Box sizes to preview).
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box {
+                RingScreenPreview(
+                    backgroundUri = uri,
+                    timeText = timeText,
+                    labelText = labelText,
+                    width = 140.dp,
+                    height = 248.dp,
                 )
+                if (uri != null) {
+                    IconButton(
+                        onClick = onClear,
+                        modifier = Modifier.align(Alignment.TopEnd),
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_close),
+                            contentDescription = stringResource(R.string.field_background_image_clear),
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
             }
-        }
-        OutlinedButton(onClick = onPick) {
-            Text(stringResource(R.string.field_background_image_pick))
         }
     }
 }

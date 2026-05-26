@@ -9,6 +9,7 @@ package com.kirkouski.gtalarm.ui.settings
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -24,7 +25,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,7 +39,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,7 +54,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.data.SettingsState
-import com.kirkouski.gtalarm.ui.components.AccordionSection
+import com.kirkouski.gtalarm.ui.edit.RingScreenPreview
 import com.kirkouski.gtalarm.ui.edit.WatchBackgroundPickerDialog
 import com.kirkouski.gtalarm.ui.edit.rememberAudioPicker
 import com.kirkouski.gtalarm.ui.edit.rememberAudioPreview
@@ -69,10 +69,8 @@ fun SettingsScreen(
     vm: SettingsViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
-    var displayOpen by rememberSaveable { mutableStateOf(true) }
-    var ringtoneOpen by rememberSaveable { mutableStateOf(false) }
-    var backgroundOpen by rememberSaveable { mutableStateOf(false) }
     Scaffold(
+        containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
         Column(
@@ -80,33 +78,47 @@ fun SettingsScreen(
                 .padding(padding)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(vertical = 8.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            AccordionSection(
-                title = stringResource(R.string.settings_section_display),
-                expanded = displayOpen,
-                onToggle = { displayOpen = !displayOpen },
-            ) {
-                DisplaySection(state = state, vm = vm)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SettingsSectionHeader(stringResource(R.string.settings_section_display))
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        DisplaySection(state = state, vm = vm)
+                    }
+                }
             }
-            HorizontalDivider()
-            AccordionSection(
-                title = stringResource(R.string.settings_section_default_ringtones),
-                expanded = ringtoneOpen,
-                onToggle = { ringtoneOpen = !ringtoneOpen },
-            ) {
-                RingtoneSection(state = state, vm = vm)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SettingsSectionHeader(stringResource(R.string.settings_section_default_ringtones))
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        RingtoneSection(state = state, vm = vm)
+                    }
+                }
             }
-            HorizontalDivider()
-            AccordionSection(
-                title = stringResource(R.string.settings_section_default_backgrounds),
-                expanded = backgroundOpen,
-                onToggle = { backgroundOpen = !backgroundOpen },
-            ) {
-                BackgroundSection(state = state, vm = vm)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SettingsSectionHeader(stringResource(R.string.settings_section_default_backgrounds))
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        BackgroundSection(state = state, vm = vm)
+                    }
+                }
             }
         }
     }
+}
+
+@Composable
+private fun SettingsSectionHeader(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable
@@ -186,14 +198,13 @@ private fun BackgroundRow(
         currentUri = currentUri,
         onPick = pick,
         onClear = onClear,
+        showRingPreview = true,
     )
 }
 
-// reason: 62 lines — the layout routes a thumbnail (3 branches: bitmap /
-// fallback icon / placeholder icon), a label column with two text pieces,
-// an optional clear button, and the pick button. Splitting the thumbnail
-// out into its own composable would smear state hoisting across two more
-// callsites for zero readability gain.
+// reason: column-then-row layout with optional ring-screen preview adds
+// branches (thumbnail / icon / ring-preview) that push past 62 lines.
+// Splitting the preview out would add a callsite routing layer used once.
 @Suppress("LongMethod")
 @Composable
 private fun BackgroundRowLayout(
@@ -202,67 +213,86 @@ private fun BackgroundRowLayout(
     onPick: () -> Unit,
     onClear: () -> Unit,
     reloadKey: Any? = null,
+    showRingPreview: Boolean = false,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        if (currentUri != null) {
-            val bitmapState = rememberBackgroundBitmap(currentUri, reloadKey)
-            val bm = bitmapState.value
-            if (bm != null) {
-                Image(
-                    bitmap = bm,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .size(56.dp)
-                        .clip(RoundedCornerShape(8.dp)),
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (!showRingPreview) {
+                if (currentUri != null) {
+                    val bitmapState = rememberBackgroundBitmap(currentUri, reloadKey)
+                    val bm = bitmapState.value
+                    if (bm != null) {
+                        Image(
+                            bitmap = bm,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(8.dp)),
+                        )
+                    } else {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_image),
+                            contentDescription = null,
+                            modifier = Modifier.size(56.dp).padding(8.dp),
+                            tint = Color.Unspecified,
+                        )
+                    }
+                } else {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_image),
+                        contentDescription = null,
+                        modifier = Modifier.size(56.dp).padding(8.dp),
+                        tint = Color.Unspecified,
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .padding(start = if (showRingPreview) 0.dp else 12.dp)
+                    .weight(1f),
+            ) {
+                Text(
+                    text = stringResource(titleRes),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
                 )
-            } else {
-                Icon(
-                    painter = painterResource(R.drawable.ic_image),
-                    contentDescription = null,
-                    modifier = Modifier.size(56.dp).padding(8.dp),
-                    tint = Color.Unspecified,
+                Text(
+                    text = stringResource(
+                        if (currentUri == null) R.string.settings_default_background_none
+                        else R.string.settings_default_background_set,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        } else {
-            Icon(
-                painter = painterResource(R.drawable.ic_image),
-                contentDescription = null,
-                modifier = Modifier.size(56.dp).padding(8.dp),
-                tint = Color.Unspecified,
-            )
-        }
-        Column(
-            modifier = Modifier
-                .padding(start = 12.dp)
-                .weight(1f),
-        ) {
-            Text(
-                text = stringResource(titleRes),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = stringResource(
-                    if (currentUri == null) R.string.settings_default_background_none
-                    else R.string.settings_default_background_set,
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (currentUri != null) {
-            IconButton(onClick = onClear) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_close),
-                    contentDescription = stringResource(R.string.settings_default_background_clear),
-                    tint = Color.Unspecified,
-                    modifier = Modifier.size(24.dp),
-                )
+            if (currentUri != null) {
+                IconButton(onClick = onClear) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_close),
+                        contentDescription = stringResource(R.string.settings_default_background_clear),
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+            FilledTonalButton(onClick = onPick) {
+                Text(stringResource(R.string.field_audio_pick))
             }
         }
-        FilledTonalButton(onClick = onPick) {
-            Text(stringResource(R.string.field_audio_pick))
+        if (showRingPreview) {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                RingScreenPreview(
+                    backgroundUri = currentUri,
+                    timeText = "--:--",
+                    labelText = "",
+                    width = 140.dp,
+                    height = 248.dp,
+                )
+            }
         }
     }
 }
@@ -441,6 +471,7 @@ private fun RingtoneRow(
                 Text(
                     text = currentName ?: stringResource(R.string.field_audio_default),
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
             val previewing by audioPreview.playing

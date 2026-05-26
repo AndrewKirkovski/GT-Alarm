@@ -18,6 +18,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -27,16 +28,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
@@ -46,6 +51,7 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -57,11 +63,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -70,6 +77,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.widget.Toast
 import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.domain.DaysOfWeek
@@ -81,7 +89,6 @@ import com.kirkouski.gtalarm.util.shortLabelResForDayBit
 import com.kirkouski.gtalarm.wear.ForceSyncResult
 import com.kirkouski.gtalarm.wear.PairedDeviceInfo
 import com.kirkouski.gtalarm.wear.WatchSyncStatus
-import android.widget.Toast
 
 // reason: Compose top-level screen composables are inherently long because
 // they declare a tree of layout, state hoisting, and side-effects in one
@@ -110,9 +117,6 @@ fun AlarmListScreen(
     val needsWatchAuth by vm.needsWatchAuthorization.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    // Re-check Wear Engine authorization on resume so the WatchSyncCard's
-    // sync/authorize button flips the moment the user returns from the
-    // Huawei Health grant dialog.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -121,10 +125,6 @@ fun AlarmListScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    // Banner visible whenever any required permission is denied. The audit
-    // is a handful of cheap system-service queries (no I/O), so re-running
-    // on each list recomposition is fine; remember + the canExact/battery
-    // keys mostly keep it from churning.
     val showSetupBanner = remember(alarms.size, showBatteryOptCard, canExact) {
         com.kirkouski.gtalarm.ui.help.hasUnresolvedSetup(context)
     }
@@ -135,101 +135,252 @@ fun AlarmListScreen(
         }
     }
 
+    val listState = rememberLazyListState()
+    // derivedStateOf prevents recomposition on every scroll pixel — only
+    // recomposes when the boolean result actually flips.
+    val isScrolled by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0
+        }
+    }
+
     Scaffold(
+        containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        floatingActionButton = {
-            // Juicy circular add button — the ic_add gradient-circle PNG
-            // with a drop shadow, in place of the M3 rounded-square FAB.
-            Image(
-                painter = painterResource(R.drawable.ic_add),
-                contentDescription = stringResource(R.string.add_alarm),
-                modifier = Modifier
-                    .size(64.dp)
-                    .shadow(elevation = 6.dp, shape = CircleShape)
-                    .clip(CircleShape)
-                    .clickable(onClick = onAdd),
-            )
-        },
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-        ) {
-            // Always-on watch sync status card. Reads via the WearBridgeService
-            // interface so it animates through real states as HuaweiWearBridge
-            // emits status updates (CONNECTING → CONNECTED → ERROR, etc.).
-            WatchSyncCard(
-                status = watchStatus,
-                pairedDevice = pairedDevice,
-                forceSyncRunning = forceSyncRunning,
-                needsAuthorization = needsWatchAuth,
-                onForceSync = { vm.onForceSync() },
-                onAuthorize = onAuthorizeWatch,
-            )
-            if (showSetupBanner) {
-                SetupNeededBanner(onOpenSetup = onOpenHelp)
-            }
-            if (showBatteryOptCard) {
-                BatteryOptRationaleCard(
-                    onOpenSettings = {
-                        onOpenBatteryOptSettings()
-                        vm.refreshBatteryOptCard()
-                    },
-                    onDismiss = { vm.dismissBatteryOptCard() },
-                )
-            }
-            if (!canExact) {
-                ElevatedCard(
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .clickable { onOpenExactAlarmSettings() },
-                ) {
-                    Text(
-                        text = stringResource(R.string.permission_exact_alarm_rationale),
-                        modifier = Modifier.padding(16.dp),
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 16.dp),
+            ) {
+                item(key = "hero") {
+                    HeroSection(alarms = alarms, settings = settings)
+                }
+                if (showSetupBanner) {
+                    item(key = "setup-banner") {
+                        SetupNeededBanner(onOpenSetup = onOpenHelp)
+                    }
+                }
+                if (showBatteryOptCard) {
+                    item(key = "battery-opt") {
+                        BatteryOptRationaleCard(
+                            onOpenSettings = {
+                                onOpenBatteryOptSettings()
+                                vm.refreshBatteryOptCard()
+                            },
+                            onDismiss = { vm.dismissBatteryOptCard() },
+                        )
+                    }
+                }
+                if (!canExact) {
+                    item(key = "exact-alarm") {
+                        ElevatedCard(
+                            modifier = Modifier
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                                .fillMaxWidth()
+                                .clickable { onOpenExactAlarmSettings() },
+                        ) {
+                            Text(
+                                text = stringResource(R.string.permission_exact_alarm_rationale),
+                                modifier = Modifier.padding(16.dp),
+                            )
+                        }
+                    }
+                }
+                item(key = "alarm-list") {
+                    if (alarms.isEmpty()) {
+                        EmptyAlarmsPlaceholder()
+                    } else {
+                        AlarmListCard(
+                            alarms = alarms,
+                            settings = settings,
+                            onToggle = { id, en -> vm.onToggle(id, en) },
+                            onClick = { id -> onEdit(id) },
+                            onDelete = { id -> vm.onDelete(id) },
+                            onSkipNext = { id -> vm.onSkipNext(id) },
+                        )
+                    }
+                }
+                item(key = "watch-sync") {
+                    WatchSyncCard(
+                        status = watchStatus,
+                        pairedDevice = pairedDevice,
+                        forceSyncRunning = forceSyncRunning,
+                        needsAuthorization = needsWatchAuth,
+                        onForceSync = { vm.onForceSync() },
+                        onAuthorize = onAuthorizeWatch,
                     )
                 }
             }
 
-            if (alarms.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_alarm_off),
-                            contentDescription = null,
-                            modifier = Modifier.size(72.dp),
-                            tint = Color.Unspecified,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Text(stringResource(R.string.no_alarms))
-                    }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(alarms, key = { it.id }) { alarm ->
-                        SwipeToDeleteRow(
-                            alarm = alarm,
-                            settings = settings,
-                            onToggle = { enabled -> vm.onToggle(alarm.id, enabled) },
-                            onClick = { onEdit(alarm.id) },
-                            onDelete = { vm.onDelete(alarm.id) },
-                            onSkipNext = { vm.onSkipNext(alarm.id) },
+            // Add button — plain icon when at top, pill when scrolled.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 12.dp, end = 16.dp),
+            ) {
+                if (isScrolled) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        shadowElevation = 4.dp,
+                    ) {
+                        Image(
+                            painter = painterResource(R.drawable.ic_add),
+                            contentDescription = stringResource(R.string.add_alarm),
+                            modifier = Modifier
+                                .size(48.dp)
+                                .padding(12.dp)
+                                .clickable(onClick = onAdd),
                         )
                     }
+                } else {
+                    Image(
+                        painter = painterResource(R.drawable.ic_add),
+                        contentDescription = stringResource(R.string.add_alarm),
+                        modifier = Modifier
+                            .size(48.dp)
+                            .shadow(elevation = 4.dp, shape = CircleShape)
+                            .clip(CircleShape)
+                            .clickable(onClick = onAdd),
+                    )
                 }
             }
         }
     }
 }
 
-// Collapsed watch-sync row: status icon + two text lines + a sync icon on
-// the trailing edge that doubles as the force-sync control and spins while
-// a sync is in flight.
+// Hero section: countdown to next enabled alarm + its date/time.
+// Ticks every 30 s; if no upcoming alarm shows the empty-state label.
+@Suppress("LongMethod")
+@Composable
+private fun HeroSection(
+    alarms: List<Alarm>,
+    settings: com.kirkouski.gtalarm.data.SettingsState,
+) {
+    val ctx = LocalContext.current
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000L)
+            now = System.currentTimeMillis()
+        }
+    }
+    val nextAlarm = remember(alarms, now) {
+        alarms.filter { it.enabled }
+            .minByOrNull { NextTriggerCalculator.nextTriggerEpochMillis(it) }
+    }
+    val nextTrigger = nextAlarm?.let { NextTriggerCalculator.nextTriggerEpochMillis(it) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 56.dp, bottom = 20.dp, start = 24.dp, end = 72.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (nextTrigger != null && nextTrigger > now) {
+            val remaining = nextTrigger - now
+            val hours = (remaining / 3_600_000L).toInt()
+            val mins = ((remaining % 3_600_000L) / 60_000L).toInt()
+            val heroText = if (hours > 0) {
+                stringResource(R.string.screen_list_hero_alarm_in_hr_min, hours, mins)
+            } else {
+                stringResource(R.string.screen_list_hero_alarm_in_min, mins)
+            }
+            Text(
+                text = heroText,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            val is24h = TimeFormatter.resolveUses24HourFormat(ctx, settings.use24Hour)
+            val timeStr = TimeFormatter.formatHourMinute(
+                ctx, nextAlarm.hour, nextAlarm.minute, is24h,
+            )
+            val cal = java.util.Calendar.getInstance().also { it.timeInMillis = nextTrigger }
+            val dayName = android.text.format.DateFormat.format("EEE", cal).toString()
+            val dayNum = cal.get(java.util.Calendar.DAY_OF_MONTH)
+            val monthName = android.text.format.DateFormat.format("MMM", cal).toString()
+            Text(
+                text = "$dayName $dayNum $monthName, $timeStr",
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        } else {
+            Text(
+                text = stringResource(R.string.no_alarms),
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Normal,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f),
+            )
+        }
+    }
+}
+
+// All alarms in one white card with thin dividers between rows.
+@Composable
+private fun AlarmListCard(
+    alarms: List<Alarm>,
+    settings: com.kirkouski.gtalarm.data.SettingsState,
+    onToggle: (Long, Boolean) -> Unit,
+    onClick: (Long) -> Unit,
+    onDelete: (Long) -> Unit,
+    onSkipNext: (Long) -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .padding(horizontal = 16.dp)
+            .fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column {
+            alarms.forEachIndexed { i, alarm ->
+                SwipeToDeleteRow(
+                    alarm = alarm,
+                    settings = settings,
+                    onToggle = { enabled -> onToggle(alarm.id, enabled) },
+                    onClick = { onClick(alarm.id) },
+                    onDelete = { onDelete(alarm.id) },
+                    onSkipNext = { onSkipNext(alarm.id) },
+                )
+                if (i < alarms.size - 1) {
+                    HorizontalDivider(
+                        thickness = 0.5.dp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyAlarmsPlaceholder() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 40.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                painter = painterResource(R.drawable.ic_alarm_off),
+                contentDescription = null,
+                modifier = Modifier.size(72.dp),
+                tint = Color.Unspecified,
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(stringResource(R.string.no_alarms))
+        }
+    }
+}
+
 // reason: LongMethod — one linear Row tree; the status/device strings and
 // the spin transition are derived inline so the layout reads top-to-bottom.
 @Suppress("LongMethod")
@@ -242,11 +393,6 @@ private fun WatchSyncCard(
     onForceSync: () -> Unit,
     onAuthorize: () -> Unit,
 ) {
-    // State is conveyed by the icon alone (regular watch when connected,
-    // crossed-watch when not). The previous "Watch: connected / not connected"
-    // status text was redundant with the icon and added visual noise — we
-    // drop it. When the app lacks Wear Engine permission we still surface
-    // that explicitly because the user has to take action.
     val iconRes = if (status == WatchSyncStatus.CONNECTED) R.drawable.ic_watch else R.drawable.ic_watch_off
     val deviceText = pairedDevice?.displayName?.takeIf { it.isNotBlank() }
     val subtitle = when {
@@ -298,10 +444,6 @@ private fun WatchSyncCard(
     }
 }
 
-// Trailing circle on the WatchSyncCard: the authorize button (key icon) when
-// Wear Engine permission is missing, otherwise the force-sync button (sync
-// icon that spins while a sync is in flight). Split out of WatchSyncCard so
-// neither composable trips the detekt cyclomatic-complexity ceiling.
 @Composable
 private fun WatchSyncActionButton(
     needsAuthorization: Boolean,
@@ -320,8 +462,6 @@ private fun WatchSyncActionButton(
         )
         return
     }
-    // The infinite transition runs unconditionally (composition rule); its
-    // angle is only applied to the sync icon while forceSyncRunning is true.
     val spin by rememberInfiniteTransition(label = "watchSync").animateFloat(
         initialValue = 0f,
         targetValue = 360f,
@@ -453,20 +593,7 @@ private fun SwipeToDeleteRow(
     onSkipNext: () -> Unit = {},
 ) {
     var showConfirm by remember { mutableStateOf(false) }
-    // Swipe-left on a recurring alarm marks the next firing as skipped
-    // (non-destructive, no confirm dialog). All other swipes route to the
-    // delete confirm.
     val canSkip = alarm.daysOfWeek != 0
-    // reason: returning `false` from confirmValueChange on a dismiss value
-    // prevents M3 from settling the row into the dismissed anchor — the box
-    // animates back to Settled on its own. We trigger the confirm dialog
-    // from inside the callback. Previous approach (let it settle then call
-    // reset() from a LaunchedEffect) sometimes left the row "half stuck"
-    // because snapTo mid-state didn't reliably re-lay-out the inner row.
-    // reason: confirmValueChange was deprecated in M3 1.4 in favor of dynamic
-    // anchor sets, but SwipeToDismissBox doesn't expose anchor configuration —
-    // the only escape would be rewriting on AnchoredDraggable. Keep the
-    // deprecated API until M3 ships a first-class hook for "veto dismiss".
     @Suppress("DEPRECATION")
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
@@ -490,9 +617,7 @@ private fun SwipeToDeleteRow(
     )
     if (showConfirm) {
         AlertDialog(
-            onDismissRequest = {
-                showConfirm = false
-            },
+            onDismissRequest = { showConfirm = false },
             title = { Text(stringResource(R.string.delete_alarm)) },
             text = {
                 val body = if (alarm.label.isNotBlank()) {
@@ -509,26 +634,16 @@ private fun SwipeToDeleteRow(
                 }) { Text(stringResource(R.string.delete)) }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    showConfirm = false
-                }) { Text(stringResource(R.string.cancel)) }
+                TextButton(onClick = { showConfirm = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
             },
         )
     }
-    // reason: pad the SwipeToDismissBox externally so the errorContainer
-    // backgroundContent paints in the same bounds as the AlarmRow Card. If the
-    // padding lives on the inner Card, the bg leaks 8dp on each side at rest.
     SwipeToDismissBox(
         state = dismissState,
-        modifier = Modifier
-            .padding(horizontal = 8.dp)
-            .clip(MaterialTheme.shapes.medium),
+        modifier = Modifier.clip(MaterialTheme.shapes.medium),
         backgroundContent = {
-            // EndToStart on a recurring alarm = skip-next (neutral bg + skip
-            // icon). Every other case (StartToEnd, or EndToStart on a one-
-            // shot) opens the delete-confirm dialog — surface the destructive
-            // intent with the error background so the gesture target reads
-            // as red-before-confirm.
             val isSkipGesture = canSkip &&
                 dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
             val bg = if (isSkipGesture) {
@@ -566,6 +681,10 @@ private fun SwipeToDeleteRow(
     }
 }
 
+// reason: adding DayDotRow for recurring alarms adds branches (isRecurring /
+// subtitle-empty) that push the function body beyond the 60-line limit. The
+// function is a single layout tree — splitting would scatter state routing.
+@Suppress("LongMethod")
 @Composable
 private fun AlarmRow(
     alarm: Alarm,
@@ -573,80 +692,71 @@ private fun AlarmRow(
     onToggle: (Boolean) -> Unit,
     onClick: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier.clickable(onClick = onClick),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Per-alarm background thumbnail at the leading edge. Falls back
-            // to the settings-level default so the user sees what's actually
-            // going to render at fire time. Each row decodes ONCE per recompose
-            // (rememberBackgroundBitmap caches behind a LaunchedEffect keyed
-            // on the URI) — fine for the visible list, would need a Coil-style
-            // cache if we ever paginate / display 100+ rows.
-            val effectiveBgUri = alarm.backgroundImageUri ?: settings.defaultPhoneBackgroundUri
-            if (effectiveBgUri != null) {
-                val bitmapState = com.kirkouski.gtalarm.ui.edit.rememberBackgroundBitmap(effectiveBgUri)
-                val bm = bitmapState.value
-                if (bm != null) {
-                    androidx.compose.foundation.Image(
-                        bitmap = bm,
-                        contentDescription = null,
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                        modifier = Modifier
-                            .size(56.dp)
-                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp)),
-                    )
-                    Spacer(Modifier.size(16.dp))
-                }
-            }
-            val ctx = LocalContext.current
-            Column(modifier = Modifier.weight(1f)) {
-                if (alarm.isRelative) {
-                    // Live countdown is the prominent text for relative alarms.
-                    // Different color (tertiary) so user spots it at a glance and
-                    // remembers it resets on toggle off→on. Matches the watch
-                    // list's color-cue convention.
-                    val countdownText = rememberRelativeCountdownText(alarm)
-                    Text(
-                        text = countdownText,
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Light,
-                        color = MaterialTheme.colorScheme.tertiary,
-                    )
-                } else {
-                    Text(
-                        text = TimeFormatter.formatHourMinute(
-                            ctx,
-                            alarm.hour,
-                            alarm.minute,
-                            overrideUse24Hour = settings.use24Hour,
-                        ),
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Light,
-                    )
-                }
-                // Alarm label is intentionally NOT shown in the list — it
-                // appears only on the ring screen when the alarm fires.
-                // The subtitle is pinned to a single line.
+        val ctx = LocalContext.current
+        Column(modifier = Modifier.weight(1f)) {
+            if (alarm.isRelative) {
+                val countdownText = rememberRelativeCountdownText(alarm)
                 Text(
-                    text = subtitleLine(alarm, settings.firstDayOfWeek),
+                    text = countdownText,
+                    fontSize = 40.sp,
+                    fontWeight = FontWeight.Light,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            } else {
+                val timeColor = if (alarm.enabled) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+                }
+                Text(
+                    text = TimeFormatter.formatHourMinute(
+                        ctx,
+                        alarm.hour,
+                        alarm.minute,
+                        overrideUse24Hour = settings.use24Hour,
+                    ),
+                    fontSize = 54.sp,
+                    fontWeight = if (alarm.enabled) FontWeight.Bold else FontWeight.Light,
+                    color = timeColor,
+                )
+            }
+            val isRecurring = alarm.daysOfWeek != DaysOfWeek.NONE
+            if (isRecurring) {
+                Spacer(Modifier.height(4.dp))
+                DayDotRow(mask = alarm.daysOfWeek, firstDayOverride = settings.firstDayOfWeek)
+            }
+            val subtitle = subtitleLine(
+                alarm,
+                settings.firstDayOfWeek,
+                showDays = !isRecurring,
+            )
+            if (subtitle.isNotEmpty()) {
+                Text(
+                    text = subtitle,
                     fontSize = 12.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Switch(checked = alarm.enabled, onCheckedChange = onToggle)
         }
+        Switch(checked = alarm.enabled, onCheckedChange = onToggle)
     }
 }
 
+// reason: showDays=false path (used when DayDotRow replaces text days) adds
+// one extra branch that tips complexity to 11; the whole function is one
+// linear derivation of a display string — splitting would add indirection.
+@Suppress("CyclomaticComplexMethod")
 @Composable
-private fun subtitleLine(alarm: Alarm, firstDayOverride: Int?): String {
-    val daysBase = repeatLabel(alarm, firstDayOverride)
+private fun subtitleLine(alarm: Alarm, firstDayOverride: Int?, showDays: Boolean = true): String {
+    val daysBase = if (showDays) repeatLabel(alarm, firstDayOverride) else ""
     val skipActive = alarm.skipNextEpoch != null &&
         alarm.skipNextEpoch > System.currentTimeMillis()
     val skipHint = if (skipActive) stringResource(R.string.list_skip_next_hint) else ""
@@ -656,8 +766,6 @@ private fun subtitleLine(alarm: Alarm, firstDayOverride: Int?): String {
         daysBase
     }
     if (!alarm.enabled) return days
-    // Relative alarms show the live countdown in the prominent text; the
-    // subtitle is just the "Timer" repeat label (parity with the watch).
     if (alarm.isRelative) return days
     val nextTrigger = remember(alarm) { NextTriggerCalculator.nextTriggerEpochMillis(alarm) }
     val relative = RelativeTime.formatUntil(nextTrigger)
@@ -668,10 +776,6 @@ private fun subtitleLine(alarm: Alarm, firstDayOverride: Int?): String {
     }
 }
 
-// Repeat label — mirrors the watch's nonRecurringLabel logic so the same
-// alarm reads identically on both devices: recurring -> day label;
-// Timer (relative); Once (self-destruct); a plain one-time alarm has no
-// label (empty) — the absence of any day/repeat text already says it.
 @Composable
 private fun repeatLabel(alarm: Alarm, firstDayOverride: Int?): String = when {
     alarm.daysOfWeek != DaysOfWeek.NONE -> daysLabel(alarm.daysOfWeek, firstDayOverride)
@@ -680,22 +784,6 @@ private fun repeatLabel(alarm: Alarm, firstDayOverride: Int?): String = when {
     else -> ""
 }
 
-// Ticks the countdown for a relative alarm. Cadence:
-//   > 60 s remaining: refresh every 30 s
-//   ≤ 60 s remaining: refresh every 1 s (so user sees seconds counting down
-//                     on the final approach)
-// Stops ticking 5 s past fire time, OR immediately if the alarm is disabled.
-//
-// Disabled relative alarms: show the configured duration as a static
-// label (e.g. "5 min timer · off") rather than a live countdown. The
-// previous implementation froze `now` at the moment of disable but kept
-// `target` derived from `updatedAtEpoch` (which setEnabled() bumps to
-// `now`) — so `target` always landed in the user's future at disable,
-// and as wall-clock advanced, `remaining` went negative and the row
-// silently flipped to "firing now" (bug #93 2026-05-13). Showing the
-// configured duration matches the watch's intent: a disabled "N min
-// timer" is identified by its duration, not by a stale target moment.
-//
 // reason: complexity is 12 because the function combines two distinct
 // modes (disabled → static label; enabled → tick loop + 4-way countdown
 // switch). Splitting into two composables would force the parent to
@@ -713,17 +801,12 @@ private fun rememberRelativeCountdownText(alarm: Alarm): String {
             stringResource(R.string.list_relative_off_min, rel)
         }
     }
-    // Active snooze overrides the original fire time — without this, a
-    // snoozed relative alarm shows "firing now" forever because the original
-    // computedFireEpoch is in the past while the snoozed-until is in the future.
     val snoozeUntil = alarm.snoozedUntilEpoch
     val target = if (snoozeUntil != null && snoozeUntil > System.currentTimeMillis()) {
         snoozeUntil
     } else {
         alarm.computedFireEpoch()
     }
-    // mutableLongStateOf keyed on target so we restart the tick if the
-    // user edits the duration (which bumps updatedAtEpoch → new target).
     var now by remember(alarm.id, target) {
         mutableLongStateOf(System.currentTimeMillis())
     }
@@ -771,4 +854,39 @@ private fun daysLabel(mask: Int, firstDayOverride: Int?): String = when (mask) {
             if (DaysOfWeek.contains(mask, bit)) stringResource(shortLabelResForDayBit(bit)) else null
         }
         .joinToString(" ")
+}
+
+// Day indicator row. Compact spacing so it reads as a dense 7-char row, not
+// a stretched full-width bar.
+@Composable
+private fun DayDotRow(mask: Int, firstDayOverride: Int?) {
+    val orderedBits = rememberOrderedDayBits(firstDayOverride)
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        orderedBits.forEach { bit ->
+            val active = DaysOfWeek.contains(mask, bit)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(4.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
+                        ),
+                )
+                Text(
+                    text = stringResource(shortLabelResForDayBit(bit)),
+                    fontSize = 11.sp,
+                    color = if (active) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    },
+                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
+        }
+    }
 }

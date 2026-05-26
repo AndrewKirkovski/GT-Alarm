@@ -12,15 +12,11 @@
     <string name="ring_waiting_for_watch">等待手表…</string>
 
     <string name="screen_list_title">闹钟</string>
-    <string name="screen_edit_title_new">新建闹钟</string>
-    <string name="screen_edit_title_edit">编辑闹钟</string>
-    <string name="field_label">标签</string>
     <string name="field_label_placeholder">起床</string>
     <string name="field_audio">声音</string>
     <string name="field_audio_default">系统默认</string>
     <string name="field_audio_pick">选择…</string>
     <string name="field_vibration_only">仅震动</string>
-    <string name="field_repeat">重复</string>
     <string name="field_snooze_minutes">稍后提醒时长</string>
     <string name="field_snooze_minutes_value">%1$d 分钟</string>
     <string name="delete">删除</string>
