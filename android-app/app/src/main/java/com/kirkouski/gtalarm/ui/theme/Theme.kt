@@ -36,11 +36,19 @@ private val LightColors = lightColorScheme(
     onError = Color(0xFFFFFFFF),
     errorContainer = Color(0xFFFFDAD6),
     onErrorContainer = Color(0xFF410002),
+    background = Color(0xFFFFFBFE),
+    onBackground = Color(0xFF1B1720),
+    surface = Color(0xFFFFFBFE),
+    onSurface = Color(0xFF1B1720),
+    surfaceVariant = Color(0xFFECE7F3),
+    onSurfaceVariant = Color(0xFF50495C),
+    outline = Color(0xFF81788A),
+    outlineVariant = Color(0xFFE0D9E7),
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF5FC9EF),
-    onPrimary = Color(0xFF00344A),
+    primary = Color(0xFF007EAE),
+    onPrimary = Color(0xFFFFFFFF),
     primaryContainer = Color(0xFF004C6A),
     onPrimaryContainer = Color(0xFFBDE7F8),
     secondary = Color(0xFFBEC2FF),
@@ -55,12 +63,20 @@ private val DarkColors = darkColorScheme(
     onError = Color(0xFF690005),
     errorContainer = Color(0xFF93000A),
     onErrorContainer = Color(0xFFFFDAD6),
+    background = Color(0xFF020513),
+    onBackground = Color(0xFFF1ECF7),
+    surface = Color(0xFF1D1726),
+    onSurface = Color(0xFFF1ECF7),
+    surfaceVariant = Color(0xFF242031),
+    onSurfaceVariant = Color(0xFFCFC5D8),
+    outline = Color(0xFF8D8398),
+    outlineVariant = Color(0xFF383145),
 )
 
 // Pastel gradient derived from brand palette — pale cyan (top-left) →
 // pale pink (centre) → pale blue (bottom-right).
 private val GtBackgroundBrushLight = Brush.linearGradient(
-    0.00f to Color(0xFFD8F3FD),  // pale cyan  (primary #009EDA tint)
+    0.00f to Color(0xFFECFAFE),  // pale cyan, 50% closer to white
     0.50f to Color(0xFFF5CCF0),  // pale pink  (tertiary #E058CE tint)
     1.00f to Color(0xFFD8DCFF),  // pale blue  (secondary #6373F2 tint)
     start = Offset.Zero,
@@ -71,12 +87,14 @@ private val GtBackgroundBrushLight = Brush.linearGradient(
 // Mirrors the light gradient arc — cyan (primary, top-left) → indigo (secondary,
 // centre) → magenta (tertiary, bottom-right).
 private val GtBackgroundBrushDark = Brush.linearGradient(
-    0.00f to Color(0xFF001D35),  // dark cyan  (primary  #009EDA darkened)
-    0.45f to Color(0xFF0D1040),  // dark indigo (secondary #6373F2 darkened)
-    1.00f to Color(0xFF200A26),  // dark magenta (tertiary #E058CE darkened)
+    0.00f to Color(0xFF000817),  // near-black cyan
+    0.52f to Color(0xFF26072F),  // visible dark magenta
+    1.00f to Color(0xFF06071E),  // near-black indigo
     start = Offset.Zero,
     end = Offset.Infinite,
 )
+
+val GtFloatingButtonLight = Color(0xFFFFFFFF)
 
 @Composable
 fun gtBackgroundBrush(): Brush =

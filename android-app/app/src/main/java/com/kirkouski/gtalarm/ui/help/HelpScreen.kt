@@ -37,7 +37,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -71,6 +70,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.ui.components.AccordionSection
+import com.kirkouski.gtalarm.ui.components.GtFloatingButton
+import com.kirkouski.gtalarm.ui.components.GtAccentButton
 import com.kirkouski.gtalarm.ui.components.StatusMarkerDot
 import com.kirkouski.gtalarm.voice.DefaultAlarmDetector
 import com.kirkouski.gtalarm.voice.DeviceBrand
@@ -158,18 +159,22 @@ fun HelpScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                val floatingText = MaterialTheme.colorScheme.onBackground
                 Text(
                     text = stringResource(R.string.help_donate_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
+                    color = floatingText,
                 )
                 Text(
                     text = stringResource(R.string.help_donate_body),
                     style = MaterialTheme.typography.bodyMedium,
+                    color = floatingText,
                 )
-                FilledTonalButton(
+                GtFloatingButton(
                     onClick = { openExternalUrl(context, donateUrl) },
                     modifier = Modifier.fillMaxWidth(),
+                    onCard = false,
                 ) {
                     Text(stringResource(R.string.help_donate_button))
                 }
@@ -307,7 +312,7 @@ private fun AccordionAction(
         text = stringResource(bodyRes),
         style = MaterialTheme.typography.bodyMedium,
     )
-    FilledTonalButton(
+    GtAccentButton(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
@@ -321,16 +326,18 @@ private fun AccordionAction(
 private fun CreditsFooter() {
     val context = LocalContext.current
     val url = stringResource(R.string.help_credits_icons_url)
+    val floatingText = MaterialTheme.colorScheme.onBackground
     Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
         Text(
             text = stringResource(R.string.help_credits_title),
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
+            color = floatingText,
         )
         Text(
             text = stringResource(R.string.help_credits_icons),
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary,
+            color = floatingText,
             modifier = Modifier
                 .padding(top = 4.dp)
                 .clickable { openExternalUrl(context, url) },
@@ -366,7 +373,7 @@ private fun PermissionRow(
                 modifier = Modifier.padding(top = 6.dp),
             )
             if (!granted && !skipped) {
-                FilledTonalButton(
+                GtAccentButton(
                     onClick = onFix,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -401,7 +408,7 @@ private fun BrandTipsCard() {
     var selected by remember { mutableStateOf(detected) }
     var expanded by remember { mutableStateOf(false) }
     Column {
-        FilledTonalButton(
+        GtFloatingButton(
             onClick = { expanded = true },
             modifier = Modifier
                 .fillMaxWidth()
@@ -497,7 +504,7 @@ private fun DebugContent(onFireAlarmNow: () -> Unit) {
         text = stringResource(R.string.help_debug_body),
         style = MaterialTheme.typography.bodyMedium,
     )
-    FilledTonalButton(
+    GtAccentButton(
         onClick = onFireAlarmNow,
         modifier = Modifier
             .fillMaxWidth()

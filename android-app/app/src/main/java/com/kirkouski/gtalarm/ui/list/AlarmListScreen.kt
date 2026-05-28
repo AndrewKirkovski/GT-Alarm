@@ -37,8 +37,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
-
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -90,6 +88,7 @@ import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.domain.DaysOfWeek
 import com.kirkouski.gtalarm.domain.NextTriggerCalculator
+import com.kirkouski.gtalarm.ui.components.GtAccentButton
 import com.kirkouski.gtalarm.util.RelativeTime
 import com.kirkouski.gtalarm.util.TimeFormatter
 import com.kirkouski.gtalarm.util.rememberOrderedDayBits
@@ -226,7 +225,7 @@ fun AlarmListScreen(
                             onToggle = { id, en -> vm.onToggle(id, en) },
                             onClick = { id -> onEdit(id) },
                             onDelete = { id -> vm.onDelete(id) },
-                            onSkipNext = { id -> vm.onSkipNext(id) },
+                            onToggleSkipNext = { id -> vm.onToggleSkipNext(id) },
                         )
                     }
                 }
@@ -306,13 +305,7 @@ private fun HeroSection(
     ) {
         if (nextTrigger != null && nextTrigger > now) {
             val remaining = nextTrigger - now
-            val hours = (remaining / 3_600_000L).toInt()
-            val mins = ((remaining % 3_600_000L) / 60_000L).toInt()
-            val heroText = if (hours > 0) {
-                stringResource(R.string.screen_list_hero_alarm_in_hr_min, hours, mins)
-            } else {
-                stringResource(R.string.screen_list_hero_alarm_in_min, mins)
-            }
+            val heroText = singleUnitCountdownText(remaining, prefix = CountdownPrefix.ALARM_IN)
             Text(
                 text = heroText,
                 fontSize = 28.sp,
@@ -354,7 +347,7 @@ private fun AlarmListCard(
     onToggle: (Long, Boolean) -> Unit,
     onClick: (Long) -> Unit,
     onDelete: (Long) -> Unit,
-    onSkipNext: (Long) -> Unit,
+    onToggleSkipNext: (Long) -> Unit,
 ) {
     Card(
         modifier = Modifier
@@ -372,7 +365,7 @@ private fun AlarmListCard(
                     onToggle = { enabled -> onToggle(alarm.id, enabled) },
                     onClick = { onClick(alarm.id) },
                     onDelete = { onDelete(alarm.id) },
-                    onSkipNext = { onSkipNext(alarm.id) },
+                    onToggleSkipNext = { onToggleSkipNext(alarm.id) },
                 )
                 if (i < alarms.size - 1) {
                     HorizontalDivider(
@@ -557,7 +550,7 @@ private fun SetupNeededBanner(onOpenSetup: () -> Unit) {
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            FilledTonalButton(onClick = onOpenSetup) {
+            GtAccentButton(onClick = onOpenSetup) {
                 Text(stringResource(R.string.setup_banner_action))
             }
         }
@@ -595,7 +588,7 @@ private fun BatteryOptRationaleCard(
                 TextButton(onClick = onDismiss) {
                     Text(stringResource(R.string.battery_opt_card_dismiss))
                 }
-                FilledTonalButton(
+                GtAccentButton(
                     onClick = onOpenSettings,
                     modifier = Modifier.padding(start = 8.dp),
                 ) {
@@ -621,17 +614,19 @@ private fun SwipeToDeleteRow(
     onToggle: (Boolean) -> Unit,
     onClick: () -> Unit,
     onDelete: () -> Unit,
-    onSkipNext: () -> Unit = {},
+    onToggleSkipNext: () -> Unit = {},
 ) {
     var showConfirm by remember { mutableStateOf(false) }
     val canSkip = alarm.daysOfWeek != 0
+    val skipActive = alarm.skipNextEpoch != null &&
+        alarm.skipNextEpoch > System.currentTimeMillis()
     @Suppress("DEPRECATION")
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
                 SwipeToDismissBoxValue.EndToStart -> {
                     if (canSkip) {
-                        onSkipNext()
+                        onToggleSkipNext()
                         false
                     } else {
                         showConfirm = true
@@ -678,13 +673,23 @@ private fun SwipeToDeleteRow(
             val isSkipGesture = canSkip &&
                 dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
             val bg = if (isSkipGesture) {
-                MaterialTheme.colorScheme.secondaryContainer
+                if (skipActive) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.secondaryContainer
+                }
             } else {
                 MaterialTheme.colorScheme.errorContainer
             }
             val iconRes = if (isSkipGesture) R.drawable.ic_timer else R.drawable.ic_delete
             val cd = if (isSkipGesture) {
-                stringResource(R.string.list_skip_next_hint)
+                stringResource(
+                    if (skipActive) {
+                        R.string.list_unskip_next_hint
+                    } else {
+                        R.string.list_skip_next_hint
+                    },
+                )
             } else {
                 stringResource(R.string.delete_alarm)
             }
@@ -827,11 +832,10 @@ private fun repeatLabel(alarm: Alarm, firstDayOverride: Int?): String = when {
 private fun rememberRelativeCountdownText(alarm: Alarm): String {
     if (!alarm.enabled) {
         val rel = alarm.relativeMinutes ?: 0
-        return if (rel >= 60) {
-            stringResource(R.string.list_relative_off_hr_min, rel / 60, rel % 60)
-        } else {
-            stringResource(R.string.list_relative_off_min, rel)
-        }
+        return singleUnitCountdownText(
+            remainingMillis = rel * MILLIS_PER_MINUTE,
+            prefix = CountdownPrefix.NONE,
+        )
     }
     val snoozeUntil = alarm.snoozedUntilEpoch
     val target = if (snoozeUntil != null && snoozeUntil > System.currentTimeMillis()) {
@@ -852,28 +856,92 @@ private fun rememberRelativeCountdownText(alarm: Alarm): String {
         }
     }
     val remaining = target - now
-    return when {
-        remaining <= 0L -> stringResource(R.string.list_relative_fired)
-        remaining < 60_000L -> stringResource(
-            R.string.list_relative_in_sec,
-            (remaining / 1000L).toInt(),
-        )
-        remaining < 3_600_000L -> stringResource(
-            R.string.list_relative_in_min,
-            (remaining / 60_000L).toInt(),
-        )
-        else -> {
-            val totalMin = (remaining / 60_000L).toInt()
-            val hours = totalMin / 60
-            val mins = totalMin % 60
-            stringResource(R.string.list_relative_in_hr_min, hours, mins)
-        }
+    return if (remaining <= 0L) {
+        stringResource(R.string.list_relative_fired)
+    } else {
+        singleUnitCountdownText(remaining, prefix = CountdownPrefix.IN)
     }
 }
+
+@Composable
+private fun singleUnitCountdownText(
+    remainingMillis: Long,
+    prefix: CountdownPrefix,
+): String {
+    val unit = singleCountdownUnit(remainingMillis)
+    return when (unit) {
+        is CountdownUnit.Seconds -> secondsCountdownText(unit.value, prefix)
+        is CountdownUnit.Minutes -> minutesCountdownText(unit.value, prefix)
+        is CountdownUnit.Hours -> hoursCountdownText(unit.value, prefix)
+    }
+}
+
+private fun singleCountdownUnit(remainingMillis: Long): CountdownUnit = when {
+    remainingMillis < QUARTER_MINUTE_MILLIS -> CountdownUnit.Seconds(
+        ceilDiv(remainingMillis, MILLIS_PER_SECOND).coerceAtLeast(1L).toInt(),
+    )
+    remainingMillis < MILLIS_PER_HOUR -> CountdownUnit.Minutes(
+        ((remainingMillis + HALF_MINUTE_MILLIS) / MILLIS_PER_MINUTE)
+            .coerceAtLeast(1L)
+            .toInt(),
+    )
+    else -> CountdownUnit.Hours(roundedQuarterHourLabel(remainingMillis))
+}
+
+@Composable
+private fun secondsCountdownText(value: Int, prefix: CountdownPrefix): String = when (prefix) {
+    CountdownPrefix.ALARM_IN -> stringResource(R.string.screen_list_hero_alarm_in_sec, value)
+    CountdownPrefix.IN -> stringResource(R.string.list_relative_in_sec, value)
+    CountdownPrefix.NONE -> stringResource(R.string.list_relative_off_min, 1)
+}
+
+@Composable
+private fun minutesCountdownText(value: Int, prefix: CountdownPrefix): String = when (prefix) {
+    CountdownPrefix.ALARM_IN -> stringResource(R.string.screen_list_hero_alarm_in_min, value)
+    CountdownPrefix.IN -> stringResource(R.string.list_relative_in_min, value)
+    CountdownPrefix.NONE -> stringResource(R.string.list_relative_off_min, value)
+}
+
+@Composable
+private fun hoursCountdownText(value: String, prefix: CountdownPrefix): String = when (prefix) {
+    CountdownPrefix.ALARM_IN -> stringResource(R.string.screen_list_hero_alarm_in_hr, value)
+    CountdownPrefix.IN -> stringResource(R.string.list_relative_in_hr, value)
+    CountdownPrefix.NONE -> stringResource(R.string.list_relative_off_hr, value)
+}
+
+private fun roundedQuarterHourLabel(remainingMillis: Long): String {
+    val quarters = ((remainingMillis + HALF_QUARTER_HOUR_MILLIS) / QUARTER_HOUR_MILLIS)
+        .coerceAtLeast(1L)
+    val wholeHours = quarters / QUARTERS_PER_HOUR
+    return when (quarters % QUARTERS_PER_HOUR) {
+        0L -> "$wholeHours"
+        1L -> "$wholeHours¼"
+        2L -> "$wholeHours½"
+        else -> "$wholeHours¾"
+    }
+}
+
+private fun ceilDiv(value: Long, divisor: Long): Long = (value + divisor - 1L) / divisor
+
+private sealed interface CountdownUnit {
+    data class Seconds(val value: Int) : CountdownUnit
+    data class Minutes(val value: Int) : CountdownUnit
+    data class Hours(val value: String) : CountdownUnit
+}
+
+private enum class CountdownPrefix { NONE, IN, ALARM_IN }
 
 private const val COUNTDOWN_SLOW_TICK_MS = 30_000L
 private const val COUNTDOWN_FAST_TICK_MS = 1_000L
 private const val COUNTDOWN_STOP_GRACE_MS = 5_000L
+private const val MILLIS_PER_SECOND = 1_000L
+private const val MILLIS_PER_MINUTE = 60_000L
+private const val HALF_MINUTE_MILLIS = 30_000L
+private const val QUARTER_MINUTE_MILLIS = 15_000L
+private const val MILLIS_PER_HOUR = 3_600_000L
+private const val QUARTER_HOUR_MILLIS = 15 * MILLIS_PER_MINUTE
+private const val HALF_QUARTER_HOUR_MILLIS = QUARTER_HOUR_MILLIS / 2
+private const val QUARTERS_PER_HOUR = 4
 
 @Composable
 private fun daysLabel(mask: Int, firstDayOverride: Int?): String = when (mask) {

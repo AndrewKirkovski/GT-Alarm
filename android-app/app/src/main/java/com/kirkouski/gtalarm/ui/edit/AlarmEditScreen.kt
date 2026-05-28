@@ -13,6 +13,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,16 +37,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -63,18 +61,25 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -82,6 +87,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.anhaki.picktime.utils.PickTimeFocusIndicator
 import com.anhaki.picktime.utils.PickTimeTextStyle
 import com.anhaki.picktime.utils.TimeFormat
+import com.kirkouski.gtalarm.ui.components.GtAccentButton
 import com.kirkouski.gtalarm.ui.picktime.GtPickHourMinute
 import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.domain.Alarm
@@ -235,26 +241,6 @@ fun AlarmEditScreen(
             // The picker itself is placed after this Box (higher z-order).
             Spacer(Modifier.height(with(density) { pickerHeightPx.toDp() }))
 
-            // Mode toggle: Alarm (at a set time) vs Timer (fires in N minutes).
-            SingleChoiceSegmentedButtonRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-            ) {
-                SegmentedButton(
-                    selected = state.mode == AlarmMode.ABSOLUTE,
-                    onClick = { vm.updateMode(AlarmMode.ABSOLUTE) },
-                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                    label = { Text(stringResource(R.string.alarm_notification_title)) },
-                )
-                SegmentedButton(
-                    selected = state.mode == AlarmMode.RELATIVE,
-                    onClick = { vm.updateMode(AlarmMode.RELATIVE) },
-                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                    label = { Text(stringResource(R.string.screen_timer_title)) },
-                )
-            }
-
             // Settings card — wraps content height; whole screen scrolls. See docs/ui-design-rules.md.
             Card(
                 modifier = Modifier
@@ -267,6 +253,12 @@ fun AlarmEditScreen(
             ) {
                 val divider = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
                 Column {
+                    ModeTabRow(
+                        selectedMode = state.mode,
+                        onSelected = vm::updateMode,
+                    )
+                    HorizontalDivider(thickness = 0.5.dp, color = divider)
+
                     // Day repeat row (ABSOLUTE mode only)
                     if (state.mode == AlarmMode.ABSOLUTE) {
                         DayRow(
@@ -284,70 +276,38 @@ fun AlarmEditScreen(
                     )
                     HorizontalDivider(thickness = 0.5.dp, color = divider)
 
-                    // Ringtone
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_music_note),
-                            contentDescription = null,
-                            tint = Color.Unspecified,
-                            modifier = Modifier.padding(end = 12.dp).size(24.dp),
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stringResource(R.string.field_audio),
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
-                            Text(
-                                text = if (state.audioUri != null) {
-                                    state.audioName ?: stringResource(R.string.field_audio_unknown)
-                                } else {
-                                    (if (state.mode == AlarmMode.RELATIVE) {
-                                        settings.defaultRelativeRingtoneName
-                                    } else {
-                                        settings.defaultAbsoluteRingtoneName
-                                    }) ?: stringResource(R.string.field_audio_app_default)
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
+                    // Vibration-only gates audio; keep the two controls adjacent.
+                    VibrationOnlyRow(
+                        checked = state.isVibrationOnly,
+                        onToggle = vm::toggleVibrationOnly,
+                    )
+                    HorizontalDivider(thickness = 0.5.dp, color = divider)
+                    if (!state.isVibrationOnly) {
                         val previewing by audioPreview.playing
-                        val previewUri = state.audioUri
-                            ?: if (state.mode == AlarmMode.RELATIVE) {
-                                settings.defaultRelativeRingtoneUri
+                        AudioRow(
+                            audioName = if (state.audioUri != null) {
+                                state.audioName ?: stringResource(R.string.field_audio_unknown)
                             } else {
-                                settings.defaultAbsoluteRingtoneUri
-                            }
-                        IconButton(
-                            onClick = {
+                                (if (state.mode == AlarmMode.RELATIVE) {
+                                    settings.defaultRelativeRingtoneName
+                                } else {
+                                    settings.defaultAbsoluteRingtoneName
+                                }) ?: stringResource(R.string.field_audio_app_default)
+                            },
+                            previewing = previewing,
+                            onPreviewClick = {
+                                val previewUri = state.audioUri
+                                    ?: if (state.mode == AlarmMode.RELATIVE) {
+                                        settings.defaultRelativeRingtoneUri
+                                    } else {
+                                        settings.defaultAbsoluteRingtoneUri
+                                    }
                                 if (previewing) audioPreview.stop() else audioPreview.play(previewUri)
                             },
-                        ) {
-                            Icon(
-                                painter = painterResource(
-                                    if (previewing) R.drawable.ic_stop else R.drawable.ic_play,
-                                ),
-                                contentDescription = stringResource(
-                                    if (previewing) {
-                                        R.string.action_stop_preview
-                                    } else {
-                                        R.string.action_play_preview
-                                    },
-                                ),
-                                tint = Color.Unspecified,
-                                modifier = Modifier.size(24.dp),
-                            )
-                        }
-                        OutlinedButton(onClick = pickAudio) {
-                            Text(stringResource(R.string.field_audio_pick))
-                        }
+                            onPick = pickAudio,
+                        )
+                        HorizontalDivider(thickness = 0.5.dp, color = divider)
                     }
-                    HorizontalDivider(thickness = 0.5.dp, color = divider)
 
                     // Background image — large centered phone-frame preview
                     val previewTimeText = if (state.mode == AlarmMode.ABSOLUTE) {
@@ -363,30 +323,6 @@ fun AlarmEditScreen(
                         onPick = pickBackgroundImage,
                         onClear = { vm.updateBackgroundImage(null) },
                     )
-                    HorizontalDivider(thickness = 0.5.dp, color = divider)
-
-                    // Vibration only
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_vibration),
-                            contentDescription = null,
-                            tint = Color.Unspecified,
-                            modifier = Modifier.padding(end = 12.dp).size(24.dp),
-                        )
-                        Text(
-                            text = stringResource(R.string.field_vibration_only),
-                            modifier = Modifier.weight(1f),
-                        )
-                        Switch(
-                            checked = state.isVibrationOnly,
-                            onCheckedChange = { vm.toggleVibrationOnly() },
-                        )
-                    }
                     HorizontalDivider(thickness = 0.5.dp, color = divider)
 
                     // Snooze duration
@@ -503,6 +439,61 @@ fun AlarmEditScreen(
     }
 }
 
+@Composable
+private fun ModeTabRow(
+    selectedMode: AlarmMode,
+    onSelected: (AlarmMode) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp),
+    ) {
+        ModeTab(
+            text = stringResource(R.string.alarm_notification_title),
+            selected = selectedMode == AlarmMode.ABSOLUTE,
+            onClick = { onSelected(AlarmMode.ABSOLUTE) },
+            shape = RoundedCornerShape(topStart = 20.dp),
+            modifier = Modifier.weight(1f),
+        )
+        ModeTab(
+            text = stringResource(R.string.screen_timer_title),
+            selected = selectedMode == AlarmMode.RELATIVE,
+            onClick = { onSelected(AlarmMode.RELATIVE) },
+            shape = RoundedCornerShape(topEnd = 20.dp),
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun ModeTab(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    shape: RoundedCornerShape,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .clip(shape)
+            .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
+            .clickable(role = Role.Tab, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+        )
+    }
+}
+
 // reason: black pill layout — 5 params + optional delete branch + two dividers = inherently long.
 @Suppress("LongMethod")
 @Composable
@@ -513,6 +504,11 @@ private fun CancelSaveBar(
     isExisting: Boolean,
     onDelete: () -> Unit,
 ) {
+    val spreadColor = if (isSystemInDarkTheme()) {
+        MaterialTheme.colorScheme.tertiary.copy(alpha = 0.1f)
+    } else {
+        lerp(Color.White, MaterialTheme.colorScheme.tertiary, 0.14f).copy(alpha = 0.86f)
+    }
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -523,8 +519,9 @@ private fun CancelSaveBar(
         Surface(
             shape = RoundedCornerShape(28.dp),
             color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 8.dp,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .spreadShadow(spread = 5.dp, radius = 28.dp, color = spreadColor),
         ) {
             Row(
                 modifier = Modifier
@@ -576,6 +573,17 @@ private fun CancelSaveBar(
     }
 }
 
+private fun Modifier.spreadShadow(spread: Dp, radius: Dp, color: Color): Modifier = drawBehind {
+    val spreadPx = spread.toPx()
+    val radiusPx = radius.toPx() + spreadPx
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(-spreadPx, -spreadPx),
+        size = Size(size.width + spreadPx * 2f, size.height + spreadPx * 2f),
+        cornerRadius = CornerRadius(radiusPx, radiusPx),
+    )
+}
+
 @Composable
 private fun LabelUnderlineField(value: String, onValueChange: (String) -> Unit) {
     val onSurface = MaterialTheme.colorScheme.onSurface
@@ -600,6 +608,83 @@ private fun LabelUnderlineField(value: String, onValueChange: (String) -> Unit) 
             }
         },
     )
+}
+
+@Composable
+private fun VibrationOnlyRow(checked: Boolean, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_vibration),
+            contentDescription = null,
+            tint = Color.Unspecified,
+            modifier = Modifier.padding(end = 12.dp).size(24.dp),
+        )
+        Text(
+            text = stringResource(R.string.field_vibration_only),
+            modifier = Modifier.weight(1f),
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = { onToggle() },
+        )
+    }
+}
+
+@Composable
+private fun AudioRow(
+    audioName: String,
+    previewing: Boolean,
+    onPreviewClick: () -> Unit,
+    onPick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_music_note),
+            contentDescription = null,
+            tint = Color.Unspecified,
+            modifier = Modifier.padding(end = 12.dp).size(24.dp),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.field_audio),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Text(
+                text = audioName,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        IconButton(onClick = onPreviewClick) {
+            Icon(
+                painter = painterResource(
+                    if (previewing) R.drawable.ic_stop else R.drawable.ic_play,
+                ),
+                contentDescription = stringResource(
+                    if (previewing) {
+                        R.string.action_stop_preview
+                    } else {
+                        R.string.action_play_preview
+                    },
+                ),
+                tint = Color.Unspecified,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+        GtAccentButton(onClick = onPick) {
+            Text(stringResource(R.string.field_audio_pick))
+        }
+    }
 }
 
 @Composable
@@ -715,19 +800,8 @@ private fun SnoozeRow(value: Int, onChange: (Int) -> Unit) {
 
 @Composable
 private fun SnoozeChip(minutes: Int, selected: Boolean, onClick: () -> Unit) {
-    val bg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-    val fg = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
     val label = if (minutes <= Alarm.SNOOZE_DISABLED) stringResource(R.string.field_snooze_off_chip) else "$minutes"
-    Box(
-        modifier = Modifier
-            .size(width = 44.dp, height = 36.dp)
-            .clip(CircleShape)
-            .background(bg)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text = label, color = fg, style = MaterialTheme.typography.labelMedium)
-    }
+    OptionChip(label = label, selected = selected, onClick = onClick)
 }
 
 private val SNOOZE_PRESETS = listOf(
@@ -780,23 +854,12 @@ private fun MaxSnoozeRow(value: Int, onChange: (Int) -> Unit) {
 
 @Composable
 private fun MaxSnoozeChip(count: Int, selected: Boolean, onClick: () -> Unit) {
-    val bg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-    val fg = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
     val label = if (count <= Alarm.MAX_SNOOZE_COUNT_UNLIMITED) {
         stringResource(R.string.field_max_snooze_unlimited)
     } else {
         "$count"
     }
-    Box(
-        modifier = Modifier
-            .size(width = 64.dp, height = 36.dp)
-            .clip(CircleShape)
-            .background(bg)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text = label, color = fg, style = MaterialTheme.typography.labelMedium)
-    }
+    OptionChip(label = label, selected = selected, onClick = onClick)
 }
 
 private val MAX_SNOOZE_PRESETS = listOf(
@@ -857,19 +920,7 @@ private fun patternLabelRes(p: com.kirkouski.gtalarm.domain.VibrationPattern): I
 
 @Composable
 private fun PatternChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    val bg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-    val fg = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-    Box(
-        modifier = Modifier
-            .height(36.dp)
-            .clip(CircleShape)
-            .background(bg)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text = label, color = fg, style = MaterialTheme.typography.labelMedium)
-    }
+    OptionChip(label = label, selected = selected, onClick = onClick)
 }
 
 @Composable
@@ -911,15 +962,22 @@ private fun VolumeRampRow(value: Int, onChange: (Int) -> Unit) {
 
 @Composable
 private fun RampChip(seconds: Int, selected: Boolean, onClick: () -> Unit) {
+    val label = if (seconds <= 0) stringResource(R.string.field_volume_ramp_off) else "${seconds}s"
+    OptionChip(label = label, selected = selected, onClick = onClick)
+}
+
+@Composable
+private fun OptionChip(label: String, selected: Boolean, onClick: () -> Unit) {
     val bg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
     val fg = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-    val label = if (seconds <= 0) stringResource(R.string.field_volume_ramp_off) else "${seconds}s"
     Box(
         modifier = Modifier
-            .size(width = 56.dp, height = 36.dp)
+            .height(36.dp)
+            .defaultMinSize(minWidth = 36.dp)
             .clip(CircleShape)
             .background(bg)
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(text = label, color = fg, style = MaterialTheme.typography.labelMedium)
@@ -1060,7 +1118,7 @@ private fun BackgroundImageRow(
                     )
                 }
             }
-            OutlinedButton(onClick = onPick) {
+            GtAccentButton(onClick = onPick) {
                 Text(stringResource(R.string.field_background_image_pick))
             }
         }

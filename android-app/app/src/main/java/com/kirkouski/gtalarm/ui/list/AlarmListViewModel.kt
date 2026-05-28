@@ -2,6 +2,7 @@ package com.kirkouski.gtalarm.ui.list
 
 import android.content.Context
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kirkouski.gtalarm.data.AlarmRepository
@@ -83,6 +84,7 @@ class AlarmListViewModel @Inject constructor(
     // default sync button rather than being mislabelled.
     private val _needsWatchAuthorization = MutableStateFlow(false)
     val needsWatchAuthorization: StateFlow<Boolean> = _needsWatchAuthorization.asStateFlow()
+    private val lastSkipToggleAtById = mutableMapOf<Long, Long>()
 
     init {
         refreshWatchAuthorization()
@@ -141,8 +143,12 @@ class AlarmListViewModel @Inject constructor(
         repository.delete(id)
     }
 
-    fun onSkipNext(id: Long) = viewModelScope.launch {
-        repository.skipNext(id)
+    fun onToggleSkipNext(id: Long) = viewModelScope.launch {
+        val now = SystemClock.elapsedRealtime()
+        val lastToggleAt = lastSkipToggleAtById[id] ?: 0L
+        if (now - lastToggleAt < SKIP_TOGGLE_GUARD_MS) return@launch
+        lastSkipToggleAtById[id] = now
+        repository.toggleSkipNext(id)
     }
 
     private fun computeShowBatteryOptCard(): Boolean {
@@ -151,5 +157,9 @@ class AlarmListViewModel @Inject constructor(
             dismissed = onboarding.batteryOptCardDismissed(),
             isIgnoringBatteryOptimizations = pm.isIgnoringBatteryOptimizations(context.packageName),
         )
+    }
+
+    private companion object {
+        const val SKIP_TOGGLE_GUARD_MS = 900L
     }
 }

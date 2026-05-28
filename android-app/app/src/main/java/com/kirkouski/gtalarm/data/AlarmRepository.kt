@@ -328,6 +328,35 @@ class AlarmRepository @Inject constructor(
         return skipped
     }
 
+    /**
+     * Toggle the right-to-left recurring-row gesture: mark the next
+     * occurrence skipped, or clear a future skip if one is already active.
+     */
+    suspend fun toggleSkipNext(id: Long): Long? {
+        val alarm = dao.getById(id)?.toDomain() ?: return null
+        if (alarm.daysOfWeek == 0) return null
+        val skip = alarm.skipNextEpoch
+        return if (skip != null && skip > System.currentTimeMillis()) {
+            clearSkipNext(alarm)
+            null
+        } else {
+            skipNext(id)
+        }
+    }
+
+    private suspend fun clearSkipNext(alarm: Alarm) {
+        val updated = alarm.copy(
+            skipNextEpoch = null,
+            updatedAtEpoch = System.currentTimeMillis(),
+        )
+        dao.upsert(updated.toEntity())
+        bfuCache.upsert(updated)
+        scheduler.schedule(updated)
+        scheduleWatchSync()
+        refreshWidgets()
+        Log.i(TAG, "clearSkipNext id=${alarm.id}")
+    }
+
     /** Reset consecutive-snooze counter on dismiss/fire so the next ring
      *  cycle starts from zero. Mirrors the change into BFU so the next
      *  pre-unlock fire reads the reset value. */

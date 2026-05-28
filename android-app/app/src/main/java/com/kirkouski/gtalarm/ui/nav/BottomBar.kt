@@ -4,6 +4,7 @@ import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -20,9 +21,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.kirkouski.gtalarm.R
@@ -58,6 +65,11 @@ private const val BAR_HEIGHT_DP = 60
 
 @Composable
 fun AppBottomBar(currentRoute: String?, onSelect: (String) -> Unit) {
+    val spreadColor = if (isSystemInDarkTheme()) {
+        MaterialTheme.colorScheme.tertiary.copy(alpha = 0.1f)
+    } else {
+        lerp(Color.White, MaterialTheme.colorScheme.tertiary, 0.14f).copy(alpha = 0.86f)
+    }
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -65,10 +77,11 @@ fun AppBottomBar(currentRoute: String?, onSelect: (String) -> Unit) {
             .padding(horizontal = 48.dp, vertical = 8.dp),
     ) {
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .spreadShadow(spread = 5.dp, radius = (BAR_HEIGHT_DP / 2).dp, color = spreadColor),
             shape = CircleShape,
             color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 6.dp,
         ) {
             Row(
                 modifier = Modifier
@@ -88,6 +101,17 @@ fun AppBottomBar(currentRoute: String?, onSelect: (String) -> Unit) {
     }
 }
 
+private fun Modifier.spreadShadow(spread: Dp, radius: Dp, color: Color): Modifier = drawBehind {
+    val spreadPx = spread.toPx()
+    val radiusPx = radius.toPx() + spreadPx
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(-spreadPx, -spreadPx),
+        size = Size(size.width + spreadPx * 2f, size.height + spreadPx * 2f),
+        cornerRadius = CornerRadius(radiusPx, radiusPx),
+    )
+}
+
 @Composable
 private fun BottomTabItem(
     tab: BottomTab,
@@ -95,19 +119,17 @@ private fun BottomTabItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Clickable on the outer cell so the full weight(1f) area is tappable,
-    // not just the 44 dp inner circle. The circle is visual-only.
     Box(
         modifier = modifier
-            .fillMaxHeight()
-            .clickable(onClick = onClick),
+            .fillMaxHeight(),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier
                 .size(44.dp)
                 .clip(CircleShape)
-                .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent),
+                .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                .clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
             Icon(

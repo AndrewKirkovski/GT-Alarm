@@ -25,21 +25,18 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -67,6 +64,10 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.data.SettingsState
+import com.kirkouski.gtalarm.ui.components.GtFloatingButton
+import com.kirkouski.gtalarm.ui.components.GtAccentButton
+import com.kirkouski.gtalarm.ui.components.GtSegmentOption
+import com.kirkouski.gtalarm.ui.components.GtSegmentedControl
 import com.kirkouski.gtalarm.ui.edit.RingScreenPreview
 import com.kirkouski.gtalarm.ui.edit.WatchBackgroundPickerDialog
 import com.kirkouski.gtalarm.ui.edit.rememberAudioPicker
@@ -284,7 +285,7 @@ private fun WatchBackgroundRow(
                     )
                 }
             }
-            FilledTonalButton(onClick = { showPicker = true }) {
+            GtAccentButton(onClick = { showPicker = true }) {
                 Text(stringResource(R.string.field_background_image_pick))
             }
         }
@@ -386,7 +387,7 @@ private fun BackgroundRowLayout(
                     )
                 }
             }
-            FilledTonalButton(onClick = onPick) {
+            GtAccentButton(onClick = onPick) {
                 Text(stringResource(R.string.field_background_image_pick))
             }
         }
@@ -432,28 +433,25 @@ private fun DisplaySection(state: SettingsState, vm: SettingsViewModel) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TwentyFourHourSelector(
     value: Boolean?,
     onChange: (Boolean?) -> Unit,
 ) {
-    val options = listOf<Triple<Boolean?, Int, String>>(
-        Triple(null, R.string.settings_time_format_system, "system"),
-        Triple(false, R.string.settings_time_format_12h, "12"),
-        Triple(true, R.string.settings_time_format_24h, "24"),
+    val isDark = isSystemInDarkTheme()
+    val options: List<GtSegmentOption<Boolean?>> = listOf(
+        GtSegmentOption(null, stringResource(R.string.settings_time_format_system)),
+        GtSegmentOption(false, stringResource(R.string.settings_time_format_12h)),
+        GtSegmentOption(true, stringResource(R.string.settings_time_format_24h)),
     )
-    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-        options.forEachIndexed { idx, opt ->
-            SegmentedButton(
-                selected = value == opt.first,
-                onClick = { onChange(opt.first) },
-                shape = SegmentedButtonDefaults.itemShape(idx, options.size),
-            ) {
-                Text(stringResource(opt.second))
-            }
-        }
-    }
+    GtSegmentedControl(
+        options = options,
+        selectedValue = value,
+        onSelected = onChange,
+        modifier = Modifier.fillMaxWidth(),
+        containerColor = if (isDark) MaterialTheme.colorScheme.surfaceVariant else Color.White,
+        unselectedContentColor = if (isDark) MaterialTheme.colorScheme.onSurface else Color(0xFF1B1720),
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -471,7 +469,7 @@ private fun FirstDayDropdown(
         longDayName(effective)
     }
     Column {
-        FilledTonalButton(
+        GtFloatingButton(
             onClick = { expanded = true },
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -606,14 +604,14 @@ private fun RingtoneRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            FilledTonalButton(
+            GtAccentButton(
                 onClick = pickAudio,
                 modifier = Modifier.weight(1f),
             ) {
                 Text(stringResource(R.string.field_audio_pick))
             }
             if (currentUri != null) {
-                FilledTonalButton(
+                GtAccentButton(
                     onClick = {
                         audioPreview.stop()
                         onClear()

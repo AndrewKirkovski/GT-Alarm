@@ -55,6 +55,7 @@
     <string name="field_self_destruct" tools:ignore="MissingTranslation">Delete after firing</string>
     <string name="list_relative_in_min" tools:ignore="MissingTranslation">in %1$d min</string>
     <string name="list_relative_in_hr_min" tools:ignore="MissingTranslation">in %1$d h %2$d min</string>
+    <string name="list_relative_in_hr" tools:ignore="MissingTranslation">in %1$s hr</string>
     <string name="list_relative_in_sec" tools:ignore="MissingTranslation">in %1$d s</string>
     <string name="list_relative_fired" tools:ignore="MissingTranslation">firing now</string>
     <!-- Disabled-relative-alarm label. We show the configured duration
@@ -65,7 +66,9 @@
          the label is just the bare duration. -->
     <string name="list_relative_off_min" tools:ignore="MissingTranslation">%1$d min</string>
     <string name="list_relative_off_hr_min" tools:ignore="MissingTranslation">%1$d h %2$d min</string>
+    <string name="list_relative_off_hr" tools:ignore="MissingTranslation">%1$s hr</string>
     <string name="list_skip_next_hint">next skipped</string>
+    <string name="list_unskip_next_hint" tools:ignore="MissingTranslation">unskip next</string>
     <string name="field_vibration_pattern">Vibration pattern</string>
     <string name="vibration_pattern_pulse">Pulse</string>
     <string name="vibration_pattern_heartbeat">Heartbeat</string>
@@ -84,7 +87,9 @@
     <string name="no_alarms">No alarms yet — tap + to add one.</string>
     <!-- reason: hero-area countdown on the alarm list. Translations land in a follow-up. -->
     <string name="screen_list_hero_alarm_in_hr_min" tools:ignore="MissingTranslation">Alarm in %1$d hr %2$d min</string>
+    <string name="screen_list_hero_alarm_in_hr" tools:ignore="MissingTranslation">Alarm in %1$s hr</string>
     <string name="screen_list_hero_alarm_in_min" tools:ignore="MissingTranslation">Alarm in %1$d min</string>
+    <string name="screen_list_hero_alarm_in_sec" tools:ignore="MissingTranslation">Alarm in %1$d sec</string>
 
     <string name="day_sun_short">Su</string>
     <string name="day_mon_short">Mo</string>

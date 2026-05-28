@@ -36,11 +36,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -69,6 +67,8 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.graphics.createBitmap
 import androidx.core.net.toUri
 import com.kirkouski.gtalarm.R
+import com.kirkouski.gtalarm.ui.components.GtFloatingButton
+import com.kirkouski.gtalarm.ui.components.GtAccentButton
 import com.kirkouski.gtalarm.wear.WatchBackgroundEncoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -322,7 +322,7 @@ fun WatchBackgroundPickerDialog(
                 }
             }
 
-            // Compact two-button row. Pick (outlined) + Save (filled,
+            // Compact two-button row. Pick (raised) + Save (gradient,
             // disabled until an image loads). Dismiss removed in favor
             // of the X close icon in the header — earlier 3-button design
             // forced "Choose image" to wrap to 2 lines on narrow phones.
@@ -332,7 +332,7 @@ fun WatchBackgroundPickerDialog(
                     .padding(horizontal = 16.dp, vertical = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                OutlinedButton(
+                GtFloatingButton(
                     onClick = { pickLauncher.launch(arrayOf("image/*")) },
                     modifier = Modifier.weight(1f),
                 ) {
@@ -345,12 +345,12 @@ fun WatchBackgroundPickerDialog(
                     Spacer(modifier = Modifier.size(8.dp))
                     Text(stringResource(R.string.watch_bg_picker_pick))
                 }
-                Button(
+                GtAccentButton(
                     onClick = {
-                        val bmp = sourceBitmap ?: return@Button
-                        if (saving) return@Button
+                        val bmp = sourceBitmap ?: return@GtAccentButton
+                        if (saving) return@GtAccentButton
                         val capturedViewport = viewportPxState
-                        if (capturedViewport <= 0f) return@Button
+                        if (capturedViewport <= 0f) return@GtAccentButton
                         saving = true
                         scope.launch {
                             // reason: same as the loader above — Compose
