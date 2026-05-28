@@ -19,10 +19,10 @@
     }
   },
   "icons": [
-    { "name": "ic_alarm",          "glyph": "alarm",                    "variant": "outline", "mode": "grad",   "paint": "stroke-nav",     "size": 192, "out": "android", "_use": "bottom-nav Alarms tab" },
-    { "name": "ic_settings",       "glyph": "settings",                 "variant": "outline", "mode": "grad",   "paint": "stroke-nav",     "size": 192, "out": "android", "_use": "bottom-nav Settings tab" },
-    { "name": "ic_help",           "glyph": "help",                     "variant": "outline", "mode": "grad",   "paint": "stroke-nav",     "size": 192, "out": "android", "_use": "bottom-nav Help tab" },
-    { "name": "ic_add",            "glyph": "plus",                     "variant": "outline", "mode": "circle", "paint": "circle-primary", "size": 256, "out": "android", "_use": "FAB add alarm (juicy circle)" },
+    { "name": "ic_alarm",          "glyph": "alarm",                    "variant": "outline", "mode": "raw",    "paint": "white",          "size": 192, "out": "android", "_use": "bottom-nav Alarms tab (tinted by Compose Icon)" },
+    { "name": "ic_settings",       "glyph": "settings",                 "variant": "outline", "mode": "raw",    "paint": "white",          "size": 192, "out": "android", "_use": "bottom-nav Settings tab (tinted by Compose Icon)" },
+    { "name": "ic_help",           "glyph": "help",                     "variant": "outline", "mode": "raw",    "paint": "white",          "size": 192, "out": "android", "_use": "bottom-nav Help tab (tinted by Compose Icon)" },
+    { "name": "ic_add",            "glyph": "plus",                     "variant": "outline", "mode": "raw",    "paint": "white",          "size": 192, "out": "android", "_use": "add alarm icon (tinted by Compose Icon)" },
     { "name": "ic_alarm_off",      "glyph": "bell-off",                 "variant": "outline", "mode": "circle", "paint": "circle-primary", "size": 384, "out": "android", "_use": "empty-state hero" },
     { "name": "ic_warning",        "glyph": "alert-triangle",           "variant": "filled",  "mode": "grad",   "paint": "fill-orange",    "size": 256, "out": "android", "_use": "setup-needed banner" },
     { "name": "ic_delete",         "glyph": "trash",                    "variant": "outline", "mode": "raw",    "paint": "red",            "size": 192, "out": "android", "_use": "swipe-to-delete bg + edit delete action" },

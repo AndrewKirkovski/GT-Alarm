@@ -30,6 +30,7 @@ import com.kirkouski.gtalarm.data.AlarmRepository
 import com.kirkouski.gtalarm.data.OnboardingState
 import com.kirkouski.gtalarm.ring.AlarmRingService
 import com.kirkouski.gtalarm.ui.edit.AlarmEditScreen
+import com.kirkouski.gtalarm.ui.edit.AlarmMode
 import com.kirkouski.gtalarm.ui.help.HelpScreen
 import com.kirkouski.gtalarm.ui.help.PermissionAudit
 import com.kirkouski.gtalarm.ui.list.AlarmListScreen
@@ -116,14 +117,17 @@ class MainActivity : ComponentActivity() {
                     bottomBar = {
                         val route = currentRoute?.destination?.route
                         if (route in BOTTOM_BAR_ROUTES) {
-                            AppBottomBar(route) { navController.switchTab(it) }
+                            AppBottomBar(
+                                currentRoute = route,
+                                onSelect = { navController.switchTab(it) },
+                            )
                         }
                     },
                 ) { innerPadding ->
                     NavHost(
                         navController = navController,
                         startDestination = Routes.LIST,
-                        modifier = Modifier.padding(innerPadding),
+                        modifier = Modifier.padding(top = innerPadding.calculateTopPadding()),
                     ) {
                         composable(Routes.LIST) {
                             AlarmListScreen(
@@ -150,15 +154,27 @@ class MainActivity : ComponentActivity() {
                         }
                         composable(
                             route = Routes.EDIT_WITH_ARG,
-                            arguments = listOf(navArgument(Routes.EDIT_ARG_ID) {
-                                type = NavType.StringType
-                                nullable = true
-                                defaultValue = null
-                            }),
+                            arguments = listOf(
+                                navArgument(Routes.EDIT_ARG_ID) {
+                                    type = NavType.StringType
+                                    nullable = true
+                                    defaultValue = null
+                                },
+                                navArgument(Routes.EDIT_ARG_MODE) {
+                                    type = NavType.StringType
+                                    nullable = true
+                                    defaultValue = AlarmMode.ABSOLUTE.name
+                                },
+                            ),
                         ) { entry ->
                             val idArg = entry.arguments?.getString(Routes.EDIT_ARG_ID)?.toLongOrNull()
+                            val modeArg = entry.arguments?.getString(Routes.EDIT_ARG_MODE)
+                            val initialMode = runCatching {
+                                AlarmMode.valueOf(modeArg.orEmpty())
+                            }.getOrDefault(AlarmMode.ABSOLUTE)
                             AlarmEditScreen(
                                 alarmId = idArg,
+                                initialMode = initialMode,
                                 onDone = { navController.popBackStack() },
                             )
                         }

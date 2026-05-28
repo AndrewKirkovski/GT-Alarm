@@ -88,12 +88,12 @@ class AlarmEditViewModel @Inject constructor(
         viewModelScope, SharingStarted.WhileSubscribed(STATE_TIMEOUT_MS), SettingsState(),
     )
 
-    fun load(id: Long?) {
+    fun load(id: Long?, initialMode: AlarmMode = AlarmMode.ABSOLUTE) {
         if (_state.value.loaded && _state.value.id == (id ?: 0L)) return
         viewModelScope.launch {
             val alarm = id?.let { repository.getById(it) }
             if (alarm == null) {
-                _state.value = AlarmEditUiState(loaded = true, isExistingAlarm = false)
+                _state.value = AlarmEditUiState(loaded = true, isExistingAlarm = false, mode = initialMode)
             } else {
                 _state.value = stateFromAlarm(alarm).copy(loaded = true)
                 // Mark this alarm as "being edited" so AlarmRingService bails
@@ -153,7 +153,7 @@ class AlarmEditViewModel @Inject constructor(
         } else {
             mode == AlarmMode.RELATIVE || newDays == 0
         }
-        val newRelativeMinutes = if (mode == AlarmMode.ABSOLUTE) DEFAULT_RELATIVE_MINUTES else it.relativeMinutes
+        val newRelativeMinutes = it.relativeMinutes
         it.copy(
             mode = mode,
             daysOfWeek = newDays,

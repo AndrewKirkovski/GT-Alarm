@@ -1,5 +1,19 @@
 # GT Alarm — Repo-level Claude Instructions
 
+## MANDATORY: Read UI design rules before any UI change
+
+**Before touching any screen layout, card, gradient, fade, or pill — read [`docs/ui-design-rules.md`](docs/ui-design-rules.md) end-to-end.**
+
+Key rules that have been violated repeatedly:
+
+- **Pills hover OVER content — content scrolls UNDER the pill. No gap between card and pill.**
+- **Whole page scrolls as one unit. Cards have NO internal scroll.**
+- **The card ends where it ends.** You CAN scroll it so the card's bottom edge clears the pill — that's by design. The bottom spacer inside the card enables this.
+- **Fade on the outer viewport Box** (not on the card). Fade starts at mid-pill. The fade is the visibility safeguard for content sliding under fixed headers/footers.
+- Do NOT apply `calculateBottomPadding()` to the outer Column — it creates a gap above the pill.
+
+---
+
 ## MANDATORY: Read acceptance criteria before any tech decision
 
 **Before any of the following actions, read [`docs/acceptance-criteria.md`](docs/acceptance-criteria.md) end-to-end:**

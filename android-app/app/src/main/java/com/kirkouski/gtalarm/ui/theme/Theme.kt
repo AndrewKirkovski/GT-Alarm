@@ -57,22 +57,23 @@ private val DarkColors = darkColorScheme(
     onErrorContainer = Color(0xFFFFDAD6),
 )
 
-// Pastel gradient derived from brand palette — light indigo (top-left) →
-// near-white (centre) → light cyan (bottom-right).
+// Pastel gradient derived from brand palette — pale cyan (top-left) →
+// pale pink (centre) → pale blue (bottom-right).
 private val GtBackgroundBrushLight = Brush.linearGradient(
-    0.00f to Color(0xFFF0F1FF),
-    0.45f to Color(0xFFFAFAFF),
-    1.00f to Color(0xFFE5F7FD),
+    0.00f to Color(0xFFD8F3FD),  // pale cyan  (primary #009EDA tint)
+    0.50f to Color(0xFFF5CCF0),  // pale pink  (tertiary #E058CE tint)
+    1.00f to Color(0xFFD8DCFF),  // pale blue  (secondary #6373F2 tint)
     start = Offset.Zero,
     end = Offset.Infinite,
 )
 
-// Deep navy/indigo gradient for dark theme — all stops derived from the same
-// brand colours at very low lightness.
+// Dark gradient: each stop is the corresponding brand colour at very low lightness.
+// Mirrors the light gradient arc — cyan (primary, top-left) → indigo (secondary,
+// centre) → magenta (tertiary, bottom-right).
 private val GtBackgroundBrushDark = Brush.linearGradient(
-    0.00f to Color(0xFF0F1235),
-    0.45f to Color(0xFF0D1628),
-    1.00f to Color(0xFF12102E),
+    0.00f to Color(0xFF001D35),  // dark cyan  (primary  #009EDA darkened)
+    0.45f to Color(0xFF0D1040),  // dark indigo (secondary #6373F2 darkened)
+    1.00f to Color(0xFF200A26),  // dark magenta (tertiary #E058CE darkened)
     start = Offset.Zero,
     end = Offset.Infinite,
 )

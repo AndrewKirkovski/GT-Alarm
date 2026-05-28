@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -34,11 +36,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -61,10 +64,15 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -149,10 +157,28 @@ fun AlarmListScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            val navBarPaddingDp = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            val density = LocalDensity.current
+            val fadeEdgePx = remember(navBarPaddingDp) { with(density) { (navBarPaddingDp + 38.dp).toPx() } }
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 16.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Black, Color.Transparent),
+                                startY = size.height - fadeEdgePx,
+                                endY = size.height,
+                            ),
+                            blendMode = BlendMode.DstIn,
+                        )
+                    },
+                contentPadding = PaddingValues(
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 88.dp,
+                ),
             ) {
                 item(key = "hero") {
                     HeroSection(alarms = alarms, settings = settings)
@@ -175,11 +201,13 @@ fun AlarmListScreen(
                 }
                 if (!canExact) {
                     item(key = "exact-alarm") {
-                        ElevatedCard(
+                        Card(
                             modifier = Modifier
                                 .padding(horizontal = 16.dp, vertical = 4.dp)
                                 .fillMaxWidth()
                                 .clickable { onOpenExactAlarmSettings() },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                         ) {
                             Text(
                                 text = stringResource(R.string.permission_exact_alarm_rationale),
@@ -226,25 +254,22 @@ fun AlarmListScreen(
                         color = MaterialTheme.colorScheme.surface,
                         shadowElevation = 4.dp,
                     ) {
-                        Image(
-                            painter = painterResource(R.drawable.ic_add),
-                            contentDescription = stringResource(R.string.add_alarm),
-                            modifier = Modifier
-                                .size(48.dp)
-                                .padding(12.dp)
-                                .clickable(onClick = onAdd),
-                        )
+                        IconButton(onClick = onAdd) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_add),
+                                contentDescription = stringResource(R.string.add_alarm),
+                                tint = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
                     }
                 } else {
-                    Image(
-                        painter = painterResource(R.drawable.ic_add),
-                        contentDescription = stringResource(R.string.add_alarm),
-                        modifier = Modifier
-                            .size(48.dp)
-                            .shadow(elevation = 4.dp, shape = CircleShape)
-                            .clip(CircleShape)
-                            .clickable(onClick = onAdd),
-                    )
+                    IconButton(onClick = onAdd) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_add),
+                            contentDescription = stringResource(R.string.add_alarm),
+                            tint = MaterialTheme.colorScheme.onBackground,
+                        )
+                    }
                 }
             }
         }
@@ -400,8 +425,10 @@ private fun WatchSyncCard(
         deviceText != null -> deviceText
         else -> null
     }
-    ElevatedCard(
+    Card(
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Row(
             modifier = Modifier
@@ -496,11 +523,13 @@ private fun forceSyncToast(
 
 @Composable
 private fun SetupNeededBanner(onOpenSetup: () -> Unit) {
-    ElevatedCard(
+    Card(
         modifier = Modifier
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .fillMaxWidth()
             .clickable { onOpenSetup() },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -540,9 +569,11 @@ private fun BatteryOptRationaleCard(
     onOpenSettings: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ElevatedCard(
+    Card(
         modifier = Modifier
             .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -695,6 +726,7 @@ private fun AlarmRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -705,8 +737,8 @@ private fun AlarmRow(
                 val countdownText = rememberRelativeCountdownText(alarm)
                 Text(
                     text = countdownText,
-                    fontSize = 40.sp,
-                    fontWeight = FontWeight.Light,
+                    fontSize = 43.sp,
+                    fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.tertiary,
                 )
             } else {
@@ -722,8 +754,8 @@ private fun AlarmRow(
                         alarm.minute,
                         overrideUse24Hour = settings.use24Hour,
                     ),
-                    fontSize = 54.sp,
-                    fontWeight = if (alarm.enabled) FontWeight.Bold else FontWeight.Light,
+                    fontSize = 43.sp,
+                    fontWeight = FontWeight.Bold,
                     color = timeColor,
                 )
             }

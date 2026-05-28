@@ -12,7 +12,8 @@
     <string name="ring_waiting_for_watch">等待手表…</string>
 
     <string name="screen_list_title">闹钟</string>
-    <string name="field_label_placeholder">起床</string>
+    <string name="screen_timer_title">计时器</string>
+    <string name="field_label_placeholder">闹钟标签</string>
     <string name="field_audio">声音</string>
     <string name="field_audio_default">系统默认</string>
     <string name="field_audio_pick">选择…</string>

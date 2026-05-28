@@ -17,15 +17,23 @@ import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,7 +53,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
@@ -102,7 +115,6 @@ fun HelpScreen(
     }
 
     val hasUnresolved = permissionChecks.any { it.status == PermissionAudit.Status.DENIED }
-    var donateOpen by rememberSaveable { mutableStateOf(!hasUnresolved) }
     var checklistOpen by rememberSaveable { mutableStateOf(hasUnresolved) }
     var brandOpen by rememberSaveable { mutableStateOf(false) }
     var voiceOpen by rememberSaveable { mutableStateOf(false) }
@@ -114,127 +126,171 @@ fun HelpScreen(
     val contactUrl = stringResource(R.string.help_device_unsupported_url)
 
     Scaffold(
+        containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
-        Column(
+        val navBarPaddingDp = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        Box(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(vertical = 8.dp),
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(Color.Black, Color.Transparent),
+                            startY = size.height - navBarPaddingDp.toPx() - 38.dp.toPx(),
+                            endY = size.height,
+                        ),
+                        blendMode = BlendMode.DstIn,
+                    )
+                },
         ) {
-            AccordionSection(
-                title = stringResource(R.string.help_donate_title),
-                expanded = donateOpen,
-                onToggle = { donateOpen = !donateOpen },
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(vertical = 8.dp),
             ) {
-                AccordionAction(
-                    bodyRes = R.string.help_donate_body,
-                    buttonLabelRes = R.string.help_donate_button,
-                    onClick = { openExternalUrl(context, donateUrl) },
+            // Hero: Ko-fi/donate — always visible, floating on gradient
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.help_donate_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
                 )
+                Text(
+                    text = stringResource(R.string.help_donate_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                FilledTonalButton(
+                    onClick = { openExternalUrl(context, donateUrl) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.help_donate_button))
+                }
             }
 
-            HorizontalDivider()
+            Spacer(Modifier.height(4.dp))
 
-            AccordionSection(
-                title = stringResource(R.string.help_section_reliability),
-                expanded = checklistOpen,
-                onToggle = { checklistOpen = !checklistOpen },
-                leading = { StatusMarkerDot(ok = !hasUnresolved) },
+            // Content card — all other sections grouped with horizontal margins
+            Card(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = stringResource(R.string.help_section_reliability_intro),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    permissionChecks.forEach { check ->
-                        PermissionRow(
-                            check = check,
-                            onFix = {
-                                val intent = PermissionAudit.intentFor(context, check.item)
-                                startActivitySafely(context, intent)
-                            },
+                Column {
+                    AccordionSection(
+                        title = stringResource(R.string.help_section_reliability),
+                        expanded = checklistOpen,
+                        onToggle = { checklistOpen = !checklistOpen },
+                        leading = { StatusMarkerDot(ok = !hasUnresolved) },
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = stringResource(R.string.help_section_reliability_intro),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            permissionChecks.forEach { check ->
+                                PermissionRow(
+                                    check = check,
+                                    onFix = {
+                                        val intent = PermissionAudit.intentFor(context, check.item)
+                                        startActivitySafely(context, intent)
+                                    },
+                                )
+                            }
+                        }
+                    }
+
+                    HorizontalDivider()
+
+                    AccordionSection(
+                        title = stringResource(R.string.help_section_brand_tips),
+                        expanded = brandOpen,
+                        onToggle = { brandOpen = !brandOpen },
+                    ) {
+                        Text(
+                            text = stringResource(R.string.help_section_brand_tips_intro),
+                            style = MaterialTheme.typography.bodyMedium,
                         )
+                        BrandTipsCard()
+                    }
+
+                    HorizontalDivider()
+
+                    AccordionSection(
+                        title = stringResource(R.string.help_section_voice),
+                        expanded = voiceOpen,
+                        onToggle = { voiceOpen = !voiceOpen },
+                    ) {
+                        VoiceStatusBanner(voiceStatus)
+                        Text(
+                            text = stringResource(R.string.help_intro),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                        Text(
+                            text = stringResource(R.string.help_reset_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+
+                    HorizontalDivider()
+
+                    AccordionSection(
+                        title = stringResource(R.string.help_pair_watch_title),
+                        expanded = pairOpen,
+                        onToggle = { pairOpen = !pairOpen },
+                    ) {
+                        AccordionAction(
+                            bodyRes = R.string.help_pair_watch_body,
+                            buttonLabelRes = R.string.help_pair_watch_button,
+                            onClick = onPairWatch,
+                        )
+                    }
+
+                    HorizontalDivider()
+
+                    AccordionSection(
+                        title = stringResource(R.string.help_device_unsupported_title),
+                        expanded = deviceOpen,
+                        onToggle = { deviceOpen = !deviceOpen },
+                    ) {
+                        AccordionAction(
+                            bodyRes = R.string.help_device_unsupported_body,
+                            buttonLabelRes = R.string.help_device_unsupported_button,
+                            onClick = { openExternalUrl(context, contactUrl) },
+                        )
+                    }
+
+                    HorizontalDivider()
+
+                    AccordionSection(
+                        title = stringResource(R.string.help_debug_title),
+                        expanded = debugOpen,
+                        onToggle = { debugOpen = !debugOpen },
+                    ) {
+                        DebugContent(onFireAlarmNow)
                     }
                 }
             }
 
-            HorizontalDivider()
-
-            AccordionSection(
-                title = stringResource(R.string.help_section_brand_tips),
-                expanded = brandOpen,
-                onToggle = { brandOpen = !brandOpen },
-            ) {
-                Text(
-                    text = stringResource(R.string.help_section_brand_tips_intro),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                BrandTipsCard()
-            }
-
-            HorizontalDivider()
-
-            AccordionSection(
-                title = stringResource(R.string.help_section_voice),
-                expanded = voiceOpen,
-                onToggle = { voiceOpen = !voiceOpen },
-            ) {
-                VoiceStatusBanner(voiceStatus)
-                Text(
-                    text = stringResource(R.string.help_intro),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-                Text(
-                    text = stringResource(R.string.help_reset_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-
-            HorizontalDivider()
-
-            AccordionSection(
-                title = stringResource(R.string.help_pair_watch_title),
-                expanded = pairOpen,
-                onToggle = { pairOpen = !pairOpen },
-            ) {
-                AccordionAction(
-                    bodyRes = R.string.help_pair_watch_body,
-                    buttonLabelRes = R.string.help_pair_watch_button,
-                    onClick = onPairWatch,
-                )
-            }
-
-            HorizontalDivider()
-
-            AccordionSection(
-                title = stringResource(R.string.help_device_unsupported_title),
-                expanded = deviceOpen,
-                onToggle = { deviceOpen = !deviceOpen },
-            ) {
-                AccordionAction(
-                    bodyRes = R.string.help_device_unsupported_body,
-                    buttonLabelRes = R.string.help_device_unsupported_button,
-                    onClick = { openExternalUrl(context, contactUrl) },
-                )
-            }
-
-            HorizontalDivider()
-
-            AccordionSection(
-                title = stringResource(R.string.help_debug_title),
-                expanded = debugOpen,
-                onToggle = { debugOpen = !debugOpen },
-            ) {
-                DebugContent(onFireAlarmNow)
-            }
-
-            HorizontalDivider()
-
             CreditsFooter()
+            Spacer(
+                Modifier.height(
+                    WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 88.dp,
+                ),
+            )
+            }
         }
     }
 }
@@ -291,7 +347,7 @@ private fun PermissionRow(
     val skipped = check.status == PermissionAudit.Status.NOT_APPLICABLE
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = MaterialTheme.colorScheme.surface,
         shape = MaterialTheme.shapes.medium,
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -405,7 +461,7 @@ private fun VoiceStatusBanner(status: DefaultAlarmDetector.DefaultStatus) {
     }
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = MaterialTheme.colorScheme.surface,
         shape = MaterialTheme.shapes.medium,
     ) {
         Row(

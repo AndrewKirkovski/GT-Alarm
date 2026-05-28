@@ -12,20 +12,27 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -43,9 +50,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +77,9 @@ import com.kirkouski.gtalarm.util.firstCalendarDayWithOverride
 import com.kirkouski.gtalarm.util.longDayName
 import java.util.Calendar
 
+// reason: Scaffold + Box fade wrapper + three card sections = inherently long
+// for a settings screen; splitting adds indirection with no reuse benefit.
+@Suppress("LongMethod")
 @Composable
 fun SettingsScreen(
     vm: SettingsViewModel = hiltViewModel(),
@@ -73,17 +89,39 @@ fun SettingsScreen(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
-        Column(
+        val navBarPaddingDp = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val density = LocalDensity.current
+        val fadeEdgePx = remember(navBarPaddingDp) { with(density) { (navBarPaddingDp + 38.dp).toPx() } }
+        Box(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(Color.Black, Color.Transparent),
+                            startY = size.height - fadeEdgePx,
+                            endY = size.height,
+                        ),
+                        blendMode = BlendMode.DstIn,
+                    )
+                },
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SettingsSectionHeader(stringResource(R.string.settings_section_display))
-                Card(modifier = Modifier.fillMaxWidth()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -94,7 +132,10 @@ fun SettingsScreen(
             }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SettingsSectionHeader(stringResource(R.string.settings_section_default_ringtones))
-                Card(modifier = Modifier.fillMaxWidth()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         RingtoneSection(state = state, vm = vm)
                     }
@@ -102,11 +143,20 @@ fun SettingsScreen(
             }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SettingsSectionHeader(stringResource(R.string.settings_section_default_backgrounds))
-                Card(modifier = Modifier.fillMaxWidth()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         BackgroundSection(state = state, vm = vm)
                     }
                 }
+            }
+            Spacer(
+                Modifier.height(
+                    WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 88.dp,
+                ),
+            )
             }
         }
     }
@@ -151,6 +201,36 @@ private fun BackgroundSection(state: SettingsState, vm: SettingsViewModel) {
  * (`watch_bg_-1.png`) can't collide with a real alarm's crop.
  */
 @Composable
+private fun WatchFacePreview(backgroundUri: String?, reloadKey: Any? = null) {
+    val bm = rememberBackgroundBitmap(backgroundUri, reloadKey).value
+    Box(
+        modifier = Modifier.size(140.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (bm != null) {
+            Image(
+                bitmap = bm,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().clip(CircleShape),
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .background(Color.Black),
+            )
+        }
+        Image(
+            painter = painterResource(R.drawable.watch_overlay),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+}
+
+@Composable
 private fun WatchBackgroundRow(
     currentUri: String?,
     onPicked: (String) -> Unit,
@@ -176,13 +256,42 @@ private fun WatchBackgroundRow(
             },
         )
     }
-    BackgroundRowLayout(
-        titleRes = R.string.settings_default_watch_background,
-        currentUri = currentUri,
-        reloadKey = reloadToken,
-        onPick = { showPicker = true },
-        onClear = onClear,
-    )
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.settings_default_watch_background),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = stringResource(
+                        if (currentUri == null) R.string.settings_default_background_none
+                        else R.string.settings_default_background_set,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (currentUri != null) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (currentUri != null) {
+                IconButton(onClick = onClear) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_close),
+                        contentDescription = stringResource(R.string.settings_default_background_clear),
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+            FilledTonalButton(onClick = { showPicker = true }) {
+                Text(stringResource(R.string.field_background_image_pick))
+            }
+        }
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            WatchFacePreview(backgroundUri = currentUri, reloadKey = reloadToken)
+        }
+    }
 }
 
 @Composable
@@ -263,7 +372,8 @@ private fun BackgroundRowLayout(
                         else R.string.settings_default_background_set,
                     ),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (currentUri != null) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (currentUri != null) {
@@ -277,7 +387,7 @@ private fun BackgroundRowLayout(
                 }
             }
             FilledTonalButton(onClick = onPick) {
-                Text(stringResource(R.string.field_audio_pick))
+                Text(stringResource(R.string.field_background_image_pick))
             }
         }
         if (showRingPreview) {

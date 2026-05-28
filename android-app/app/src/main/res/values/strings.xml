@@ -21,9 +21,12 @@
     <string name="missed_notification_text_unlabeled" tools:ignore="MissingTranslation">An \"in N min\" reminder was missed while the device was off.</string>
 
     <string name="screen_list_title">Alarms</string>
-    <string name="field_label_placeholder">Wake up</string>
+    <string name="screen_timer_title">Timer</string>
+    <string name="field_label_placeholder">Alarm label</string>
     <string name="field_audio">Audio</string>
     <string name="field_audio_default">System default</string>
+    <!-- shown in the per-alarm edit row when no custom audio is set; the alarm inherits the app default -->
+    <string name="field_audio_app_default" tools:ignore="MissingTranslation">App default</string>
     <string name="field_audio_pick">Choose…</string>
     <string name="field_audio_unknown" tools:ignore="MissingTranslation">Unknown ringtone</string>
     <!-- reason: new for per-alarm phone background image. Translations
@@ -31,6 +34,7 @@
     <string name="field_background_image" tools:ignore="MissingTranslation">Background image</string>
     <string name="field_background_image_pick" tools:ignore="MissingTranslation">Choose…</string>
     <string name="field_background_image_clear" tools:ignore="MissingTranslation">Clear background image</string>
+    <string name="field_background_image_default" tools:ignore="MissingTranslation">App default</string>
     <!-- reason: shared watch-background picker (Settings → Default watch
          background only — no per-alarm field). Translations land in a
          follow-up; tools:ignore silences the lint until then. -->
@@ -48,8 +52,6 @@
 
     <!-- reason: new for relative-alarm + self-destruct MVP. Translations
          will land in a follow-up; tools:ignore silences the lint until then. -->
-    <string name="field_relative_minutes" tools:ignore="MissingTranslation">Fires in</string>
-    <string name="field_relative_minutes_custom" tools:ignore="MissingTranslation">Custom (1–1440 min)</string>
     <string name="field_self_destruct" tools:ignore="MissingTranslation">Delete after firing</string>
     <string name="list_relative_in_min" tools:ignore="MissingTranslation">in %1$d min</string>
     <string name="list_relative_in_hr_min" tools:ignore="MissingTranslation">in %1$d h %2$d min</string>

@@ -12,7 +12,8 @@
     <string name="ring_waiting_for_watch">Czekanie na zegarek…</string>
 
     <string name="screen_list_title">Alarmy</string>
-    <string name="field_label_placeholder">Pobudka</string>
+    <string name="screen_timer_title">Timer</string>
+    <string name="field_label_placeholder">Etykieta alarmu</string>
     <string name="field_audio">Dźwięk</string>
     <string name="field_audio_default">Systemowy</string>
     <string name="field_audio_pick">Wybierz…</string>

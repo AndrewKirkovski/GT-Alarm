@@ -2,7 +2,6 @@ package com.kirkouski.gtalarm.ui.nav
 
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -14,13 +13,14 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -62,7 +62,7 @@ fun AppBottomBar(currentRoute: String?, onSelect: (String) -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 8.dp),
+            .padding(horizontal = 48.dp, vertical = 8.dp),
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -95,26 +95,27 @@ private fun BottomTabItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Clickable on the outer cell so the full weight(1f) area is tappable,
+    // not just the 44 dp inner circle. The circle is visual-only.
     Box(
         modifier = modifier
             .fillMaxHeight()
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        if (selected) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(tab.iconRes),
+                contentDescription = stringResource(tab.labelRes),
+                tint = if (selected) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                modifier = Modifier.size(24.dp),
             )
         }
-        Image(
-            painter = painterResource(tab.iconRes),
-            contentDescription = stringResource(tab.labelRes),
-            modifier = Modifier
-                .size(24.dp)
-                .alpha(if (selected) 1f else 0.45f),
-        )
     }
 }

@@ -12,6 +12,7 @@ import android.os.Looper
 import android.os.UserManager
 import android.util.Log
 import com.kirkouski.gtalarm.data.AlarmRepository
+import com.kirkouski.gtalarm.data.SettingsStore
 import com.kirkouski.gtalarm.data.bfu.BfuAlarmCache
 import com.kirkouski.gtalarm.di.IoDispatcher
 import com.kirkouski.gtalarm.domain.Alarm
@@ -29,10 +30,15 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
+// reason: one handler per action (ring, dismiss, snooze) × pre-unlock variants,
+// plus lifecycle hooks, audio helpers, and notification utilities — each maps to
+// a distinct OS event; splitting would scatter the same state across more files.
+@Suppress("TooManyFunctions")
 @AndroidEntryPoint
 class AlarmRingService : Service() {
 
     @Inject lateinit var repository: AlarmRepository
+    @Inject lateinit var settingsStore: SettingsStore
     @Inject lateinit var scheduler: AlarmScheduler
     @Inject lateinit var wearBridge: WearBridgeService
     @Inject lateinit var bfuCache: BfuAlarmCache
@@ -183,7 +189,7 @@ class AlarmRingService : Service() {
                 Log.i(TAG, "preArmWatch id=$alarmId ready=$watchReady took=${prearmTookMs}ms")
                 // STEP 3: start audio + show AlarmActivity. By now phone +
                 // watch are both presenting (or we timed out waiting).
-                startRingingAudioAndUi(alarm)
+                startRingingAudioAndUi(alarm, resolveAudioUri(alarm))
                 // No sync-on-fire — forceSync's sync_check/sync_replace
                 // would yank the watch off its ring screen.
                 scheduleAutoStop()
@@ -303,7 +309,15 @@ class AlarmRingService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
         }
 
-    private fun startRingingAudioAndUi(alarm: Alarm) {
+    // Per-alarm URI → app Settings default → null (player falls back to system alarm).
+    // DataStore is post-unlock only; returns null pre-BFU so bundled fallback plays.
+    private suspend fun resolveAudioUri(alarm: Alarm): String? {
+        if (alarm.audioUri != null || !isUserUnlocked) return alarm.audioUri
+        val s = settingsStore.snapshot()
+        return if (alarm.isRelative) s.defaultRelativeRingtoneUri else s.defaultAbsoluteRingtoneUri
+    }
+
+    private fun startRingingAudioAndUi(alarm: Alarm, effectiveAudioUri: String?) {
         // Assign `player` BEFORE start() so that if MediaPlayer init throws
         // mid-call (audio focus denied, codec failure, broken URI), the
         // partially-initialized instance is still reachable from
@@ -314,7 +328,7 @@ class AlarmRingService : Service() {
         player = p
         // Pre-unlock: SAF/system-default URIs return null; use bundled tone.
         p.start(
-            uri = alarm.audioUri,
+            uri = effectiveAudioUri,
             vibrateOnly = alarm.isVibrationOnly,
             pattern = alarm.vibrationPattern,
             volumeRampSeconds = alarm.volumeRampSeconds,

@@ -12,7 +12,8 @@
     <string name="ring_waiting_for_watch">Ожидание часов…</string>
 
     <string name="screen_list_title">Будильники</string>
-    <string name="field_label_placeholder">Подъём</string>
+    <string name="screen_timer_title">Таймер</string>
+    <string name="field_label_placeholder">Метка будильника</string>
     <string name="field_audio">Звук</string>
     <string name="field_audio_default">Системный по умолчанию</string>
     <string name="field_audio_pick">Выбрать…</string>

@@ -12,7 +12,8 @@
     <string name="ring_waiting_for_watch">Чаканне гадзінніка…</string>
 
     <string name="screen_list_title">Будзільнікі</string>
-    <string name="field_label_placeholder">Уставанне</string>
+    <string name="screen_timer_title">Таймер</string>
+    <string name="field_label_placeholder">Метка будзільніка</string>
     <string name="field_audio">Гук</string>
     <string name="field_audio_default">Сістэмны</string>
     <string name="field_audio_pick">Выбраць…</string>

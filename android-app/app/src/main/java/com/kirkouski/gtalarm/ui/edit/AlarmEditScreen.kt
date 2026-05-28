@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,14 +29,15 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -42,7 +45,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -53,29 +55,34 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.anhaki.picktime.PickHourMinute
 import com.anhaki.picktime.utils.PickTimeFocusIndicator
 import com.anhaki.picktime.utils.PickTimeTextStyle
 import com.anhaki.picktime.utils.TimeFormat
+import com.kirkouski.gtalarm.ui.picktime.GtPickHourMinute
 import com.kirkouski.gtalarm.R
 import com.kirkouski.gtalarm.domain.Alarm
 import com.kirkouski.gtalarm.domain.DaysOfWeek
@@ -92,10 +99,11 @@ import com.kirkouski.gtalarm.util.shortLabelResForDayBit
 @Suppress("LongMethod", "CyclomaticComplexMethod")
 fun AlarmEditScreen(
     alarmId: Long?,
+    initialMode: AlarmMode = AlarmMode.ABSOLUTE,
     onDone: () -> Unit,
     vm: AlarmEditViewModel = hiltViewModel(),
 ) {
-    LaunchedEffect(alarmId) { vm.load(alarmId) }
+    LaunchedEffect(alarmId) { vm.load(alarmId, initialMode) }
     val state by vm.state.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -181,80 +189,84 @@ fun AlarmEditScreen(
     ) { padding ->
         if (!state.loaded) return@Scaffold
 
-        Column(
+        val navBarPaddingDp = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val density = LocalDensity.current
+        // Initialise to 280 dp so content is positioned correctly before the first layout pass.
+        var pickerHeightPx by remember { mutableIntStateOf(with(density) { 280.dp.roundToPx() }) }
+
+        // Outer Box: layout anchor. Time picker overlays as a fixed header at the top.
+        // MainActivity's NavHost already pads by calculateTopPadding() — no statusBarsPadding() here.
+        Box(
             modifier = Modifier
-                .padding(padding)
-                .statusBarsPadding()
+                .padding(top = padding.calculateTopPadding())
                 .fillMaxSize(),
         ) {
-            // Time picker — top portion with transparent background so
-            // the gradient behind AlarmEditScreen shows through.
-            if (state.mode == AlarmMode.ABSOLUTE) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 280.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    key(state.id, is24h) {
-                        PickHourMinute(
-                            initialHour = state.hour,
-                            onHourChange = { h -> vm.updateTime(h, state.minute) },
-                            initialMinute = state.minute,
-                            onMinuteChange = { m -> vm.updateTime(state.hour, m) },
-                            timeFormat = if (is24h) TimeFormat.HOUR_24 else TimeFormat.HOUR_12,
-                            isLooping = true,
-                            extraRow = 2,
-                            containerColor = Color.Transparent,
-                            selectedTextStyle = PickTimeTextStyle(
-                                color = MaterialTheme.colorScheme.onBackground,
-                                fontSize = 64.sp,
-                                fontFamily = FontFamily.Default,
-                                fontWeight = FontWeight.Bold,
+            // Inner Box: top+bottom fade mask on the scrollable content.
+            // Top fade hides content scrolling under the time picker.
+            // Bottom fade hides content scrolling under the pill.
+            // See docs/ui-design-rules.md.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        val topFadeEnd = pickerHeightPx.toFloat()
+                        val topFadeStart = (topFadeEnd - 40.dp.toPx()).coerceAtLeast(0f)
+                        val bottomFadeStart = size.height - navBarPaddingDp.toPx() - 40.dp.toPx()
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                0f to Color.Transparent,
+                                (topFadeStart / size.height).coerceIn(0f, 1f) to Color.Transparent,
+                                (topFadeEnd / size.height).coerceIn(0f, 1f) to Color.Black,
+                                (bottomFadeStart / size.height).coerceIn(0f, 1f) to Color.Black,
+                                1f to Color.Transparent,
                             ),
-                            unselectedTextStyle = PickTimeTextStyle(
-                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f),
-                                fontSize = 32.sp,
-                                fontFamily = FontFamily.Default,
-                                fontWeight = FontWeight.Normal,
-                            ),
-                            focusIndicator = PickTimeFocusIndicator(
-                                enabled = false,
-                                widthFull = false,
-                                background = Color.Transparent,
-                                shape = RoundedCornerShape(4.dp),
-                                border = BorderStroke(0.dp, Color.Transparent),
-                            ),
+                            blendMode = BlendMode.DstIn,
                         )
-                    }
-                }
-            } else {
-                // Existing RELATIVE alarms — show duration picker in top area.
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 16.dp),
-                ) {
-                    RelativeRow(
-                        minutes = state.relativeMinutes,
-                        onChange = vm::updateRelativeMinutes,
-                    )
-                }
+                    },
+            ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+            ) {
+            // Space reserved for the fixed time picker above.
+            // The picker itself is placed after this Box (higher z-order).
+            Spacer(Modifier.height(with(density) { pickerHeightPx.toDp() }))
+
+            // Mode toggle: Alarm (at a set time) vs Timer (fires in N minutes).
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                SegmentedButton(
+                    selected = state.mode == AlarmMode.ABSOLUTE,
+                    onClick = { vm.updateMode(AlarmMode.ABSOLUTE) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                    label = { Text(stringResource(R.string.alarm_notification_title)) },
+                )
+                SegmentedButton(
+                    selected = state.mode == AlarmMode.RELATIVE,
+                    onClick = { vm.updateMode(AlarmMode.RELATIVE) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                    label = { Text(stringResource(R.string.screen_timer_title)) },
+                )
             }
 
-            // Settings card — fills remaining height, scrollable.
-            // Rounded top corners only; bottom sits against the CancelSaveBar.
+            // Settings card — wraps content height; whole screen scrolls. See docs/ui-design-rules.md.
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
-                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                    .padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
             ) {
                 val divider = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Column {
                     // Day repeat row (ABSOLUTE mode only)
                     if (state.mode == AlarmMode.ABSOLUTE) {
                         DayRow(
@@ -298,7 +310,7 @@ fun AlarmEditScreen(
                                         settings.defaultRelativeRingtoneName
                                     } else {
                                         settings.defaultAbsoluteRingtoneName
-                                    }) ?: stringResource(R.string.field_audio_default)
+                                    }) ?: stringResource(R.string.field_audio_app_default)
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
@@ -345,6 +357,7 @@ fun AlarmEditScreen(
                     }
                     BackgroundImageRow(
                         uri = state.backgroundImageUri,
+                        appDefaultUri = settings.defaultPhoneBackgroundUri,
                         timeText = previewTimeText,
                         labelText = state.label.takeIf { it.isNotBlank() }.orEmpty(),
                         onPick = pickBackgroundImage,
@@ -422,13 +435,76 @@ fun AlarmEditScreen(
                         }
                     }
 
-                    Spacer(Modifier.height(8.dp))
                 }
             }
-        }
+            // Outer spacer (outside card) gives extra scroll space so card bottom
+            // rounds above the pill. See docs/ui-design-rules.md.
+            Spacer(Modifier.height(navBarPaddingDp + 80.dp))
+            } // end scrollable Column
+            } // end inner faded Box
+
+            // Fixed time picker — stays at top while content scrolls beneath.
+            // onSizeChanged drives the top-fade boundary and the spacer in the column above.
+            if (state.mode == AlarmMode.ABSOLUTE) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 280.dp)
+                        .onSizeChanged { pickerHeightPx = it.height },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    key(state.id, is24h) {
+                        GtPickHourMinute(
+                            initialHour = state.hour,
+                            onHourChange = { h -> vm.updateTime(h, state.minute) },
+                            initialMinute = state.minute,
+                            onMinuteChange = { m -> vm.updateTime(state.hour, m) },
+                            timeFormat = if (is24h) TimeFormat.HOUR_24 else TimeFormat.HOUR_12,
+                            isLooping = true,
+                            extraRow = 2,
+                            containerColor = Color.Transparent,
+                            selectedTextStyle = PickTimeTextStyle(
+                                color = MaterialTheme.colorScheme.onBackground,
+                                fontSize = 64.sp,
+                                fontFamily = FontFamily.Default,
+                                fontWeight = FontWeight.Bold,
+                            ),
+                            unselectedTextStyle = PickTimeTextStyle(
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f),
+                                fontSize = 32.sp,
+                                fontFamily = FontFamily.Default,
+                                fontWeight = FontWeight.Normal,
+                            ),
+                            focusIndicator = PickTimeFocusIndicator(
+                                enabled = false,
+                                widthFull = false,
+                                background = Color.Transparent,
+                                shape = RoundedCornerShape(4.dp),
+                                border = BorderStroke(0.dp, Color.Transparent),
+                            ),
+                        )
+                    }
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 280.dp)
+                        .onSizeChanged { pickerHeightPx = it.height },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    RelativeRow(
+                        minutes = state.relativeMinutes,
+                        onChange = vm::updateRelativeMinutes,
+                    )
+                }
+            }
+        } // end outer Box
     }
 }
 
+// reason: black pill layout — 5 params + optional delete branch + two dividers = inherently long.
+@Suppress("LongMethod")
 @Composable
 private fun CancelSaveBar(
     onCancel: () -> Unit,
@@ -437,52 +513,64 @@ private fun CancelSaveBar(
     isExisting: Boolean,
     onDelete: () -> Unit,
 ) {
-    Surface(
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 8.dp,
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .height(56.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 8.dp,
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            if (isExisting) {
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.padding(start = 4.dp),
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (isExisting) {
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.padding(start = 4.dp),
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_delete),
+                            contentDescription = stringResource(R.string.delete),
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                    VerticalDivider(modifier = Modifier.height(28.dp))
+                }
+                TextButton(
+                    onClick = onCancel,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
                 ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_delete),
-                        contentDescription = stringResource(R.string.delete),
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(22.dp),
+                    Text(
+                        stringResource(R.string.cancel),
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
                 VerticalDivider(modifier = Modifier.height(28.dp))
-            }
-            TextButton(
-                onClick = onCancel,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-            ) {
-                Text(stringResource(R.string.cancel))
-            }
-            VerticalDivider(modifier = Modifier.height(28.dp))
-            TextButton(
-                onClick = onSave,
-                enabled = enabled,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-            ) {
-                Text(
-                    text = stringResource(R.string.action_save),
-                    fontWeight = FontWeight.Bold,
-                )
+                TextButton(
+                    onClick = onSave,
+                    enabled = enabled,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                ) {
+                    Text(
+                        text = stringResource(R.string.action_save),
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
             }
         }
     }
@@ -498,15 +586,7 @@ private fun LabelUnderlineField(value: String, onValueChange: (String) -> Unit) 
         singleLine = true,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            .drawBehind {
-                drawLine(
-                    color = onSurface.copy(alpha = 0.3f),
-                    start = Offset(0f, size.height),
-                    end = Offset(size.width, size.height),
-                    strokeWidth = 1.dp.toPx(),
-                )
-            },
+            .padding(horizontal = 16.dp, vertical = 16.dp),
         decorationBox = { innerTextField ->
             Box {
                 if (value.isEmpty()) {
@@ -524,61 +604,54 @@ private fun LabelUnderlineField(value: String, onValueChange: (String) -> Unit) 
 
 @Composable
 private fun RelativeRow(minutes: Int, onChange: (Int) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                painter = painterResource(R.drawable.ic_timer),
-                contentDescription = null,
-                tint = Color.Unspecified,
-                modifier = Modifier.padding(end = 8.dp).size(24.dp),
-            )
-            Text(
-                text = stringResource(R.string.field_relative_minutes),
-                style = MaterialTheme.typography.labelLarge,
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            RELATIVE_PRESETS.forEach { preset ->
-                RelativeChip(
-                    minutes = preset,
-                    selected = preset == minutes,
-                    onClick = { onChange(preset) },
-                )
-            }
-        }
-        // Custom field — accepts any value in [MIN_RELATIVE_MINUTES, MAX_RELATIVE_MINUTES].
-        OutlinedTextField(
-            value = minutes.toString(),
-            onValueChange = { raw ->
-                raw.toIntOrNull()?.takeIf {
-                    it in Alarm.MIN_RELATIVE_MINUTES..Alarm.MAX_RELATIVE_MINUTES
-                }?.let(onChange)
-            },
-            label = { Text(stringResource(R.string.field_relative_minutes_custom)) },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
+    val hours = (minutes / 60).coerceAtMost(23)
+    val mins = minutes % 60
+    // forceReset bumps when the proposed total would be clamped (e.g. both drums at 0:00
+    // clamps to MIN_RELATIVE_MINUTES). Incrementing the key tears down and recreates the
+    // picker with the correct initialHour/initialMinute so the display matches the stored value.
+    var forceReset by remember { mutableIntStateOf(0) }
+    key(forceReset) {
+    GtPickHourMinute(
+        initialHour = hours,
+        onHourChange = { h ->
+            val raw = h * 60 + mins
+            val clamped = raw.coerceIn(Alarm.MIN_RELATIVE_MINUTES, Alarm.MAX_RELATIVE_MINUTES)
+            if (clamped != raw) forceReset++
+            onChange(clamped)
+        },
+        initialMinute = mins,
+        onMinuteChange = { m ->
+            val raw = hours * 60 + m
+            val clamped = raw.coerceIn(Alarm.MIN_RELATIVE_MINUTES, Alarm.MAX_RELATIVE_MINUTES)
+            if (clamped != raw) forceReset++
+            onChange(clamped)
+        },
+        timeFormat = TimeFormat.HOUR_24,
+        isLooping = false,
+        extraRow = 2,
+        containerColor = Color.Transparent,
+        selectedTextStyle = PickTimeTextStyle(
+            color = MaterialTheme.colorScheme.onBackground,
+            fontSize = 64.sp,
+            fontFamily = FontFamily.Default,
+            fontWeight = FontWeight.Bold,
+        ),
+        unselectedTextStyle = PickTimeTextStyle(
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f),
+            fontSize = 32.sp,
+            fontFamily = FontFamily.Default,
+            fontWeight = FontWeight.Normal,
+        ),
+        focusIndicator = PickTimeFocusIndicator(
+            enabled = false,
+            widthFull = false,
+            background = Color.Transparent,
+            shape = RoundedCornerShape(4.dp),
+            border = BorderStroke(0.dp, Color.Transparent),
+        ),
+    )
+    } // end key(forceReset)
 }
-
-@Composable
-private fun RelativeChip(minutes: Int, selected: Boolean, onClick: () -> Unit) {
-    val bg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-    val fg = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-    Box(
-        modifier = Modifier
-            .size(width = 56.dp, height = 36.dp)
-            .clip(CircleShape)
-            .background(bg)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text = "$minutes", color = fg, style = MaterialTheme.typography.labelMedium)
-    }
-}
-
-private val RELATIVE_PRESETS = listOf(5, 15, 30, 60)
 
 @Composable
 private fun SelfDestructRow(checked: Boolean, onToggle: () -> Unit) {
@@ -955,11 +1028,14 @@ private fun DayRow(mask: Int, firstDayOverride: Int?, onToggle: (Int) -> Unit) {
 @Composable
 private fun BackgroundImageRow(
     uri: String?,
+    appDefaultUri: String?,
     timeText: String,
     labelText: String,
     onPick: () -> Unit,
     onClear: () -> Unit,
 ) {
+    // Effective URI for the preview: per-alarm override → app default → null (gradient placeholder).
+    val previewUri = uri ?: appDefaultUri
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -971,11 +1047,19 @@ private fun BackgroundImageRow(
                 tint = Color.Unspecified,
                 modifier = Modifier.padding(end = 12.dp).size(24.dp),
             )
-            Text(
-                text = stringResource(R.string.field_background_image),
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.weight(1f),
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.field_background_image),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                if (uri == null) {
+                    Text(
+                        text = stringResource(R.string.field_background_image_default),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
             OutlinedButton(onClick = onPick) {
                 Text(stringResource(R.string.field_background_image_pick))
             }
@@ -989,7 +1073,7 @@ private fun BackgroundImageRow(
         ) {
             Box {
                 RingScreenPreview(
-                    backgroundUri = uri,
+                    backgroundUri = previewUri,
                     timeText = timeText,
                     labelText = labelText,
                     width = 140.dp,
