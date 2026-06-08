@@ -84,18 +84,6 @@
     margin-bottom: 4px;
 }
 
-/* Diagnostic strip — debug instrumentation, kept compact (not scaled). */
-.diag-line {
-    width: 400px;
-    height: 20px;
-    margin-left: 33px;
-    margin-right: 33px;
-    margin-top: 1px;
-    text-align: center;
-    color: #D6DCE8;
-    font-size: 14px;
-}
-
 /* `<list>` is a native scroll component — it MUST carry an explicit
    height (a flex/no-height layout collapses it to ~1px on GT 6).
    padding-top/-bottom give over-scroll headroom so the first and last
@@ -316,20 +304,6 @@
     text-align: center;
 }
 
-.live-line {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: center;
-    width: 420px;
-    height: 42px;
-    margin-top: 16px;
-    margin-bottom: 8px;
-    color: #5FC9EF;
-    font-size: 30px;
-    text-align: center;
-}
-
 /* ---- Ring screen ---- */
 /* Ring screen — no background-color so the .bg-full photo shows at full
    strength (no scrim on the ring, per design). */
@@ -456,15 +430,6 @@
 .ring-btn-img {
     width: 112px;
     height: 112px;
-}
-
-.ring-diag {
-    width: 420px;
-    height: 20px;
-    margin-top: 6px;
-    text-align: center;
-    color: #D6DCE8;
-    font-size: 14px;
 }
 
 /* Hidden crown-capture list — see index.js CROWN_* + onCrownTick. The

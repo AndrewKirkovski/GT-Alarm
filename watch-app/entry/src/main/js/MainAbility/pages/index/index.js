@@ -26,6 +26,10 @@ var TAP_HINT_MS = 2600;
 // it without waiting for another upload. Path is ~36 B, well under the
 // 128 B storage cap.
 var BG_PATH_KEY = 'bg_path';
+// Sentinel stored in BG_PATH_KEY when the phone clears the default background.
+// Writing '' did NOT persist on the watch runtime (empty values don't stick),
+// so the cleared state must be a real non-empty string the restore ignores.
+var BG_CLEARED = '__cleared__';
 
 var DAY_BITS = [1, 2, 4, 8, 16, 32, 64];
 var DEFAULT_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -269,20 +273,16 @@ export default {
         alarms: [],
         emptyText: '',
         emptyHint: '',
-        diagLine1: 'rx:--',
-        diagLine2: '',
 
         // --- background photo ---
         // bgSrc: on-watch path of a P2P-received PNG, fed straight into
         // the full-screen <image src> with NO decode/copy. showScrim
         // gates the 50% dimming layer (list/sync screens only — the ring
-        // screen shows the photo at full strength). bgDiag is an
-        // always-rendered debug line refreshed by the 2 s poll.
+        // screen shows the photo at full strength).
         bgSrc: '',
         // hasBg MUST be a real boolean — HML `if=` does NOT coerce a
         // truthy string, so `if="{{bgSrc}}"` never rendered the <image>.
         hasBg: false,
-        bgDiag: 'bg:none',
         showScrim: false,
 
         // --- row-tap hint overlay ---
@@ -292,7 +292,6 @@ export default {
         // --- sync screen ---
         syncTitle: '',
         syncSubtitle: '',
-        liveLine: '',
 
         // --- ring screen ---
         ringTitle: '',
@@ -313,7 +312,6 @@ export default {
         // Falls back to PULSE when the alarm isn't in the store yet (thin-
         // client envelope without prior sync).
         ringVibrationPattern: 'PULSE',
-        ringDiagText: 'snt:-- rx:--',
 
         // --- i18n bag (read by helpers via `self`) ---
         repeatOnce: '', repeatTimer: '',
@@ -326,11 +324,8 @@ export default {
         // non-reactive scratch — not bound in HML
         _alarmId: 0,
         _explicitAction: null,
-        _ringSent: '--',
-        _evCount: 0,
         _userEngaged: false,
         _refreshTimer: null,
-        _diagTimer: null,
         _vibrateTimer: null,
         _tapHintTimer: null,
         _use24Hour: null,
@@ -403,6 +398,38 @@ export default {
         IncomingHandler.setOnPeerEndedRing(function (alarmId, type) {
             self.onPeerEnded(alarmId, type);
         });
+        // Phone cleared the default watch background. Persist the cleared
+        // sentinel FIRST so a relaunch can't restore the old path even if a
+        // later call throws; then drop it from the UI and best-effort delete
+        // the received file.
+        IncomingHandler.setOnBgCleared(function () {
+            var oldPath = self.bgSrc;
+            // Canonical key removal (documented) + non-empty sentinel fallback:
+            // delete may be unsupported on some runtimes, so the sentinel (which
+            // a non-empty set reliably persists) guarantees the restore rejects it.
+            storage.delete({
+                key: BG_PATH_KEY,
+                success: function () { Logger.i('bgCleared delkey ok'); },
+                fail: function (d, c) { Logger.i('bgCleared delkey FAIL c=' + c); },
+            });
+            storage.set({
+                key: BG_PATH_KEY,
+                value: BG_CLEARED,
+                success: function () { Logger.i('bgCleared set ok'); },
+                fail: function (d, c) { Logger.i('bgCleared set FAIL c=' + c + ' d=' + d); },
+            });
+            self.bgSrc = '';
+            self.hasBg = false;
+            self.updateScrim();
+            if (oldPath && oldPath !== BG_CLEARED) {
+                file.delete({
+                    uri: oldPath,
+                    success: function () { Logger.i('bgCleared del ok ' + oldPath); },
+                    fail: function (d, c) { Logger.i('bgCleared del FAIL c=' + c + ' uri=' + oldPath); },
+                });
+            }
+            Logger.i('index.bgCleared');
+        });
         IncomingHandler.setOnSyncWake(function () {
             if (self.screen === 'list') {
                 self.screen = 'sync';
@@ -437,7 +464,8 @@ export default {
             key: BG_PATH_KEY,
             default: '',
             success: function (v) {
-                if (v) {
+                Logger.i('index.bgPath get=[' + v + ']');
+                if (v && v !== BG_CLEARED) {
                     self.bgSrc = '' + v;
                     self.hasBg = true;
                     Logger.i('index.bgPath restored=' + v);
@@ -476,10 +504,6 @@ export default {
         });
         WearBridge.setIncomingHandler(function (msg) {
             try {
-                if (msg && msg.type) {
-                    self._evCount = self._evCount + 1;
-                    self.liveLine = 'rx #' + self._evCount + ': ' + msg.type;
-                }
                 IncomingHandler.handle(msg);
             } catch (e) {
                 Logger.err('index.handle', e);
@@ -490,11 +514,9 @@ export default {
             self.refresh();
         });
         this.refresh();
-        this.refreshDiag();
         if (this._refreshTimer === null) {
             this._refreshTimer = setInterval(function () {
                 self.refresh();
-                self.refreshDiag();
             }, 2000);
         }
     },
@@ -507,10 +529,6 @@ export default {
         if (this._refreshTimer !== null) {
             clearInterval(this._refreshTimer);
             this._refreshTimer = null;
-        }
-        if (this._diagTimer !== null) {
-            clearInterval(this._diagTimer);
-            this._diagTimer = null;
         }
         this.stopVibrate();
         this._disarmCrownGesture();
@@ -549,9 +567,7 @@ export default {
             var sorted = items.slice();
             sorted.sort(compareAlarms);
             var rows = [];
-            var on = 0;
             for (var i = 0; i < sorted.length; i++) {
-                if (sorted[i].enabled) on++;
                 rows.push(formatRow(self, sorted[i]));
             }
             self.alarms = rows;
@@ -570,16 +586,11 @@ export default {
                     }
                 }
             }
-            // Background photo debug line + scrim gate. bgSrc is a plain
-            // field set by the P2P file handler; the poll surfaces it
-            // reliably even if if=/async reactivity is not.
+            // Scrim gate for the background photo. bgSrc is a plain field
+            // set by the P2P file handler; the poll surfaces it reliably
+            // even if if=/async reactivity is not.
             self.hasBg = !!self.bgSrc;
-            self.bgDiag = self.bgSrc ? ('bg:' + self.bgSrc) : 'bg:none';
             self.updateScrim();
-            AlarmStore.getLastSyncEpoch(function (epoch) {
-                self.diagLine2 = 'st:' + items.length + ' on:' + on +
-                    ' ' + formatLastSync(self, epoch) + ' b:' + BUILD_TAG;
-            });
         });
     },
 
@@ -705,68 +716,6 @@ export default {
         }, TAP_HINT_MS);
     },
 
-    // ---- DIAGNOSTIC STRIP ----
-    // One read updates both the list/sync strip (diagLine1) and the ring
-    // strip (ringDiagText): rx-state + raw vs handled inbound counters.
-    refreshDiag: function () {
-        var self = this;
-        var rx = WearBridge.getReceiverState();
-        var rxTxt = (rx.result === 'ok')
-            ? ('ok@' + Math.floor((Date.now() - rx.atMs) / 1000) + 's')
-            : rx.result;
-        storage.get({
-            key: 'diag_rawrx',
-            default: '{"count":0}',
-            success: function (raw) {
-                var r;
-                try {
-                    r = JSON.parse(raw);
-                } catch (e) {
-                    r = { count: 0 };
-                }
-                self.applyDiag(rxTxt, r.count || 0);
-            },
-            fail: function () {
-                self.applyDiag(rxTxt, 0);
-            },
-        });
-    },
-
-    applyDiag: function (rxTxt, rawCount) {
-        var self = this;
-        // diag_inbound migrated to @system.file (incomingHandler.js) since
-        // the JSON byType map grows past @system.storage's 128 B cap with
-        // ~6+ distinct message types accumulated. The file path is the
-        // same one writers use: internal://app/diag_inbound.json.
-        file.readText({
-            uri: 'internal://app/diag_inbound.json',
-            success: function (data) {
-                var o;
-                try {
-                    o = (data && data.text) ? JSON.parse(data.text) : null;
-                } catch (e) {
-                    o = null;
-                }
-                var inCount = o ? (o.total || 0) : 0;
-                var last = (o && o.lastType) ? o.lastType : '-';
-                var age = (o && o.lastTs)
-                    ? (Math.floor((Date.now() - o.lastTs) / 1000) + 's')
-                    : '-';
-                self.diagLine1 = 'rx:' + rxTxt + ' raw:' + rawCount +
-                    ' in:' + inCount + ' ' + last + '@' + age;
-                self.ringDiagText = 'snt:' + self._ringSent + ' rx:' + rxTxt +
-                    ' raw:' + rawCount + ' in:' + inCount;
-            },
-            fail: function () {
-                // File not yet created (fresh install / no envelopes received).
-                // Show in:0 rather than a generic "fail" so the diag bar
-                // stays informative on first launch.
-                self.diagLine1 = 'rx:' + rxTxt + ' raw:' + rawCount + ' in:0';
-                self.ringDiagText = 'snt:' + self._ringSent + ' rx:' + rxTxt +
-                    ' raw:' + rawCount + ' in:0';
-            },
-        });
-    },
 
     // ---- RING ----
     enterRing: function (alarmId, ringHints) {
@@ -834,13 +783,11 @@ export default {
             this._use24Hour, this.ampmAM, this.ampmPM);
 
         // Tell the phone our ring UI is up (it awaits this before
-        // starting its own audio). Surface the result code on-screen.
+        // starting its own audio).
         var idNum = Number(alarmId);
         if (isFinite(idNum) && idNum > 0) {
             try {
-                WearBridge.sendRinging(idNum, function (ok, reason) {
-                    self._ringSent = reason;
-                });
+                WearBridge.sendRinging(idNum, function () {});
             } catch (e) {
                 Logger.err('index.sendRinging', e);
             }

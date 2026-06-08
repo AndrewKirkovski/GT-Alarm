@@ -13,8 +13,6 @@
         <div class="scrim" if="{{showScrim}}"></div>
         <div class="content">
         <text class="title">{{title}}</text>
-        <text class="diag-line">{{diagLine2}}</text>
-        <text class="diag-line">{{bgDiag}}</text>
 
         <list class="alarm-list" ref="alarmList" if="{{alarms.length > 0}}">
             <list-item class="alarm-list-row" for="{{alarms}}" tid="id"
@@ -125,9 +123,6 @@
         <div class="content">
             <text class="title">{{syncTitle}}</text>
             <text class="sync-sub">{{syncSubtitle}}</text>
-            <text class="live-line">{{liveLine}}</text>
-            <text class="diag-line">{{diagLine1}}</text>
-            <text class="diag-line">{{diagLine2}}</text>
         </div>
     </stack>
 
@@ -169,7 +164,6 @@
             <div class="ring-ended" if="{{ended}}">
                 <image src="common/thumbup.png" class="ring-thumb"></image>
             </div>
-            <text class="ring-diag">{{ringDiagText}}</text>
         </div>
     </stack>
 

@@ -220,6 +220,29 @@ class AlarmRepository @Inject constructor(
         }
     }
 
+    /**
+     * Clear the shared watch default background. Driven directly off the
+     * null URI from Settings — NOT inferred from a missing cache file, which
+     * silently re-uploaded the stale crop (the clear-never-clears bug): the
+     * picker leaves `watch_bg_<id>.png` on disk after the user clears, so the
+     * file-presence check in [uploadDefaultWatchBackground] always re-sent it.
+     * Here we delete the cached crop and every derived artifact so nothing can
+     * resurrect it, then tell the watch to drop its copy.
+     */
+    fun clearDefaultWatchBackground() {
+        appScope.launch {
+            val cache = appContext.cacheDir
+            val artifacts = listOf(
+                java.io.File(cache, "watch_bg_${DEFAULT_WATCH_BG_ID}.png"),
+                java.io.File(cache, "watch_bg_${DEFAULT_WATCH_BG_ID}.bin"),
+                com.kirkouski.gtwake.companion.wear.WatchBgTestEncoder.outputFile(cache),
+            )
+            val deleted = artifacts.count { it.exists() && it.delete() }
+            Log.i(TAG, "clearDefaultWatchBackground deleted=$deleted/${artifacts.size}, sending cleared envelope")
+            wearBridge.sendDefaultWatchBackgroundCleared()
+        }
+    }
+
     suspend fun setEnabled(id: Long, enabled: Boolean) {
         val now = System.currentTimeMillis()
         dao.setEnabledStamped(id, enabled, now)

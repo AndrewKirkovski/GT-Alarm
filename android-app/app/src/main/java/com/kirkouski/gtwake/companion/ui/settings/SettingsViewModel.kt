@@ -54,10 +54,15 @@ class SettingsViewModel @Inject constructor(
 
     fun setDefaultWatchBackground(uri: String?) = viewModelScope.launch {
         store.setDefaultWatchBackgroundUri(uri)
-        // Push the new BGRA blob (or clearance envelope when uri == null)
-        // to the watch. Settings owns the single shared watch bg — there's
-        // no per-alarm field anymore.
-        alarmRepository.uploadDefaultWatchBackground()
+        // Settings owns the single shared watch bg (no per-alarm field).
+        // Clear is an explicit branch — it deletes the cached crop + derived
+        // artifacts and sends the clearance envelope. Inferring "cleared" from
+        // a missing cache file silently re-uploaded the stale crop instead.
+        if (uri == null) {
+            alarmRepository.clearDefaultWatchBackground()
+        } else {
+            alarmRepository.uploadDefaultWatchBackground()
+        }
     }
 
     private companion object {

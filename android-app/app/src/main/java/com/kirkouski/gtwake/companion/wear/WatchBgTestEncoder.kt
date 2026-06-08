@@ -35,11 +35,22 @@ object WatchBgTestEncoder {
      */
     fun prepare(srcPng: File, cacheDir: File): File? {
         if (ACTIVE == Format.BIN) {
-            val bin = File(cacheDir, "watch_bg_bin.bin")
+            val bin = outputFile(cacheDir)
             return if (WatchBackgroundEncoder.encodePngToBin(srcPng, bin)) bin else null
         }
         return encodeRaster(srcPng, cacheDir)
     }
+
+    /**
+     * The file [prepare] writes for the current [ACTIVE] format, so the
+     * clear path can delete the derived artifact without re-deriving its name.
+     */
+    fun outputFile(cacheDir: File): File =
+        if (ACTIVE == Format.BIN) {
+            File(cacheDir, "watch_bg_bin.bin")
+        } else {
+            File(cacheDir, destName())
+        }
 
     private fun destName(): String =
         "watch_bg_" + ACTIVE.name.lowercase() + "." + extension()
@@ -56,7 +67,7 @@ object WatchBgTestEncoder {
         }
         return try {
             val scaled = if (isSmall()) bmp.scale(SMALL_PX, SMALL_PX) else bmp
-            val dest = File(cacheDir, destName())
+            val dest = outputFile(cacheDir)
             FileOutputStream(dest).use { scaled.compress(compressFormat(), JPEG_QUALITY, it) }
             if (scaled !== bmp) scaled.recycle()
             Log.i(TAG, "encodeRaster fmt=$ACTIVE -> ${dest.name} ${dest.length()}B")

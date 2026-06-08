@@ -106,6 +106,7 @@ function applyAndWriteDiag(rawText, type) {
 
 var onAlarmFired = null;
 var onPeerEndedRing = null;
+var onBgCleared = null;
 // Injected by the single page. onSyncDone → terminate when a sync wake
 // finishes; onSyncWake → switch the page to its "Syncing…" screen on the
 // first envelope of a wake-by-sync.
@@ -382,6 +383,9 @@ export default {
     setOnPeerEndedRing: function (fn) {
         onPeerEndedRing = fn;
     },
+    setOnBgCleared: function (fn) {
+        onBgCleared = fn;
+    },
     handle: function (msg) {
         // Meta-protocol envelopes (no alarmId / no updatedAtEpoch) MUST
         // bypass rejectMalformed, which requires both. sync_check is a
@@ -431,6 +435,17 @@ export default {
             bumpInboundDiag('sync_done');
             Logger.i('incoming.sync_done');
             if (onSyncDone) onSyncDone();
+            return;
+        }
+        // watch_default_bg_cleared: phone cleared the default watch
+        // background. No alarmId, so it bypasses rejectMalformed like the
+        // other meta envelopes. Drop bgSrc/hasBg, forget the persisted path,
+        // and delete the received file so it can't restore on relaunch.
+        if (msg && msg.type === 'watch_default_bg_cleared') {
+            bumpInboundDiag('watch_default_bg_cleared');
+            noteIncomingEnvelope();
+            Logger.i('incoming.watch_default_bg_cleared');
+            if (onBgCleared) onBgCleared();
             return;
         }
         if (rejectMalformed(msg)) {
