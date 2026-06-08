@@ -1,0 +1,156 @@
+package com.kirkouski.gtwake.companion.wear
+
+import com.kirkouski.gtwake.companion.data.sync.IncomingMessageHandler
+import com.kirkouski.gtwake.companion.domain.Alarm
+import kotlinx.coroutines.flow.StateFlow
+
+/**
+ * Contract between the phone app and a paired wearable. Wire format and LWW
+ * semantics live in `docs/sync-architecture.md` §2 — keep this interface in
+ * lock-step with that document.
+ *
+ * Every send method requires `updatedAtEpoch > 0`. Implementations may drop
+ * the send when the stamp is below an NTP-sane threshold rather than crash
+ * the caller.
+ */
+// reason: ring round-trip needs fire-and-forget AND await variants per state;
+// pre-unlock variant has no live receiver.
+@Suppress("TooManyFunctions")
+interface WearBridgeService {
+    /** UI-observable connection-state stream. */
+    val statusFlow: StateFlow<WatchSyncStatus>
+
+    /**
+     * Resolved bonded device (`null` until [forceSync] or a successful send
+     * has run). Surfaces name + model so the WatchSyncCard can show
+     * "HUAWEI WATCH GT 6 · FRA-B19" instead of just a connected/not-connected
+     * flag.
+     */
+    val pairedDeviceInfo: StateFlow<PairedDeviceInfo?>
+
+    /** Fire-and-forget alarm_fired — queued for a later-reconnecting watch.
+     *  [ringHints] satisfies the thin-client criterion (watch can ring with
+     *  the right pattern + Snooze gating without a prior sync_replace). Pass
+     *  `null` only when the alarm can't be resolved (best-effort fallback). */
+    fun sendAlarmFired(alarmId: Long, ringHints: AlarmRingHints?)
+
+    /** Pre-unlock dismiss — awaits transport 207 only (no app-level receiver pre-unlock). */
+    suspend fun sendAlarmDismissed(alarmId: Long): Boolean
+
+    /** Pre-unlock snooze (transport-only, like [sendAlarmDismissed]). */
+    suspend fun sendAlarmSnoozed(alarmId: Long, rescheduleEpoch: Long): Boolean
+
+    /**
+     * Pre-arm: send `alarm_fired` then await the watch's `alarm_ringing`
+     * reply. Returns true iff the watch's ring page has actually rendered
+     * within [timeoutMs] (its onShow handler sends `alarm_ringing` back).
+     * Used by AlarmRingService to start phone audio in lock-step with
+     * the watch — without this, the phone beats the watch by 500-1000ms
+     * on cold launches because P2P send ACK happens before the watch's
+     * JS engine has finished starting + mounting the ring page.
+     *
+     * Returns false on timeout / send failure / no paired watch.
+     */
+    suspend fun sendAlarmFiredAwaiting(
+        alarmId: Long,
+        timeoutMs: Long,
+        ringHints: AlarmRingHints?,
+    ): Boolean
+
+    /**
+     * Suspending dismiss: waits up to [timeoutMs] for the watch to ACK
+     * the P2P send (207=COMM_SUCCESS). Used by AlarmRingService so the
+     * service doesn't tear down (and risk process-kill) before the watch
+     * has heard about the dismiss — otherwise the watch keeps ringing.
+     */
+    suspend fun sendAlarmDismissedAwaiting(alarmId: Long, timeoutMs: Long): Boolean
+
+    /** Same rationale as [sendAlarmDismissedAwaiting] but for snooze. */
+    suspend fun sendAlarmSnoozedAwaiting(
+        alarmId: Long,
+        rescheduleEpoch: Long,
+        timeoutMs: Long,
+    ): Boolean
+
+    /**
+     * Upload the shared default watch-side background image to the paired
+     * watch. One image applies to every alarm (the per-alarm field was
+     * dropped in schema v8 — Settings owns the single default).
+     *
+     * [bgFile] is the exact file to transfer; its format is decided by
+     * [com.kirkouski.gtwake.companion.wear.WatchBgTestEncoder] — a hardware
+     * experiment probing whether the watch `<image>` can render a plain
+     * JPG/PNG or still needs the BGRA `.bin` (see that class).
+     *
+     * Uses the Wear Engine file-transfer path (`Message.Builder.setPayload(File)`).
+     * The watch receives the file at a runtime path and references it
+     * directly via `<image src>`.
+     *
+     * Returns true iff the watch ACKed delivery (207 = COMM_SUCCESS).
+     * Caller may treat false as transient — retry on the next Settings
+     * save / forceSync.
+     */
+    suspend fun uploadDefaultWatchBackground(bgFile: java.io.File): Boolean
+
+    /**
+     * Tell the watch to drop its cached default background bin. Sent when
+     * the user clears the default in Settings so the watch deletes its
+     * `bg_default.bin` and falls back to its bundled ring UI.
+     */
+    fun sendDefaultWatchBackgroundCleared()
+
+    /**
+     * Push the user's display preferences to the watch. One-way: phone is
+     * the only place these are edited; watch is a thin display surface.
+     *
+     * - [use24Hour]: null = follow watch system locale; explicit true/false
+     *   overrides the watch's time formatter.
+     * - [firstDayOfWeek]: 1..7 = SUNDAY..SATURDAY per java.util.Calendar.
+     *   null = follow watch locale.
+     *
+     * Wire format: `{ type: "settings_changed", use24Hour: bool|null,
+     * firstDayOfWeek: int|null, updatedAtEpoch }`. NOT LWW — the watch
+     * unconditionally overwrites its local copy.
+     */
+    fun sendSettingsChanged(use24Hour: Boolean?, firstDayOfWeek: Int?)
+
+    /** Receive-side seam. Pass `null` to detach. */
+    fun setIncomingHandler(handler: IncomingMessageHandler?)
+
+    /**
+     * Renders the Wear Engine auth dialog via Huawei Health. Activity context
+     * required (the dialog is rendered by Huawei Health, not us). User-driven
+     * — wired to the "Authorize watch access" buttons in HelpScreen and the
+     * WatchSyncCard, NOT auto-fired on launch.
+     */
+    fun requestPermissionFromActivity(activity: android.app.Activity)
+
+    /**
+     * Tri-state check of whether the app currently holds Wear Engine
+     * `DEVICE_MANAGER` permission. Drives the WatchSyncCard's authorize-vs-sync
+     * button:
+     * - `true`  — granted; show the force-sync button.
+     * - `false` — Huawei Health present but permission not granted; show the
+     *   authorize button.
+     * - `null`  — could not determine (Huawei Health / HMS missing); leave the
+     *   default force-sync button so non-Huawei devices aren't mislabelled.
+     */
+    suspend fun hasWatchPermission(): Boolean?
+
+    /**
+     * Reliable full reconcile. Pings the peer Lite Wearable app (which
+     * auto-launches it on Lite), runs an optional hash precheck round-trip,
+     * then pushes a `sync_replace` envelope carrying the alarms returned by
+     * [freshAlarms]. This is the only reliable phone→watch sync path —
+     * per-mutation fire-and-forget sends were retired in favour of a
+     * debounced call to this from [com.kirkouski.gtwake.companion.data.AlarmRepository].
+     *
+     * `freshAlarms` is a **suspending function**, not a snapshot list, so
+     * the bridge can call it AFTER the hash precheck completes — closing
+     * the TOCTOU window where the user adds an alarm during the ~2s
+     * sync_check round-trip and the precheck matches a stale snapshot.
+     *
+     * Returns one of the [ForceSyncResult] cases for UI display.
+     */
+    suspend fun forceSync(freshAlarms: suspend () -> List<Alarm>): ForceSyncResult
+}

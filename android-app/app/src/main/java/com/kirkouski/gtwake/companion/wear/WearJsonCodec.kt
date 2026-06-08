@@ -1,0 +1,237 @@
+package com.kirkouski.gtwake.companion.wear
+
+import android.util.Log
+import com.kirkouski.gtwake.companion.data.sync.IncomingMessage
+import com.kirkouski.gtwake.companion.domain.Alarm
+import org.json.JSONObject
+
+internal object WearJsonCodec {
+
+    private const val TAG = "WearJsonCodec"
+
+    // 7-bit Mon..Sun mask; bits 7+ are illegal on the wire (would force a
+    // permanent hash divergence between phone and watch).
+    private const val DAYS_OF_WEEK_MASK = 0x7F
+
+    // How far into the future an incoming stamp may sit relative to local
+    // wall clock. Tolerates modest cross-device skew; anything beyond is a
+    // peer-clock-broken-or-attacker scenario where we'd rather reset the
+    // stamp than let a far-future value poison LWW forever. (No symmetric
+    // lower bound: an absolute lower limit would break test fixtures using
+    // small ordinal epochs, and the IncomingMessageHandler envelope-level
+    // check already rejects non-positive ts.)
+    private const val MAX_FUTURE_SKEW_MS = 24L * 60L * 60L * 1000L
+
+    private val ALLOWED_AUDIO_SCHEMES = setOf("content", "file", "android.resource")
+
+    // Hash MUST be exactly 8 lowercase hex chars (Java String.hashCode →
+    // unsigned 32-bit → lowercase hex, see AlarmHash). Any non-matching
+    // payload is treated as corrupt and dropped — accepting anything would
+    // open the door to spoofed "match" answers that silently skip a real
+    // push.
+    private val HASH_REGEX = Regex("^[0-9a-f]{8}$")
+
+    private val DISPATCH: Map<String, (Long, Long, JSONObject) -> IncomingMessage?> = mapOf(
+        "alarm_added" to { id, ts, j -> j.optJSONObject("alarm")?.let { payload ->
+            parseAlarm(payload, id)?.let { IncomingMessage.AlarmAdded(id, ts, it) }
+        } },
+        "alarm_updated" to { id, ts, j -> j.optJSONObject("alarm")?.let { payload ->
+            parseAlarm(payload, id)?.let { IncomingMessage.AlarmUpdated(id, ts, it) }
+        } },
+        "alarm_toggled" to { id, ts, j ->
+            if (!j.has("enabled") || j.isNull("enabled")) null
+            else IncomingMessage.AlarmToggled(id, ts, j.getBoolean("enabled"))
+        },
+        "alarm_deleted" to { id, ts, _ -> IncomingMessage.AlarmDeleted(id, ts) },
+        "alarm_fired" to { id, ts, _ -> IncomingMessage.AlarmFired(id, ts) },
+        "alarm_dismissed" to { id, ts, _ -> IncomingMessage.AlarmDismissed(id, ts) },
+        "alarm_snoozed" to { id, ts, _ -> IncomingMessage.AlarmSnoozed(id, ts) },
+        "alarm_ringing" to { id, ts, _ -> IncomingMessage.AlarmRinging(id, ts) },
+        "alarm_dismissed_ack" to { id, ts, _ -> IncomingMessage.AlarmDismissedAck(id, ts) },
+        "alarm_snoozed_ack" to { id, ts, _ -> IncomingMessage.AlarmSnoozedAck(id, ts) },
+    )
+
+    // reason: ReturnCount=5 covers: missing type / watch_log envelope /
+    // sync_hash envelope / malformed alarm envelope / dispatch result.
+    // Each return matches a distinct wire-format shape; collapsing them
+    // would smear unrelated parsing logic together.
+    @Suppress("ReturnCount")
+    fun parseIncoming(json: JSONObject): IncomingMessage? {
+        val type = json.optString("type").takeIf { it.isNotEmpty() } ?: return null
+        // Dev-only log relay from the watch. Doesn't carry alarmId/epoch in
+        // the standard sense, so handle it before the regular envelope
+        // validation that would otherwise reject it.
+        if (type == "watch_log") {
+            val level = json.optString("level", "I")
+            val msg = json.optString("msg", "")
+            val ts = json.optLong("ts", System.currentTimeMillis())
+            return IncomingMessage.WatchLog(alarmId = 0L, updatedAtEpoch = ts, level = level, msg = msg)
+        }
+        // Sync-check response from the watch. Carries only `hash`; no
+        // alarmId/updatedAtEpoch on the wire (this is a meta-protocol
+        // message). Phone uses the hash to decide whether to skip the
+        // full force-sync. Strict 8-char lowercase hex validation —
+        // anything else means a corrupted or spoofed payload and we drop
+        // it (caller will time out and fall through to a full push).
+        if (type == "sync_hash") {
+            val hash = json.optString("hash", "")
+            if (!HASH_REGEX.matches(hash)) {
+                Log.w(TAG, "sync_hash dropped — malformed hash='$hash'")
+                return null
+            }
+            return IncomingMessage.SyncHash(alarmId = 0L, updatedAtEpoch = 0L, hash = hash)
+        }
+        val alarmId = json.optLong("alarmId", -1L).takeIf { it >= 0L }
+        val ts = json.optLong("updatedAtEpoch", -1L).takeIf { it >= 0L }
+        return if (alarmId == null || ts == null) {
+            null
+        } else {
+            DISPATCH[type]?.invoke(alarmId, ts, json)
+        }
+    }
+
+    /**
+     * Parse a peer-supplied alarm payload. **Rejects** (returns null +
+     * loud log) on any invariant violation rather than silently coercing.
+     *
+     * Why reject-not-coerce: if we accepted `{ selfDestruct: true,
+     * daysOfWeek: MON }` by quietly stripping selfDestruct, the phone
+     * would then re-broadcast the alarm with selfDestruct=false on the
+     * next user action — permanently overwriting the peer's intended
+     * state. Both sides agree on the wrong value and AlarmHash matches.
+     * The bug becomes invisible. Better to drop the envelope and let
+     * the peer's next push reach us in a valid shape (or surface a sync
+     * mismatch via the hash precheck).
+     *
+     * The only coercion we still do is `snoozeMinutes`: SNOOZE_DISABLED (0)
+     * passes through to mean "snooze is off", anything else clamps into
+     * [MIN_SNOOZE_MINUTES, MAX_SNOOZE_MINUTES] because that range is a UI
+     * constraint and out-of-range values are typically legacy data from
+     * earlier app versions where the bounds were different.
+     */
+    // reason: complexity rose to 11 because each invariant check (missing-
+    // required / relativeMinutes-out-of-range / relativeMinutes-with-days /
+    // selfDestruct-with-days) is a distinct rejection path with its own
+    // diagnostic log. Extracting into helpers would smear the same chain
+    // across more functions without changing the early-return logic.
+    // LongMethod (~64 lines) for the same reason: the body is a single
+    // linear chain of checks + one Alarm() construction; the snoozeMinutes
+    // sentinel ladder for SNOOZE_DISABLED added a few more lines but lives
+    // inline with the rest of the field coercion.
+    @Suppress("ReturnCount", "CyclomaticComplexMethod", "LongMethod")
+    private fun parseAlarm(j: JSONObject, envelopeAlarmId: Long): Alarm? {
+        val missingRequired = REQUIRED_ALARM_FIELDS.any { !j.has(it) || j.isNull(it) }
+        if (missingRequired) {
+            Log.w(TAG, "parseAlarm rejected — missing required field for id=$envelopeAlarmId")
+            return null
+        }
+        val hour = j.getInt("hour")
+        val minute = j.getInt("minute")
+        if (hour !in 0..23 || minute !in 0..59) {
+            Log.w(
+                TAG,
+                "parseAlarm rejected id=$envelopeAlarmId — hour=$hour minute=$minute out of clock range",
+            )
+            return null
+        }
+        val daysOfWeek = j.optInt("daysOfWeek", 0)
+        if (daysOfWeek and DAYS_OF_WEEK_MASK.inv() != 0) {
+            Log.w(
+                TAG,
+                "parseAlarm rejected id=$envelopeAlarmId — daysOfWeek=0x${daysOfWeek.toString(16)} " +
+                    "has bits outside 7-day mask",
+            )
+            return null
+        }
+        val rawRelative = if (j.has("relativeMinutes") && !j.isNull("relativeMinutes")) {
+            j.optInt("relativeMinutes", Int.MIN_VALUE)
+        } else {
+            Int.MIN_VALUE
+        }
+        val relativeRange = Alarm.MIN_RELATIVE_MINUTES..Alarm.MAX_RELATIVE_MINUTES
+        val relativeMinutes: Int? = when {
+            rawRelative == Int.MIN_VALUE -> null
+            rawRelative !in relativeRange -> {
+                Log.w(
+                    TAG,
+                    "parseAlarm rejected id=$envelopeAlarmId — " +
+                        "relativeMinutes=$rawRelative outside [${relativeRange.first}, ${relativeRange.last}]",
+                )
+                return null
+            }
+            daysOfWeek != 0 -> {
+                Log.w(
+                    TAG,
+                    "parseAlarm rejected id=$envelopeAlarmId — " +
+                        "relativeMinutes=$rawRelative with daysOfWeek=$daysOfWeek (illegal combo)",
+                )
+                return null
+            }
+            else -> rawRelative
+        }
+        val selfDestruct = j.optBoolean("selfDestruct", false)
+        if (selfDestruct && daysOfWeek != 0) {
+            Log.w(
+                TAG,
+                "parseAlarm rejected id=$envelopeAlarmId — " +
+                    "selfDestruct=true with daysOfWeek=$daysOfWeek (illegal combo)",
+            )
+            return null
+        }
+        val rawSnooze = j.optInt("snoozeMinutes", Alarm.DEFAULT_SNOOZE_MINUTES)
+        return Alarm(
+            id = envelopeAlarmId,
+            // Alarm label is phone-only and never crosses the watch wire
+            // (sync-architecture.md §2.2). Watch-originated payloads carry
+            // no label; default to empty.
+            label = "",
+            hour = hour,
+            minute = minute,
+            daysOfWeek = daysOfWeek,
+            enabled = j.getBoolean("enabled"),
+            audioUri = j.optString("audioUri", "")
+                .takeIf { it.isNotEmpty() && it.substringBefore(":", "") in ALLOWED_AUDIO_SCHEMES },
+            audioName = null,
+            isVibrationOnly = j.optBoolean("isVibrationOnly", false),
+            snoozeMinutes = if (rawSnooze <= Alarm.SNOOZE_DISABLED) {
+                Alarm.SNOOZE_DISABLED
+            } else {
+                rawSnooze.coerceIn(Alarm.MIN_SNOOZE_MINUTES, Alarm.MAX_SNOOZE_MINUTES)
+            },
+            updatedAtEpoch = j.optLong("updatedAtEpoch", 0L)
+                .coerceAtMost(System.currentTimeMillis() + MAX_FUTURE_SKEW_MS),
+            relativeMinutes = relativeMinutes,
+            selfDestruct = selfDestruct,
+            // Per-alarm background image URI. Peer (watch) does not currently
+            // consume this — it's preserved for hash equality + future use.
+            // Empty string on the wire is treated as null so an absent /
+            // explicit-no-bg peer payload doesn't bind a useless string.
+            backgroundImageUri = j.optString("backgroundImageUri", "").takeIf { it.isNotEmpty() },
+            vibrationPattern = com.kirkouski.gtwake.companion.domain.VibrationPattern.fromWireName(
+                if (j.has("vibrationPattern") && !j.isNull("vibrationPattern")) {
+                    j.getString("vibrationPattern")
+                } else {
+                    null
+                },
+            ),
+            volumeRampSeconds = j.optInt("volumeRampSeconds", 0)
+                .coerceIn(0, Alarm.MAX_VOLUME_RAMP_SECONDS),
+            maxSnoozeCount = j.optInt("maxSnoozeCount", Alarm.MAX_SNOOZE_COUNT_UNLIMITED).let {
+                when {
+                    it <= Alarm.MAX_SNOOZE_COUNT_UNLIMITED -> Alarm.MAX_SNOOZE_COUNT_UNLIMITED
+                    else -> it.coerceAtMost(Alarm.MAX_SNOOZE_COUNT_CAP)
+                }
+            },
+            // consecutiveSnoozeCount: never crosses the wire — phone-side
+            // ring-loop state. Default to 0 on inbound.
+            consecutiveSnoozeCount = 0,
+            skipNextEpoch = if (j.has("skipNextEpoch") && !j.isNull("skipNextEpoch")) {
+                j.optLong("skipNextEpoch").takeIf { it > 0L }
+            } else {
+                null
+            },
+        )
+    }
+
+    private val REQUIRED_ALARM_FIELDS = listOf("hour", "minute", "enabled")
+}

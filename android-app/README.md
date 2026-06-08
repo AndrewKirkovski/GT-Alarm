@@ -1,6 +1,6 @@
 # GT Alarm — Android
 
-Samsung One UI target (works on any Android 10+). Kotlin + Jetpack Compose + Material3. Package `com.kirkouski.gtalarm`.
+Samsung One UI target (works on any Android 10+). Kotlin + Jetpack Compose + Material3. Package `com.kirkouski.gtwake.companion`.
 
 ## Build
 
@@ -21,7 +21,7 @@ Or just open the project in Android Studio — it auto-selects the bundled JDK.
 
 ```bash
 ./gradlew :app:installDebug
-adb shell am start -n com.kirkouski.gtalarm.debug/com.kirkouski.gtalarm.MainActivity
+adb shell am start -n com.kirkouski.gtwake.companion/com.kirkouski.gtwake.companion.MainActivity
 ```
 
 ## Tests
@@ -35,13 +35,13 @@ adb shell am start -n com.kirkouski.gtalarm.debug/com.kirkouski.gtalarm.MainActi
 
 ```bash
 # Confirm an alarm is registered with the system
-adb shell dumpsys alarm | grep com.kirkouski.gtalarm
+adb shell dumpsys alarm | grep com.kirkouski.gtwake.companion
 
 # Force-fire the ring service without waiting for the scheduled time
 adb shell am start-foreground-service \
-  -a com.kirkouski.gtalarm.ACTION_RING \
+  -a com.kirkouski.gtwake.companion.ACTION_RING \
   --el alarm_id 1 \
-  -n com.kirkouski.gtalarm.debug/com.kirkouski.gtalarm.ring.AlarmRingService
+  -n com.kirkouski.gtwake.companion/com.kirkouski.gtwake.companion.ring.AlarmRingService
 
 # Lockscreen test: set alarm +60s in the UI, then:
 adb shell input keyevent 26   # screen off
@@ -50,8 +50,8 @@ adb shell input keyevent 26   # screen off
 # Boot reschedule:
 adb shell am broadcast \
   -a android.intent.action.BOOT_COMPLETED \
-  -n com.kirkouski.gtalarm.debug/com.kirkouski.gtalarm.scheduler.BootReceiver
-adb shell dumpsys alarm | grep com.kirkouski.gtalarm
+  -n com.kirkouski.gtwake.companion/com.kirkouski.gtwake.companion.scheduler.BootReceiver
+adb shell dumpsys alarm | grep com.kirkouski.gtwake.companion
 
 # Doze test: setAlarmClock is whitelisted and should still fire
 adb shell dumpsys deviceidle force-idle

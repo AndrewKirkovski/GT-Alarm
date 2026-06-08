@@ -1,6 +1,6 @@
 {
     "app": {
-        "bundleName": "com.kirkouski.gtalarm.watch",
+        "bundleName": "com.kirkouski.gtwatch.watch",
         "vendor": "kirkouski",
         "version": {
             "code": 1000000,
@@ -21,7 +21,7 @@
             "customizeData": [
                 {
                     "name": "supportLists",
-                    "value": "com.kirkouski.gtalarm:69DB34264AB9A5DFB162A0D5B306D90F1515AC76D42B7B9E96A04C7B778CD0D9",
+                    "value": "com.kirkouski.gtwake.companion:69DB34264AB9A5DFB162A0D5B306D90F1515AC76D42B7B9E96A04C7B778CD0D9",
                     "extra": ""
                 }
             ]

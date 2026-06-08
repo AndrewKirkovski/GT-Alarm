@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">GT Alarm</string>
+    <string name="app_name">GT Wake Companion</string>
     <string name="widget_label">Następny alarm</string>
 
     <string name="notif_channel_alarm_name">Alarm</string>
@@ -68,8 +68,6 @@
     <string name="help_device_unsupported_title">Inny zegarek?</string>
     <string name="help_device_unsupported_body">Na dziś w pełni przetestowany jest tylko Huawei GT 6 Pro. Jeśli Twój model się nie synchronizuje albo układ jest dziwny — napisz do mnie. Przekazanie urządzenia do testów to najszybsza droga do pełnego wsparcia.</string>
     <string name="help_device_unsupported_button">Skontaktuj się z autorem</string>
-    <string name="help_credits_title">Autorzy</string>
-    <string name="help_credits_icons">Ikony autorstwa Tabler</string>
     <string name="field_snooze_off_value">Wył.</string>
     <string name="field_snooze_off_chip">Wył.</string>
     <string name="dialog_keep_editing">Wróć do edycji</string>

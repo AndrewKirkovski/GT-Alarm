@@ -27,7 +27,7 @@ import storage from '@system.storage';
 // Note: the format/exact value the SDK validates is undocumented and
 // under active investigation (HMS-Core public demo doesn't show the
 // exact format used). Treat this as best-guess until verified.
-var PHONE_PKG_NAME = 'com.kirkouski.gtalarm';
+var PHONE_PKG_NAME = 'com.kirkouski.gtwake.companion';
 var PHONE_CERT_SHA256 =
     '69DB34264AB9A5DFB162A0D5B306D90F1515AC76D42B7B9E96A04C7B778CD0D9';
 

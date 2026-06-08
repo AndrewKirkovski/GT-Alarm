@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">GT Alarm</string>
+    <string name="app_name">GT Wake Companion</string>
     <string name="widget_label">Наступны будзільнік</string>
 
     <string name="notif_channel_alarm_name">Будзільнік</string>
@@ -68,8 +68,6 @@
     <string name="help_device_unsupported_title">Іншая мадэль гадзінніка?</string>
     <string name="help_device_unsupported_body">На сёння цалкам пратэставаны толькі Huawei GT 6 Pro. Калі ваша мадэль не сінхранізуецца ці выгляд скажоны — напішыце мне. Перадача прылады на тэст — самы хуткі шлях да поўнай падтрымкі.</string>
     <string name="help_device_unsupported_button">Звязацца з распрацоўшчыкам</string>
-    <string name="help_credits_title">Аўтары</string>
-    <string name="help_credits_icons">Іконкі ад Tabler</string>
     <string name="field_snooze_off_value">Выкл</string>
     <string name="field_snooze_off_chip">Выкл</string>
     <string name="dialog_keep_editing">Працягнуць рэдагаванне</string>

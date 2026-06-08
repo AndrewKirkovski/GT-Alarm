@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <string name="app_name">GT Alarm</string>
+    <string name="app_name">GT Wake Companion</string>
     <string name="widget_label">Next Alarm</string>
 
     <string name="notif_channel_alarm_name">Alarm</string>
@@ -40,6 +40,8 @@
          follow-up; tools:ignore silences the lint until then. -->
     <string name="watch_bg_picker_title" tools:ignore="MissingTranslation">Crop watch background</string>
     <string name="watch_bg_picker_help" tools:ignore="MissingTranslation">Pinch to zoom, drag to position. The circle previews how it will look on your watch.</string>
+    <string name="phone_bg_picker_title" tools:ignore="MissingTranslation">Crop phone background</string>
+    <string name="phone_bg_picker_help" tools:ignore="MissingTranslation">Pinch to zoom, drag to position. The preview shows the real alarm UI on top.</string>
     <string name="watch_bg_picker_pick" tools:ignore="MissingTranslation">Choose image</string>
     <string name="watch_bg_picker_empty" tools:ignore="MissingTranslation">Tap "Choose image" to start</string>
     <string name="action_play_preview" tools:ignore="MissingTranslation">Play preview</string>
@@ -54,7 +56,6 @@
          will land in a follow-up; tools:ignore silences the lint until then. -->
     <string name="field_self_destruct" tools:ignore="MissingTranslation">Delete after firing</string>
     <string name="list_relative_in_min" tools:ignore="MissingTranslation">in %1$d min</string>
-    <string name="list_relative_in_hr_min" tools:ignore="MissingTranslation">in %1$d h %2$d min</string>
     <string name="list_relative_in_hr" tools:ignore="MissingTranslation">in %1$s hr</string>
     <string name="list_relative_in_sec" tools:ignore="MissingTranslation">in %1$d s</string>
     <string name="list_relative_fired" tools:ignore="MissingTranslation">firing now</string>
@@ -65,7 +66,6 @@
          badge and the row toggle already convey type and on/off state, so
          the label is just the bare duration. -->
     <string name="list_relative_off_min" tools:ignore="MissingTranslation">%1$d min</string>
-    <string name="list_relative_off_hr_min" tools:ignore="MissingTranslation">%1$d h %2$d min</string>
     <string name="list_relative_off_hr" tools:ignore="MissingTranslation">%1$s hr</string>
     <string name="list_skip_next_hint">next skipped</string>
     <string name="list_unskip_next_hint" tools:ignore="MissingTranslation">unskip next</string>
@@ -85,11 +85,14 @@
     <string name="cancel">Cancel</string>
     <string name="add_alarm">Add alarm</string>
     <string name="no_alarms">No alarms yet — tap + to add one.</string>
-    <!-- reason: hero-area countdown on the alarm list. Translations land in a follow-up. -->
-    <string name="screen_list_hero_alarm_in_hr_min" tools:ignore="MissingTranslation">Alarm in %1$d hr %2$d min</string>
+    <string name="no_enabled_alarms" tools:ignore="MissingTranslation">All alarms are off.</string>
+    <!-- reason: hero-area countdown on the alarm list. Translations land in a
+         follow-up. The _sec variant stays a plain string (not <plurals>) to match
+         the _hr/_min variants and the list_relative_* family — PluralsCandidate
+         suppressed for that deliberate consistency. -->
     <string name="screen_list_hero_alarm_in_hr" tools:ignore="MissingTranslation">Alarm in %1$s hr</string>
     <string name="screen_list_hero_alarm_in_min" tools:ignore="MissingTranslation">Alarm in %1$d min</string>
-    <string name="screen_list_hero_alarm_in_sec" tools:ignore="MissingTranslation">Alarm in %1$d sec</string>
+    <string name="screen_list_hero_alarm_in_sec" tools:ignore="MissingTranslation,PluralsCandidate">Alarm in %1$d sec</string>
 
     <string name="day_sun_short">Su</string>
     <string name="day_mon_short">Mo</string>
@@ -158,7 +161,7 @@
     <string tools:ignore="MissingTranslation" name="settings_default_ringtones_intro">Used when you create a new alarm without picking a sound. Existing alarms keep their own audio.</string>
     <string tools:ignore="MissingTranslation" name="settings_default_ringtone_absolute">For clock-time alarms</string>
     <string tools:ignore="MissingTranslation" name="settings_default_ringtone_relative">For \"in N min\" alarms</string>
-    <string tools:ignore="MissingTranslation" name="settings_default_ringtone_reset">Use system default</string>
+    <string tools:ignore="MissingTranslation" name="settings_default_ringtone_reset">Reset</string>
     <string tools:ignore="MissingTranslation" name="settings_section_default_backgrounds">Default background images</string>
     <string tools:ignore="MissingTranslation" name="settings_default_backgrounds_intro">Used when an alarm doesn\'t have its own image. The phone image renders behind the lockscreen alarm; the watch image is cropped to the watch face.</string>
     <string tools:ignore="MissingTranslation" name="settings_default_phone_background">Phone alarm background</string>
@@ -167,15 +170,20 @@
     <string tools:ignore="MissingTranslation" name="settings_default_background_set">Set</string>
     <string tools:ignore="MissingTranslation" name="settings_default_background_clear">Clear default background</string>
     <string tools:ignore="MissingTranslation" name="settings_watch_background_saved">Watch background saved. It will appear the next time the watch app opens.</string>
-    <string name="help_intro">Android doesn\'t have a single setting called \"default alarm app\". When you ask Google Assistant to set an alarm, the system either uses an app you\'ve picked before, or shows a chooser the first time. Choosing GT Alarm and tapping \"Always\" makes it the default thereafter. On phones without Google services — many Huawei models — voice-set through Google Assistant isn\'t available at all.</string>
-    <string name="help_status_default">GT Alarm is the default alarm app on this device.</string>
-    <string name="help_status_disambiguator">Multiple alarm apps are installed. The next time you say \"Hey Google, set an alarm\", Android will show a chooser — pick GT Alarm and tap Always.</string>
-    <string name="help_status_other">%1$s is currently the default. Use the steps for your phone brand below to switch.</string>
-    <string name="help_reset_hint">If a different app got set as default by mistake: Settings → Apps → that app → Open by default → Clear defaults.</string>
+    <string name="help_intro">Voice alarms use Android\'s standard set-alarm intent. If Android shows a chooser, pick GT Alarm and tap Always. On phones without Google services, Google Assistant voice setup is not available.</string>
+    <string name="help_status_default">GT Alarm handles voice alarms on this device.</string>
+    <string name="help_status_disambiguator">Multiple alarm apps can handle voice alarms. Next time Android asks, choose GT Alarm and tap Always.</string>
+    <string name="help_status_other">%1$s currently handles voice alarms.</string>
+    <string name="help_reset_hint">To reset a wrong choice: Settings → Apps → that app → Open by default → Clear defaults.</string>
+    <!-- reason: watch-pairing help card. Polished translations already exist in
+         all locales; the HelpScreen section that consumes these is not wired yet,
+         so they read as unused — tools:ignore="UnusedResources" until that lands
+         (tracked alongside the watch-pairing work). -->
+    <string name="help_pair_watch_title" tools:ignore="UnusedResources">Authorize Huawei watch</string>
+    <string name="help_pair_watch_body" tools:ignore="UnusedResources">Connect an already-paired Huawei Sports Watch / GT so alarms ring on your wrist. Requires the Huawei Health app and a watch already paired through it. On devices without Huawei Health, nothing happens.</string>
+    <string name="help_pair_watch_button" tools:ignore="UnusedResources">Authorize watch access</string>
 
-    <string name="help_pair_watch_title">Authorize Huawei watch</string>
-    <string name="help_pair_watch_body">Authorize Wear Engine access so alarms can ring on a Huawei Sports Watch / GT-series device that is already paired through Huawei Health. Requires the Huawei Health app; nothing happens on devices without it.</string>
-    <string name="help_pair_watch_button">Authorize watch access</string>
+    <string name="help_companion_note" tools:ignore="MissingTranslation">Companion for GT Alarm on Huawei Watch GT 6 Pro. Pair in Huawei Health; the phone rings and the watch mirrors it.</string>
 
     <!-- Debug controls — intentionally English-only (translatable="false"). -->
     <string name="help_debug_title" translatable="false">Debug</string>
@@ -191,14 +199,9 @@
 
     <!-- Device-not-supported notice + contact CTA. -->
     <string name="help_device_unsupported_title">Different watch?</string>
-    <string name="help_device_unsupported_body">Only Huawei GT 6 Pro is fully tested today. If your watch model isn\'t syncing or the layout looks wrong, drop me a line — donating a device for testing is the fastest way to add proper support.</string>
+    <string name="help_device_unsupported_body">Tested target: Huawei GT 6 Pro Lite Wearable. Wear OS / Galaxy Watch and other watch families need separate work. If sync or layout looks wrong, contact the developer.</string>
     <string name="help_device_unsupported_button">Contact developer</string>
     <string name="help_device_unsupported_url" translatable="false">mailto:ryotsuke+gtalarm@gmail.com?subject=GT%20Alarm%20-%20Device%20support</string>
-
-    <!-- Credits / attribution footer in the Help screen. -->
-    <string name="help_credits_title">Credits</string>
-    <string name="help_credits_icons">Icons by Tabler</string>
-    <string name="help_credits_icons_url" translatable="false">https://tabler.io/icons</string>
 
     <!-- WatchSyncCard + Force-sync — debug/diagnostic UI, English-only. -->
     <string name="watch_status_card_force_sync" translatable="false">Force sync</string>
@@ -208,7 +211,7 @@
     <string name="force_sync_ok" translatable="false" tools:ignore="PluralsCandidate">Synced %1$d alarm(s) to watch</string>
     <string name="force_sync_already" translatable="false" tools:ignore="PluralsCandidate">Already in sync (%1$d alarm(s))</string>
     <string name="force_sync_no_device" translatable="false">No bonded watch found in Huawei Health</string>
-    <string name="force_sync_not_authorized" translatable="false">Wear Engine permission not granted — tap "Authorize watch access" in Help</string>
+    <string name="force_sync_not_authorized" translatable="false">Wear Engine permission not granted — tap the key on Watch sync</string>
     <string name="force_sync_disconnected" translatable="false">Watch is bonded but currently disconnected</string>
     <string name="force_sync_peer_app_missing" translatable="false">Watch app not installed or not launched yet (ping=%1$d)</string>
     <string name="force_sync_error" translatable="false">Force sync failed: %1$s</string>
@@ -217,27 +220,29 @@
          tools:ignore="MissingTranslation" while copy is still iterating. -->
 
     <!-- Section header texts. -->
-    <string tools:ignore="MissingTranslation" name="help_section_reliability">Reliability checklist</string>
-    <string tools:ignore="MissingTranslation" name="help_section_reliability_intro">For alarms to ring while your phone is locked, all of the items below need to be green. Tap Fix on anything that isn\'t.</string>
-    <string tools:ignore="MissingTranslation" name="help_section_brand_tips">Phone-brand tips</string>
-    <string tools:ignore="MissingTranslation" name="help_section_brand_tips_intro">Some manufacturers add their own background-killers on top of Android. The reliability checklist above covers every universal toggle — the steps below are only the per-brand extras it can\'t reach.</string>
+    <string tools:ignore="MissingTranslation" name="help_section_reliability">Alarm readiness</string>
+    <string tools:ignore="MissingTranslation" name="help_section_reliability_intro">Fix these phone settings before relying on the alarm.</string>
+    <string tools:ignore="MissingTranslation" name="help_reliability_ready_title">Everything looks ready</string>
+    <string tools:ignore="MissingTranslation" name="help_reliability_ready_body">Required alarm permissions are OK. Nothing to fix here.</string>
+    <string tools:ignore="MissingTranslation" name="help_section_late_alarm">If alarms are late</string>
+    <string tools:ignore="MissingTranslation" name="help_section_late_alarm_intro">Use these only if alarms are delayed, silenced by a phone mode, or the watch misses sync. They are troubleshooting steps, not required setup.</string>
     <string tools:ignore="MissingTranslation" name="help_section_voice">Voice setup (Hey Google)</string>
 
     <!-- Home-screen banner that auto-shows when any reliability check is red. -->
     <string tools:ignore="MissingTranslation" name="setup_banner_title">Setup needed</string>
-    <string tools:ignore="MissingTranslation" name="setup_banner_body">One or more required permissions are missing. Alarms may not ring or wake the screen until they\'re granted.</string>
+    <string tools:ignore="MissingTranslation" name="setup_banner_body">A required alarm setting is missing. Fix it before relying on the alarm.</string>
     <string tools:ignore="MissingTranslation" name="setup_banner_action">Open</string>
     <string tools:ignore="MissingTranslation" name="setup_fix">Fix</string>
 
     <!-- Permission rows. Each is short — one purpose, one consequence. -->
     <string tools:ignore="MissingTranslation" name="setup_perm_notifications_title">Notifications</string>
-    <string tools:ignore="MissingTranslation" name="setup_perm_notifications_body">Required to post the ringing notification and run the alarm in the foreground. Without this the alarm cannot ring.</string>
+    <string tools:ignore="MissingTranslation" name="setup_perm_notifications_body">Allows the ringing alarm notification. Android 13+ asks for this at runtime.</string>
     <string tools:ignore="MissingTranslation" name="setup_perm_exact_alarm_title">Alarms &amp; reminders</string>
-    <string tools:ignore="MissingTranslation" name="setup_perm_exact_alarm_body">Lets the app fire alarms at the exact minute you set, even in battery-saver mode. Denied by default on Android 14.</string>
+    <string tools:ignore="MissingTranslation" name="setup_perm_exact_alarm_body">Allows alarm-clock timing instead of approximate background work. If this is off, scheduled alarms are not trustworthy.</string>
     <string tools:ignore="MissingTranslation" name="setup_perm_fsi_title">Full-screen alarm</string>
-    <string tools:ignore="MissingTranslation" name="setup_perm_fsi_body">Lets the alarm take over the lock screen and wake the display. Sideloaded apps lose this auto-grant on Android 14 — if your phone screen does not wake when alarms fire, this is almost certainly the cause.</string>
+    <string tools:ignore="MissingTranslation" name="setup_perm_fsi_body">Allows the alarm screen to appear over the lock screen. If this stays off after you enable it, contact the developer.</string>
     <string tools:ignore="MissingTranslation" name="setup_perm_battery_title">Battery: Unrestricted</string>
-    <string tools:ignore="MissingTranslation" name="setup_perm_battery_body">Optional but recommended. Without it the phone may delay alarms after several idle days. Daily users rarely notice — alarms scheduled via setAlarmClock() are Doze-exempt regardless.</string>
+    <string tools:ignore="MissingTranslation" name="setup_perm_battery_body">Optional. Try this only if alarms are late after the required checks pass.</string>
 
     <!-- Brand dropdown labels. -->
     <string tools:ignore="MissingTranslation" name="setup_oem_label_pixel">Google Pixel / stock Android</string>
@@ -250,14 +255,14 @@
 
     <!-- ===== Per-brand background-keep tips ===== -->
     <!-- Each tip body uses "  •  " (NBSP + bullet + NBSP) at line starts so
-         Compose Text wraps each bullet line correctly. Separated by \n\n for
+         Compose renders as compact bullet rows. Separated by \n\n for
          paragraph spacing. These cover ONLY per-brand extras — anything the
          reliability checklist already handles (notifications, exact alarm,
          full-screen, battery-unrestricted) is intentionally left out. -->
 
-    <string tools:ignore="MissingTranslation" name="setup_oem_keep_pixel">Stock Android has no extra OEM kill on top of standard Doze. If alarms still misbehave, check Settings → Notifications → Do not disturb → Allowed during DND → Alarms and sounds is ON.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_keep_samsung">One UI puts unused apps to sleep aggressively. Walk through each item — at least one of them is usually the culprit.\n\n  •  Settings → Battery → Background usage limits → Never sleeping apps → + → add GT Alarm.\n  •  Confirm GT Alarm is NOT under Sleeping apps OR Deep sleeping apps in that screen.\n  •  Settings → Battery → ⋮ (top right) → Automation → Auto-optimize daily → OFF.\n  •  Settings → Battery → More battery settings → Adaptive battery → OFF.\n  •  For the paired Huawei watch, also add Huawei Health to Never sleeping apps.\n  •  Settings → Notifications → Do not disturb → Allowed during DND → Alarms and sounds → ON.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_keep_xiaomi">MIUI / HyperOS has the most aggressive background kill on the market — and Autostart is the part the checklist can\'t set for you.\n\n  •  Settings → Apps → Manage apps → GT Alarm → Autostart → ON.\n  •  Same screen → Other permissions → Display pop-up windows while running in the background → ON.\n  •  Lock the app in the recents drawer (pull down the card → padlock icon) so MIUI does not reap it.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_keep_oneplus">The Battery item in the reliability checklist above covers OxygenOS\'s standard optimization. One extra, on models that have it:\n\n  •  Settings → Battery → Advanced Optimization → exclude GT Alarm. It is a separate switch from standard battery optimization and OxygenOS deep-sleep still applies it.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_keep_huawei">EMUI / HarmonyOS NEXT requires explicit protection.\n\n  •  Phone Manager → Protected apps → enable GT Alarm.\n  •  Settings → Battery → Launch → GT Alarm → turn OFF \"Manage automatically\" then turn ON all three sub-toggles (Auto-launch, Secondary launch, Run in background).</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_keep_other">If your phone is a Chinese brand (vivo, OPPO, Realme, Meizu) look for a Phone Manager or Security app and find a Protected apps / Autostart / Background app list. Add GT Alarm there.\n\nOn other brands the universal reliability checklist above is usually enough.</string></resources>
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_pixel">No extra Pixel setup is normally needed.\n\n  •  If Do Not Disturb is on, make sure alarms are allowed in that mode.</string>
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_samsung">Samsung may move unused apps into Sleeping or Deep sleeping apps, which restricts alarms and foreground services.\n\n  •  Settings → Battery → Background usage limits → Never sleeping apps → add GT Alarm.\n  •  Make sure GT Alarm is not listed under Sleeping apps or Deep sleeping apps.\n  •  If watch sync is late, add Huawei Health to Never sleeping apps too.</string>
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_xiaomi">If alarms are late on Xiaomi / HyperOS, check background autostart.\n\n  •  Settings → Apps → Permissions → Background autostart → GT Alarm → On.\n  •  If available, allow background activity for GT Alarm.</string>
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_oneplus">If alarms are late on OxygenOS, check the app\'s battery settings.\n\n  •  Settings → Battery → More settings → App battery management → GT Alarm.\n  •  Allow foreground/background activity for overnight alarm testing.</string>
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_huawei">Huawei phones can block background launch unless you manage the app manually.\n\n  •  Phone Manager → App launch → GT Alarm → Manage manually.\n  •  Turn on Auto-launch, Secondary launch, and Run in background.\n  •  Do the same for Huawei Health if watch sync is unreliable.</string>
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_other">If your phone has a Phone Manager / Security app, look for Protected apps, Autostart, or Background activity.\n\n  •  Add GT Alarm there only if alarms are late after the required checks pass.</string></resources>

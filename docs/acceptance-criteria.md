@@ -83,7 +83,7 @@ Do not implement against memory of how an API used to work. APIs change.
 
 ---
 
-## ANDROID APP — `com.kirkouski.gtalarm`
+## ANDROID APP — `com.kirkouski.gtwake.companion`
 
 ### Alarm management
 - 🟡 Create alarm: time, label, days-of-week, audio URI, vibration-only flag, snooze duration (incl. "Off" preset for snooze-disabled), background image — `AlarmEditScreen`. Time picker is `PickTime-Compose 1.1.6` wheel/odometer (from JitPack `com.github.anhaki`, Apache-2.0). Label is bounded to `Alarm.MAX_LABEL_LENGTH = 256` characters by domain `Alarm.init`. The label is **phone-only** — it is not sent to the watch, not stored there, and not part of `AlarmHash` (see `sync-architecture.md` §2.2); it appears only on the phone ring screen. (Phase 5a+, 2026-05-14; label-off-wire 2026-05-18.)
@@ -176,12 +176,12 @@ Do not implement against memory of how an API used to work. APIs change.
 
 ### Internationalization (Android)
 - 🟡 All user-facing strings in `res/values/strings.xml` (English baseline). No hardcoded literals in Compose `Text(...)` — audit pass clean as of 2026-04-25 (Phase 3c).
-- ✅ Locale resource overlays — 6 dirs landed: `values-en-rUS`, `values-zh-rCN`, `values-ru-rRU`, `values-pl-rPL`, `values-uk-rUA`, `values-be-rBY`. Translations cribbed from watch app's HarmonyOS resources. Verified on AVD 2026-04-30 via `cmd locale set-app-locales com.kirkouski.gtalarm.debug --locales pl-PL`: title "Alarms" → "Alarmy", days "Once" → "Raz", relative time "In 16 hr." → "Za 15 godz." on next launch. (Phase 3c, 2026-04-25.)
+- ✅ Locale resource overlays — 6 dirs landed: `values-en-rUS`, `values-zh-rCN`, `values-ru-rRU`, `values-pl-rPL`, `values-uk-rUA`, `values-be-rBY`. Translations cribbed from watch app's HarmonyOS resources. Verified on AVD 2026-04-30 via `cmd locale set-app-locales com.kirkouski.gtwake.companion --locales pl-PL`: title "Alarms" → "Alarmy", days "Once" → "Raz", relative time "In 16 hr." → "Za 15 godz." on next launch. (Phase 3c, 2026-04-25.)
 - ✅ `LocalConfiguration.current.locales` honored — `NextAlarmGlanceWidget.computeNext` reads `context.resources.configuration.locales[0]`; `TimeFormatter` delegates to `DateFormat` which itself respects the configuration locale. Zero `Locale.getDefault()` / `Locale.US` / `Locale.ENGLISH` / `Locale.ROOT` calls in production code (verified via Grep 2026-04-26). Verified end-to-end on AVD 2026-04-30 via per-app locale switch — list strings reflow on next process launch. Audit gap: code paths added in future may regress this — consider a custom Detekt rule when patterns stabilise.
 - ✅ Time format follows system 12h/24h — `util/TimeFormatter.kt` uses `DateFormat.is24HourFormat(context)` + `DateFormat.getTimeFormat(context)`. Used by AlarmListScreen, AlarmActivity, AlarmNotifications, NextAlarmGlanceWidget. Verified on AVD 2026-04-30: en-US locale renders "7:00 AM" while pl-PL renders "07:00" — Polish 24h system pref honored after locale switch. (Phase 3c, 2026-04-25.)
 - 🟡 Day-letter labels in chip row pulled from `strings.xml` — `util/DayLabels.kt:shortLabelResForDayBit(bit)` maps each `DaysOfWeek` bit to its `R.string.day_*_short`. 2-letter glyphs (`Mo`/`Tu`/...`Su`) used in base + 6 locale dirs. (Phase 3c, 2026-04-25.)
 - ✅ `Configuration.uiMode` (light/dark) — `Theme.kt` reads `isSystemInDarkTheme()` and selects `dynamicDarkColorScheme(context)` / `dynamicLightColorScheme(context)` (Material3 dynamic color). Manual fallback colors defined for non-dynamic devices. Verified on AVD 2026-04-30 via `cmd uimode night yes/no` — Material You dynamic palette recomposes cleanly between light and dark.
-- ✅ Per-app language picker support — `res/xml/locales_config.xml` lists all 6 locales; manifest declares `android:localeConfig="@xml/locales_config"`. Verified on AVD 2026-04-30 via `cmd locale set-app-locales com.kirkouski.gtalarm.debug --locales pl-PL` (the per-app locale API path) — strings reflow and time format flips on next launch. (Phase 3c, 2026-04-25.)
+- ✅ Per-app language picker support — `res/xml/locales_config.xml` lists all 6 locales; manifest declares `android:localeConfig="@xml/locales_config"`. Verified on AVD 2026-04-30 via `cmd locale set-app-locales com.kirkouski.gtwake.companion --locales pl-PL` (the per-app locale API path) — strings reflow and time format flips on next launch. (Phase 3c, 2026-04-25.)
 - 📋 Plurals via `<plurals>` — UI does NOT yet surface relative time ("in 5 minutes"). When the relative-time list label lands (still ❌ above), wire through `<plurals>`.
 - 🟠 Right-to-left layout mirroring — `android:supportsRtl="true"` is default in our manifest. `paddingStart`/`paddingEnd` audit not done — Compose modifiers like `Modifier.padding(horizontal = Xdp)` are direction-aware; explicit `start`/`end` only needed for asymmetric paddings. None of our locales (en/zh/ru/pl/uk/be) are RTL, so this is forward-compatibility prep.
 - 🟡 Accessibility-localized text — content descriptions resolved via `stringResource(...)` everywhere (verified via Grep `contentDescription = "[A-Z]`).
@@ -393,11 +393,11 @@ i18n is not "wrap a few strings"; it's an end-to-end contract. Both apps must en
 ### Android (instrumented)
 - [ ] `./gradlew :app:testDebugUnitTest` — `NextTriggerCalculator` DST + midnight-wrap + one-shot-past + empty-daysOfWeek
 - [ ] `./gradlew :app:connectedDebugAndroidTest` — Room DAO Flow emits within 200 ms of insert
-- [ ] `adb shell dumpsys alarm | grep com.kirkouski.gtalarm` shows `setAlarmClock` registered
+- [ ] `adb shell dumpsys alarm | grep com.kirkouski.gtwake.companion` shows `setAlarmClock` registered
 - [ ] Lockscreen test: alarm +60 s, screen off, wait → `AlarmActivity` appears over keyguard, screen on
-- [ ] Boot reschedule: `adb shell am broadcast -a android.intent.action.BOOT_COMPLETED -n com.kirkouski.gtalarm/.scheduler.BootReceiver` then re-check `dumpsys alarm`
+- [ ] Boot reschedule: `adb shell am broadcast -a android.intent.action.BOOT_COMPLETED -n com.kirkouski.gtwake.companion/.scheduler.BootReceiver` then re-check `dumpsys alarm`
 - [ ] Doze: `adb shell dumpsys deviceidle force-idle`; `setAlarmClock` is whitelisted and still fires
-- [ ] Force fire without waiting: `adb shell am start-foreground-service -a com.kirkouski.gtalarm.ACTION_RING --el alarm_id 1 -n com.kirkouski.gtalarm/.ring.AlarmRingService`
+- [ ] Force fire without waiting: `adb shell am start-foreground-service -a com.kirkouski.gtwake.companion.ACTION_RING --el alarm_id 1 -n com.kirkouski.gtwake.companion/.ring.AlarmRingService`
 - [ ] Locale switch: change device language in Settings → app strings reflow without restart
 
 ### Watch (manual on GT 6 via 应用调测助手 / App Debug Assistant — Phase 0b LiteWearable target)

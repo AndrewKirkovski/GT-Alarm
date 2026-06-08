@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">GT Alarm</string>
+    <string name="app_name">GT Wake Companion</string>
     <string name="widget_label">下一个闹钟</string>
 
     <string name="notif_channel_alarm_name">闹钟</string>
@@ -68,8 +68,6 @@
     <string name="help_device_unsupported_title">其他手表型号？</string>
     <string name="help_device_unsupported_body">目前仅完整测试了华为 GT 6 Pro。如果你的型号无法同步或界面错位，请联系我。捐赠一台测试设备是添加完整支持的最快方式。</string>
     <string name="help_device_unsupported_button">联系开发者</string>
-    <string name="help_credits_title">致谢</string>
-    <string name="help_credits_icons">图标作者：Tabler</string>
     <string name="field_snooze_off_value">关闭</string>
     <string name="field_snooze_off_chip">关闭</string>
     <string name="dialog_keep_editing">继续编辑</string>

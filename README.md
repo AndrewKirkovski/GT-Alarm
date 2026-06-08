@@ -4,8 +4,8 @@ A custom two-part alarm system: Android phone app + Huawei Lite Wearable watch a
 
 ## Components
 
-- [`android-app/`](./android-app) — Android phone app (Samsung One UI target, Kotlin + Jetpack Compose + Material3). Package `com.kirkouski.gtalarm`.
-- [`watch-app/`](./watch-app) — Lite Wearable FA-model watch app (Huawei Watch GT 6, JS + HML + CSS). Bundle `com.kirkouski.gtalarm.watch`. The phone is the sole scheduler; the watch is a thin online-armed display.
+- [`android-app/`](./android-app) — Android phone app (Samsung One UI target, Kotlin + Jetpack Compose + Material3). Package `com.kirkouski.gtwake.companion`.
+- [`watch-app/`](./watch-app) — Lite Wearable FA-model watch app (Huawei Watch GT 6, JS + HML + CSS). Bundle `com.kirkouski.gtwatch.watch`. The phone is the sole scheduler; the watch is a thin online-armed display.
 
 Both apps build and run independently. They communicate over Huawei Wear Engine P2P (vendored `wearengine.js` 5.0.2.306 on the watch side, `HuaweiWearBridge` on the phone side). The phone owns scheduling + audio + the snooze cycle; the watch renders the alarm list, the ring page, and dismiss/snooze taps.
 

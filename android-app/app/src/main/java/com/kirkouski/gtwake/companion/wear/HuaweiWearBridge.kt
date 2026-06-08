@@ -1,0 +1,1365 @@
+package com.kirkouski.gtwake.companion.wear
+
+import android.content.Context
+import android.util.Log
+import com.huawei.hmf.tasks.Task
+import com.huawei.wearengine.HiWear
+import com.huawei.wearengine.auth.AuthCallback
+import com.huawei.wearengine.auth.Permission
+import com.huawei.wearengine.device.Device
+import com.huawei.wearengine.p2p.Message
+import com.huawei.wearengine.p2p.P2pClient
+import com.huawei.wearengine.p2p.PingCallback
+import com.huawei.wearengine.p2p.Receiver
+import com.huawei.wearengine.p2p.SendCallback
+import com.kirkouski.gtwake.companion.data.sync.IncomingMessageHandler
+import com.kirkouski.gtwake.companion.di.IoDispatcher
+import com.kirkouski.gtwake.companion.domain.Alarm
+import dagger.hilt.android.qualifiers.ApplicationContext
+import com.kirkouski.gtwake.companion.data.sync.AlarmHash
+import com.kirkouski.gtwake.companion.data.sync.IncomingMessage
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.plus
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONArray
+import org.json.JSONObject
+import javax.inject.Inject
+import javax.inject.Singleton
+
+// reason: function count is dominated by the 7 send* overrides mandated by
+// the WearBridgeService interface plus the 5 connection-lifecycle helpers.
+// Splitting into two files would smear the same surface across a new ctor
+// boundary for no readability gain.
+@Suppress("TooManyFunctions", "LargeClass")
+// reason: LargeClass — bridge class spans the full Wear Engine surface (auth
+// + ping + send + receive + file transfer + status flow + 12 helpers). Each
+// is tied to the others by shared connection state (mDevice, mClient,
+// connection mutex). Splitting would require duplicating that state across
+// classes; the natural seam (file transfer in its own collaborator) is
+// already partial via WatchBackgroundEncoder. Revisit when receive-side
+// state grows further.
+//
+// ─────────────────────────────────────────────────────────────────────
+// WEAR ENGINE ACTIVITY RULE — Huawei Wear Engine P2P *receive* only works
+// while an Activity is in the task. Sends may originate anywhere (this is
+// a Service-injected @Singleton), but any method that AWAITS a reply from
+// the watch — sendAlarmFiredAwaiting, sendAlarmDismissedAwaiting,
+// sendAlarmSnoozedAwaiting (→ sendAwaitingAck), and the receiver-side
+// completions of alarm_ringing / *_ack — only resolves while an Activity
+// (AlarmActivity) is alive in the task. A caller that tears the Activity
+// down and THEN awaits a reply will time out every time — that was the
+// "watch dismiss never propagates" bug. Callers MUST keep AlarmActivity
+// alive for the whole round-trip.
+// ─────────────────────────────────────────────────────────────────────
+@Singleton
+class HuaweiWearBridge @Inject constructor(
+    @param:ApplicationContext private val context: Context,
+    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+) : WearBridgeService {
+
+    private val supervisorJob: Job = SupervisorJob()
+    private val scope: CoroutineScope = CoroutineScope(ioDispatcher + supervisorJob)
+
+    private val _statusFlow = MutableStateFlow(WatchSyncStatus.NOT_CONNECTED)
+    override val statusFlow: StateFlow<WatchSyncStatus> = _statusFlow.asStateFlow()
+
+    private val _pairedDeviceInfo = MutableStateFlow<PairedDeviceInfo?>(null)
+    override val pairedDeviceInfo: StateFlow<PairedDeviceInfo?> = _pairedDeviceInfo.asStateFlow()
+
+    @Volatile
+    private var incomingHandler: IncomingMessageHandler? = null
+
+    @Volatile
+    private var attachJob: Job? = null
+
+    private val connectionMutex = Mutex()
+    private var pairedDevice: Device? = null
+    private var receiverRegistered: Boolean = false
+
+    // Separate mutex for the ping-wake poll. Without this, concurrent sends
+    // each launch their own ensurePeerAppRunning, all miss the cache
+    // simultaneously, and N parallel ping floods race the Wear Engine
+    // channel. With the mutex, only the first caller polls; the rest queue
+    // and inherit the cache hit when the first one succeeds.
+    private val wakeMutex = Mutex()
+
+    // Cache of "ping returned 202 (APP_RUNNING) at this wall-clock ms". Used
+    // by ensurePeerAppRunning to skip the ping when we just confirmed the
+    // peer is alive — sending again within PEER_RUNNING_CACHE_MS is safe
+    // because the watch's receiver doesn't get torn down faster than that.
+    // Invalidated on any 206 (COMM_FAIL) send result.
+    @Volatile
+    private var lastConfirmedRunningAtMs: Long = 0L
+
+    private val p2pClient: P2pClient by lazy {
+        HiWear.getP2pClient(context)
+            .setPeerPkgName(PEER_PKG_NAME)
+            .setPeerFingerPrint(PEER_FP)
+    }
+
+    // Pending sync_check round-trip. Held while forceSync's hash-precheck
+    // is awaiting the watch's response. Stored as AtomicReference so the
+    // receiver's read + complete is atomic against requestRemoteHash's
+    // clear-on-finally: getAndSet(null) gives us a happens-before edge
+    // without acquiring pendingHashMutex (which would deadlock if the
+    // receiver fires inside requestRemoteHash's withLock block).
+    private val pendingHashRequest =
+        java.util.concurrent.atomic.AtomicReference<CompletableDeferred<String>?>(null)
+    private val pendingHashMutex = Mutex()
+
+    // Pending alarm_fired → alarm_ringing round-trip. AlarmRingService
+    // calls sendAlarmFiredAwaiting BEFORE starting phone audio; the watch
+    // ring page's onShow sends `alarm_ringing` back. Phone awaits that
+    // reply so phone + watch ring within ~one frame instead of phone
+    // beating watch by 500-1000ms on a cold-launch.
+    private data class PendingRing(
+        val alarmId: Long,
+        val deferred: CompletableDeferred<Unit>,
+    )
+
+    private val pendingAlarmRinging =
+        java.util.concurrent.atomic.AtomicReference<PendingRing?>(null)
+    private val pendingAlarmRingingMutex = Mutex()
+
+    // Pending alarm_dismissed → alarm_dismissed_ack round-trip. The 207
+    // transport ACK on dismiss only proves "delivered to watch's Wear
+    // Engine layer", NOT "watch's JS receiver processed it" — the JS
+    // receiver can be in a transient state (mid-bundle-load, mid-page-
+    // transition) and silently drop the envelope. Without an application-
+    // level reply the phone has no way to detect this, and the user has
+    // to manually dismiss on the watch too. The watch's incomingHandler
+    // sends `alarm_dismissed_ack` after `onPeerEndedRing(alarmId)` runs.
+    private data class PendingAck(
+        val alarmId: Long,
+        val deferred: CompletableDeferred<Unit>,
+    )
+
+    private val pendingDismissAck =
+        java.util.concurrent.atomic.AtomicReference<PendingAck?>(null)
+    private val pendingDismissAckMutex = Mutex()
+
+    // Symmetric to pendingDismissAck for snooze.
+    private val pendingSnoozeAck =
+        java.util.concurrent.atomic.AtomicReference<PendingAck?>(null)
+    private val pendingSnoozeAckMutex = Mutex()
+
+    /**
+     * Shared completion path for the dismiss / snooze ack deferreds.
+     * Matches by alarmId so a stale ack from a previous action can't
+     * satisfy a fresh wait; compareAndSet guards against the rare race
+     * with the awaiter's timeout-finally clear.
+     */
+    private fun completePendingAck(
+        slot: java.util.concurrent.atomic.AtomicReference<PendingAck?>,
+        ackedAlarmId: Long,
+        label: String,
+    ) {
+        // Watch's application-level ack also proves the receiver is bound
+        // and JS layer is healthy — same as alarm_ringing's effect on the
+        // running cache. Refresh stamp so we don't re-ping needlessly on
+        // any subsequent send in the immediate window.
+        lastConfirmedRunningAtMs = System.currentTimeMillis()
+        val pending = slot.get() ?: run {
+            Log.d(TAG, "$label id=$ackedAlarmId but no pending request — dropping")
+            return
+        }
+        val matches = pending.alarmId == ackedAlarmId && !pending.deferred.isCompleted
+        if (matches && slot.compareAndSet(pending, null)) {
+            pending.deferred.complete(Unit)
+            Log.i(TAG, "$label received id=$ackedAlarmId — watch confirmed action")
+            return
+        }
+        Log.d(TAG, "$label id=$ackedAlarmId mismatched pending (got ${pending.alarmId}) — dropping")
+    }
+
+    /**
+     * Receiver path for `alarm_ringing`. Extracted into its own method to
+     * keep the receiver lambda's complexity in check (ComplexCondition
+     * threshold). Matches by alarmId so a stale reply from a previous
+     * fire can't satisfy a fresh pre-arm wait; compareAndSet guards
+     * against the rare race with requestPreArm's finally-clear.
+     */
+    private fun handleAlarmRinging(msg: IncomingMessage.AlarmRinging) {
+        // The watch just confirmed its ring page is up — peer is
+        // definitively running and the receiver is bound. Refresh the
+        // running-cache stamp so subsequent sends in the ring window
+        // (dismiss/snooze) skip the wake-poll. Without this, the dismiss
+        // ~5+ seconds later would re-ping for no reason — user-noticed
+        // 2026-05-13: "why we need 'reconnecting' to watch to dismiss".
+        lastConfirmedRunningAtMs = System.currentTimeMillis()
+        val pending = pendingAlarmRinging.get() ?: run {
+            Log.d(TAG, "alarm_ringing id=${msg.alarmId} but no pending request — dropping")
+            return
+        }
+        val matches = pending.alarmId == msg.alarmId && !pending.deferred.isCompleted
+        if (matches && pendingAlarmRinging.compareAndSet(pending, null)) {
+            pending.deferred.complete(Unit)
+            Log.i(TAG, "alarm_ringing received id=${msg.alarmId} — watch ring confirmed")
+            return
+        }
+        Log.d(TAG, "alarm_ringing id=${msg.alarmId} mismatched pending (got ${pending.alarmId}) — dropping")
+    }
+
+    /**
+     * Expand a watch-side `watch_log_batch` envelope to one logcat line
+     * per entry under the `WatchLog` tag. Each line keeps the watch's own
+     * `ts` prefix so the relayed lines stay ordered when interleaved with
+     * phone-side log lines on a single `adb logcat` timeline.
+     */
+    private fun expandWatchLogBatch(json: JSONObject) {
+        val lines = json.optJSONArray("lines") ?: return
+        for (i in 0 until lines.length()) {
+            val line = lines.optJSONObject(i) ?: continue
+            val msg = "[${line.optLong("ts", 0L)}] ${line.optString("msg", "")}"
+            when (line.optString("level", "I")) {
+                "E" -> Log.e(WATCH_LOG_TAG, msg)
+                "W" -> Log.w(WATCH_LOG_TAG, msg)
+                else -> Log.i(WATCH_LOG_TAG, msg)
+            }
+        }
+    }
+
+    private val receiver: Receiver = Receiver { message ->
+        val bytes = message.data ?: return@Receiver
+        val parent = attachJob ?: return@Receiver
+        scope.launch(parent) {
+            val json = runCatching { JSONObject(String(bytes, Charsets.UTF_8)) }.getOrNull()
+            if (json == null) {
+                Log.w(TAG, "received unparseable payload (${bytes.size}B) — dropping")
+                return@launch
+            }
+            // Dev-only batched log relay — expand to one logcat line per
+            // entry and exit; never reaches the LWW handler.
+            if (json.optString("type") == "watch_log_batch") {
+                expandWatchLogBatch(json)
+                return@launch
+            }
+            val parsed = WearJsonCodec.parseIncoming(json)
+            if (parsed == null) {
+                Log.w(TAG, "received unrecognized payload (${bytes.size}B) — dropping")
+                return@launch
+            }
+            // SyncHash is a meta-protocol response — route to the pending
+            // request continuation, NOT to the LWW-applying handler.
+            // getAndSet(null) atomically claims the deferred so a
+            // concurrent timeout-finally in requestRemoteHash either sees
+            // the cleared ref (we won the race) or already cleared it (we
+            // lost — fall through to handler.handle, which logs+drops).
+            if (parsed is IncomingMessage.SyncHash) {
+                val pending = pendingHashRequest.getAndSet(null)
+                if (pending != null && !pending.isCompleted) {
+                    pending.complete(parsed.hash)
+                    Log.d(TAG, "sync-check response received hash=${parsed.hash}")
+                    return@launch
+                }
+            }
+            // AlarmRinging: watch confirms its ring UI is on. Match
+            // alarmId before claiming the deferred so a stale reply from a
+            // prior fire can't accidentally satisfy a fresh pre-arm wait.
+            // compareAndSet ensures we don't clobber a concurrent timeout-
+            // finally's clear.
+            if (parsed is IncomingMessage.AlarmRinging) {
+                handleAlarmRinging(parsed)
+                return@launch
+            }
+            // AlarmDismissedAck / AlarmSnoozedAck: watch confirms it
+            // processed the dismiss/snooze envelope (closed its ring
+            // page or accepted the action). Application-level ack —
+            // proves the JS receiver actually ran our handler, not just
+            // that Wear Engine's transport ACK'd at 207. Routed via
+            // shared completePendingAck helper.
+            if (parsed is IncomingMessage.AlarmDismissedAck) {
+                completePendingAck(pendingDismissAck, parsed.alarmId, "alarm_dismissed_ack")
+                return@launch
+            }
+            if (parsed is IncomingMessage.AlarmSnoozedAck) {
+                completePendingAck(pendingSnoozeAck, parsed.alarmId, "alarm_snoozed_ack")
+                return@launch
+            }
+            incomingHandler?.handle(parsed)
+        }
+    }
+
+    override fun sendAlarmFired(alarmId: Long, ringHints: AlarmRingHints?) {
+        val now = System.currentTimeMillis()
+        if (!validateStamp("sendAlarmFired", now)) return
+        sendJson(buildAlarmFiredEnvelope(alarmId, now, ringHints))
+    }
+
+    override suspend fun sendAlarmDismissed(alarmId: Long): Boolean {
+        val now = System.currentTimeMillis()
+        if (!validateStamp("sendAlarmDismissed", now)) return false
+        return performSend(
+            JSONObject().apply {
+                put("type", "alarm_dismissed")
+                put("alarmId", alarmId)
+                put("updatedAtEpoch", now)
+            },
+            retryOnError = true,
+        )
+    }
+
+    override suspend fun sendAlarmSnoozed(alarmId: Long, rescheduleEpoch: Long): Boolean {
+        val now = System.currentTimeMillis()
+        if (!validateStamp("sendAlarmSnoozed", now)) return false
+        return performSend(
+            JSONObject().apply {
+                put("type", "alarm_snoozed")
+                put("alarmId", alarmId)
+                put("updatedAtEpoch", now)
+                put("rescheduleEpoch", rescheduleEpoch)
+            },
+            retryOnError = true,
+        )
+    }
+
+    // Pre-arm path: send alarm_fired then AWAIT the watch's `alarm_ringing`
+    // reply. Returns true iff the watch's ring page has actually rendered
+    // (its onShow handler is what sends alarm_ringing). The phone uses
+    // this to start its own audio in lock-step with the watch instead of
+    // beating the watch by ~500-1000ms on cold-launches (the gap was
+    // ping-wake + JS engine startup + page mount, all opaque to the phone
+    // before this reply existed).
+    //
+    // Falls back to false on timeout — caller (AlarmRingService) rings
+    // on phone alone, the watch ring will catch up when its app does
+    // launch and re-emit `alarm_ringing` (we drop that late reply via
+    // the receiver's "no pending match" path).
+    // Awaits the watch's alarm_ringing reply — a P2P receive, so per the
+    // class-level ACTIVITY RULE it only resolves while an Activity is in
+    // the task. The fire path satisfies that for free: FSI launches
+    // AlarmActivity concurrently with this call.
+    override suspend fun sendAlarmFiredAwaiting(
+        alarmId: Long,
+        timeoutMs: Long,
+        ringHints: AlarmRingHints?,
+    ): Boolean {
+        val now = System.currentTimeMillis()
+        if (!validateStamp("sendAlarmFiredAwaiting", now)) return false
+        val envelope = buildAlarmFiredEnvelope(alarmId, now, ringHints)
+        return pendingAlarmRingingMutex.withLock {
+            val deferred = CompletableDeferred<Unit>()
+            pendingAlarmRinging.set(PendingRing(alarmId, deferred))
+            try {
+                val outcome = withTimeoutOrNull(timeoutMs) {
+                    val sent = performSend(envelope, retryOnError = true)
+                    if (!sent) {
+                        Log.w(TAG, "sendAlarmFiredAwaiting: alarm_fired send failed id=$alarmId")
+                        return@withTimeoutOrNull false
+                    }
+                    deferred.await()
+                    true
+                }
+                if (outcome == null) {
+                    Log.w(
+                        TAG,
+                        "sendAlarmFiredAwaiting timed out after ${timeoutMs}ms id=$alarmId — " +
+                            "ringing phone alone",
+                    )
+                    false
+                } else {
+                    outcome
+                }
+            } finally {
+                // Only clear if this is still our pending entry. A concurrent
+                // race (multiple fires?) shouldn't happen given the mutex,
+                // but defense in depth.
+                pendingAlarmRinging.updateAndGet { current ->
+                    if (current?.deferred === deferred) null else current
+                }
+            }
+        }
+    }
+
+    // Suspending dismiss: wait up to timeoutMs for the WATCH'S APPLICATION-
+    // LEVEL ACK (`alarm_dismissed_ack` envelope). See sendAwaitingAck for
+    // the full retry-layering rationale.
+    override suspend fun sendAlarmDismissedAwaiting(alarmId: Long, timeoutMs: Long): Boolean {
+        val now = System.currentTimeMillis()
+        if (!validateStamp("sendAlarmDismissedAwaiting", now)) return false
+        val envelope = JSONObject().apply {
+            put("type", "alarm_dismissed")
+            put("alarmId", alarmId)
+            put("updatedAtEpoch", now)
+        }
+        return sendAwaitingAck(
+            "sendAlarmDismissedAwaiting",
+            envelope,
+            alarmId,
+            pendingDismissAck,
+            pendingDismissAckMutex,
+            timeoutMs,
+        )
+    }
+
+    // Shared impl for the suspending dismiss / snooze paths. Waits up to
+    // timeoutMs for the watch's APPLICATION-LEVEL ack envelope, not just
+    // the P2P transport 207. The transport ACK says "delivered to the
+    // watch's Wear Engine layer" but NOT "the JS receiver processed it" —
+    // the receiver can be mid-bundle-load / mid-page-transition and
+    // silently drop the envelope.
+    //
+    // ACTIVITY RULE (see class header): the watch's ack is a P2P *receive*
+    // — it is only delivered while an Activity is alive in the task. The
+    // caller (AlarmRingService.handleDismiss/handleSnooze) MUST keep
+    // AlarmActivity alive for the whole of this call, or the await below
+    // times out unconditionally.
+    //
+    // Two retry layers stack here:
+    //   • transport — performSend(retryOnError=true) → retrySend re-fires
+    //     up to RETRY_MAX_ATTEMPTS times when the SDK reports 206 / throws.
+    //   • application — this loop re-sends the WHOLE envelope up to
+    //     ACK_RESEND_ROUNDS times when the transport reported 207 but no
+    //     ack came back within ACK_RESEND_WAIT_MS. That 207-but-no-ack
+    //     case is exactly the silent-drop the ack protocol exists to
+    //     catch — detecting it is not enough, we must re-send so the
+    //     (now-bound) receiver gets another chance. A re-sent
+    //     alarm_dismissed / alarm_snoozed is idempotent on the watch
+    //     (re-navigates to index = visual no-op), so re-sending is safe.
+    //
+    // Every round force-repings (bypasses the 30 s cache) so a channel
+    // that degraded since the fire's wake-protocol is re-woken first.
+    private suspend fun sendAwaitingAck(
+        label: String,
+        envelope: JSONObject,
+        alarmId: Long,
+        slot: java.util.concurrent.atomic.AtomicReference<PendingAck?>,
+        mutex: Mutex,
+        timeoutMs: Long,
+    ): Boolean = mutex.withLock {
+        val deferred = CompletableDeferred<Unit>()
+        slot.set(PendingAck(alarmId, deferred))
+        try {
+            val outcome = withTimeoutOrNull(timeoutMs) {
+                val device = ensurePairedDevice() ?: return@withTimeoutOrNull false
+                for (round in 1..ACK_RESEND_ROUNDS) {
+                    // && short-circuits: a failed reping skips the send.
+                    // Both ensurePeerAppRunning and performSend log their
+                    // own failure specifics, so a single combined branch
+                    // here keeps the loop to one jump statement.
+                    val sent = ensurePeerAppRunning(device, force = true) &&
+                        performSend(envelope, retryOnError = true)
+                    if (sent) {
+                        val acked = withTimeoutOrNull(ACK_RESEND_WAIT_MS) {
+                            deferred.await()
+                            true
+                        }
+                        if (acked == true) return@withTimeoutOrNull true
+                        Log.w(
+                            TAG,
+                            "$label: no app-ack within ${ACK_RESEND_WAIT_MS}ms round=$round id=$alarmId",
+                        )
+                    } else {
+                        Log.w(TAG, "$label: reping/send failed round=$round id=$alarmId")
+                    }
+                }
+                false
+            }
+            if (outcome == null) {
+                Log.w(TAG, "$label timed out after ${timeoutMs}ms id=$alarmId — no application-level ack")
+                false
+            } else {
+                outcome
+            }
+        } finally {
+            slot.updateAndGet { current ->
+                if (current?.deferred === deferred) null else current
+            }
+        }
+    }
+
+    // Suspending snooze: same rationale + protocol as
+    // sendAlarmDismissedAwaiting — see sendAwaitingAck.
+    override suspend fun sendAlarmSnoozedAwaiting(
+        alarmId: Long,
+        rescheduleEpoch: Long,
+        timeoutMs: Long,
+    ): Boolean {
+        val now = System.currentTimeMillis()
+        if (!validateStamp("sendAlarmSnoozedAwaiting", now)) return false
+        val envelope = JSONObject().apply {
+            put("type", "alarm_snoozed")
+            put("alarmId", alarmId)
+            put("updatedAtEpoch", now)
+            put("rescheduleEpoch", rescheduleEpoch)
+        }
+        return sendAwaitingAck(
+            "sendAlarmSnoozedAwaiting",
+            envelope,
+            alarmId,
+            pendingSnoozeAck,
+            pendingSnoozeAckMutex,
+            timeoutMs,
+        )
+    }
+
+    // File-transfer path for the shared default watch background.
+    // Differs from the normal data-Message path in two ways:
+    //   1. Builder.setPayload(File) — Wear Engine routes any non-string
+    //      payload to the watch's file-receive handler instead of the
+    //      byte-msg Receiver.
+    //   2. Builder.setDescription(bgFile.name) — the description carries
+    //      the file name (incl. extension), so the watch's <image src>
+    //      sees the right format. Per memory:wear_engine_lite_facts
+    //      §setdesc-fix, setDescription takes a String.
+    @Suppress("ReturnCount", "TooGenericExceptionCaught")
+    // reason: ReturnCount — 5 returns reflect 5 distinct early-out states
+    //   (file missing, file empty, no device, peer not running, send result),
+    //   each with its own diagnostic log. A result-variable rewrite would
+    //   need a sentinel value and double-deep nesting for no readability win.
+    // reason: TooGenericExceptionCaught — the Wear Engine sendOnce throws
+    //   RemoteException / IllegalStateException / SecurityException under
+    //   the RuntimeException umbrella across vendor-skin variants; catching
+    //   narrower would let real failures unwind into the AppScope and lose
+    //   the invalidateAndMarkError() side-effect.
+    override suspend fun uploadDefaultWatchBackground(bgFile: java.io.File): Boolean {
+        if (!bgFile.exists()) {
+            Log.w(TAG, "uploadDefaultWatchBackground: file missing at ${bgFile.absolutePath}")
+            return false
+        }
+        if (bgFile.length() == 0L) {
+            Log.w(TAG, "uploadDefaultWatchBackground: file empty")
+            return false
+        }
+        val device = ensurePairedDevice() ?: return false
+        // force=true: bypass the "app running" cache and do a real
+        // wake-and-poll-to-202. A settings-time background change usually
+        // happens while the watch app is asleep; a stale cache hit would
+        // let the file send into the void (delivered to nothing), which is
+        // why the image only landed after a home-screen forceSync — that
+        // path hard-wakes the same way.
+        if (!ensurePeerAppRunning(device, force = true)) {
+            Log.w(TAG, "uploadDefaultWatchBackground: peer not running")
+            return false
+        }
+        val msg = Message.Builder()
+            .setPayload(bgFile)
+            .setDescription(bgFile.name)
+            .build()
+        val ok = try {
+            sendOnce(device, msg)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "uploadDefaultWatchBackground threw: ${e.message}", e)
+            invalidateAndMarkError()
+            false
+        }
+        if (ok) {
+            Log.i(TAG, "uploadDefaultWatchBackground delivered ${bgFile.name} (${bgFile.length()}B)")
+        } else {
+            Log.w(TAG, "uploadDefaultWatchBackground NOT delivered")
+            invalidateAndMarkError()
+        }
+        return ok
+    }
+
+    override fun sendDefaultWatchBackgroundCleared() {
+        val now = System.currentTimeMillis()
+        if (!validateStamp("sendDefaultWatchBackgroundCleared", now)) return
+        sendJson(JSONObject().apply {
+            put("type", "watch_default_bg_cleared")
+            put("updatedAtEpoch", now)
+        })
+    }
+
+    override fun sendSettingsChanged(use24Hour: Boolean?, firstDayOfWeek: Int?) {
+        val now = System.currentTimeMillis()
+        if (!validateStamp("sendSettingsChanged", now)) return
+        sendJson(JSONObject().apply {
+            put("type", "settings_changed")
+            put("updatedAtEpoch", now)
+            // null is sent as JSON null so the watch can distinguish "follow
+            // system" (null) from a Boolean false override. JSONObject.put
+            // with null erases the key; use JSONObject.NULL for explicit null.
+            put("use24Hour", if (use24Hour == null) JSONObject.NULL else use24Hour)
+            put("firstDayOfWeek", if (firstDayOfWeek == null) JSONObject.NULL else firstDayOfWeek)
+        })
+    }
+
+    override fun setIncomingHandler(handler: IncomingMessageHandler?) {
+        // Idempotent on same non-null re-install — re-launching
+        // ensureReceiverRegistered can interrupt awaitTask between SDK
+        // register and our local flag. null path is NOT skipped
+        // (force-detach must always run).
+        if (handler != null && incomingHandler === handler) return
+        attachJob?.cancel()
+        incomingHandler = handler
+        if (handler != null) {
+            val newAttach = SupervisorJob(supervisorJob)
+            attachJob = newAttach
+            scope.launch(newAttach) { ensureReceiverRegistered() }
+        } else {
+            attachJob = null
+            scope.launch { detachReceiver() }
+        }
+    }
+
+    private suspend fun detachReceiver() {
+        connectionMutex.withLock {
+            if (!receiverRegistered) return@withLock
+            awaitTask("unregisterReceiver") { p2pClient.unregisterReceiver(receiver) }
+            receiverRegistered = false
+        }
+    }
+
+    private fun sendJson(envelope: JSONObject, retryOnError: Boolean = false) {
+        scope.launch { performSend(envelope, retryOnError) }
+    }
+
+    // reason: Wear Engine surfaces ALL failure modes via WearEngineException
+    // (a RuntimeException subclass) plus IllegalStateException from internal
+    // binder lookups. Narrower catches would miss real errors.
+    // reason: ReturnCount is 4 here because each early-return models a distinct
+    // failure mode (no device / peer not running / send threw / send returned
+    // false) and is logged separately for diagnosability — collapsing them
+    // would lose the per-cause warning lines without changing logic.
+    @Suppress("TooGenericExceptionCaught", "ReturnCount")
+    private suspend fun performSend(envelope: JSONObject, retryOnError: Boolean): Boolean {
+        val device = ensurePairedDevice() ?: return false
+        if (!ensurePeerAppRunning(device)) {
+            Log.w(
+                TAG,
+                "performSend: peer app not 202 (APP_RUNNING) after wake-poll — dropping type=" +
+                    envelope.optString("type"),
+            )
+            return false
+        }
+        val bytes = envelope.toString().toByteArray(Charsets.UTF_8)
+        val msg = Message.Builder().setPayload(bytes).build()
+        val result = try {
+            sendOnce(device, msg)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "send threw: ${e.message}", e)
+            invalidateAndMarkError()
+            return if (retryOnError) retrySend(envelope) else false
+        }
+        return if (result) {
+            true
+        } else {
+            invalidateAndMarkError()
+            if (retryOnError) retrySend(envelope) else false
+        }
+    }
+
+    // reason: same as performSend — Wear Engine wraps all transport errors in
+    // RuntimeException subclasses; narrower catches would miss real failures.
+    //
+    // Important: GT 6 logs (2026-05-11) show that ping CAN return 202
+    // (APP_RUNNING) while sends still fail 206 (COMM_FAIL). The Wear Engine
+    // ping reports OS process aliveness, not JS-receiver bound state. So
+    // re-pinging is NOT sufficient when 206 happens — we must also wait for
+    // the watch JS receiver to (re)bind. This loop sleeps RETRY_BACKOFF_MS
+    // before each retry, gives up after RETRY_MAX_ATTEMPTS or once the
+    // total time budget RETRY_TOTAL_DEADLINE_MS is exhausted. The deadline
+    // is important because retrySend can be reached from the AlarmRingService
+    // pre-arm path (gated by Android's 10 s ANR window for service-start);
+    // worst case must stay under ~8 s including the initial ping wait.
+    //
+    // reason: ReturnCount=4 covers no-device / not-running / per-attempt
+    // success / final-give-up, each a distinct outcome with its own log.
+    @Suppress("TooGenericExceptionCaught", "ReturnCount")
+    private suspend fun retrySend(envelope: JSONObject): Boolean {
+        val device = ensurePairedDevice() ?: return false
+        val type = envelope.optString("type")
+        val bytes = envelope.toString().toByteArray(Charsets.UTF_8)
+        val deadline = System.currentTimeMillis() + RETRY_TOTAL_DEADLINE_MS
+        for (attempt in 1..RETRY_MAX_ATTEMPTS) {
+            if (System.currentTimeMillis() >= deadline) {
+                Log.w(TAG, "retrySend hit total deadline ${RETRY_TOTAL_DEADLINE_MS}ms type=$type")
+                return false
+            }
+            delay(RETRY_BACKOFF_MS * attempt)
+            // Force re-poll because the previous 206 invalidated the cache;
+            // even if ping returns 202 we still might 206 again — that's
+            // what the per-attempt delay is for (gives the watch JS
+            // receiver time to bind).
+            if (!ensurePeerAppRunning(device, force = true)) {
+                Log.w(TAG, "retrySend attempt=$attempt: peer not 202 — abandoning type=$type")
+                return false
+            }
+            val msg = Message.Builder().setPayload(bytes).build()
+            val ok = try {
+                sendOnce(device, msg)
+            } catch (e: RuntimeException) {
+                Log.w(TAG, "retrySend attempt=$attempt threw: ${e.message}", e)
+                invalidateAndMarkError()
+                false
+            }
+            if (ok) {
+                Log.i(TAG, "retrySend attempt=$attempt succeeded type=$type")
+                return true
+            }
+            Log.w(TAG, "retrySend attempt=$attempt still 206 type=$type")
+            invalidateAndMarkError()
+        }
+        Log.w(TAG, "retrySend gave up after $RETRY_MAX_ATTEMPTS attempts type=$type")
+        return false
+    }
+
+    // Ping the peer until it returns 202 (APP_RUNNING) or the timeout is hit.
+    // Lite Wearable peer apps auto-launch on incoming P2P, but the launch
+    // (onCreate → setIncomingHandler → registerReceiver chain) takes 1–3
+    // seconds during which sends drop with 206 (COMM_FAIL). This poll
+    // closes the race: we wait for 202 before letting any send through.
+    //
+    // Result is cached in `lastConfirmedRunningAtMs` so a burst of sends
+    // (forceSync, sync-on-fire) only pays the ping cost once.
+    @Suppress("TooGenericExceptionCaught", "ReturnCount")
+    private suspend fun ensurePeerAppRunning(device: Device, force: Boolean = false): Boolean {
+        // Fast-path cache check (lock-free): if a recent caller confirmed
+        // running, skip the mutex + poll entirely. The `>= 0` explicit check
+        // matters because System.currentTimeMillis() can move BACKWARDS
+        // (NTP correction, manual clock change) — a negative `sinceConfirm`
+        // is NOT in `0 until N`, so the original `in` form silently
+        // re-polled on every send during a clock jump. We treat negative
+        // skew as "cache is fresh enough" (the stamp is in the future, but
+        // a future stamp can't be more stale than the cache window allows).
+        if (!force && cacheHit()) return true
+        // Serialize the poll. Concurrent callers from sync-on-fire / forceSync
+        // queue here; the first one polls, the rest re-check the cache after
+        // the lock is released and almost always short-circuit.
+        return wakeMutex.withLock {
+            if (!force && cacheHit()) return@withLock true
+            pollUntilRunning(device)
+        }
+    }
+
+    private fun cacheHit(): Boolean {
+        val sinceConfirm = System.currentTimeMillis() - lastConfirmedRunningAtMs
+        // Negative = future stamp (clock skew) — still treat as fresh.
+        // 0..CACHE_MS = recently confirmed.
+        return sinceConfirm < PEER_RUNNING_CACHE_MS && lastConfirmedRunningAtMs > 0L
+    }
+
+    // reason: TooGenericExceptionCaught — pingPeer throws WearEngineException
+    // (RuntimeException subclass) plus IllegalStateException from internal
+    // binder lookups; narrower catches would miss real failure modes.
+    // ReturnCount — each branch of the ping-code `when` maps to a distinct
+    // failure outcome (running / not-running-but-timeout / not-installed /
+    // p2p-error / unexpected) with its own log line; collapsing them would
+    // smear diagnostically-useful cases into one path.
+    @Suppress("TooGenericExceptionCaught", "ReturnCount")
+    private suspend fun pollUntilRunning(device: Device): Boolean {
+        val deadline = System.currentTimeMillis() + PING_WAKE_TIMEOUT_MS
+        var iteration = 0
+        while (true) {
+            iteration++
+            val code = try {
+                pingPeer(device)
+            } catch (e: RuntimeException) {
+                Log.w(TAG, "pollUntilRunning: ping threw: ${e.message}")
+                return false
+            }
+            Log.d(TAG, "pollUntilRunning iter=$iteration ping=$code")
+            when (code) {
+                PING_APP_RUNNING -> {
+                    lastConfirmedRunningAtMs = System.currentTimeMillis()
+                    return true
+                }
+                PING_APP_NOT_RUNNING -> {
+                    if (System.currentTimeMillis() >= deadline) {
+                        Log.w(
+                            TAG,
+                            "pollUntilRunning: TIMEOUT after ${PING_WAKE_TIMEOUT_MS}ms — " +
+                                "watch app stuck at 201 (not running). Cold launch failed.",
+                        )
+                        return false
+                    }
+                    delay(PING_WAKE_POLL_DELAY_MS)
+                }
+                PING_APP_NOT_INSTALLED -> {
+                    Log.w(TAG, "pollUntilRunning: peer app NOT installed (200)")
+                    return false
+                }
+                PING_OTHER_ERROR -> {
+                    Log.w(TAG, "pollUntilRunning: P2P error (203)")
+                    return false
+                }
+                else -> {
+                    Log.w(TAG, "pollUntilRunning: unexpected ping=$code, bailing")
+                    return false
+                }
+            }
+        }
+        // reason: while(true) above only exits via `return` in each branch
+        // of the `when`, but the Kotlin flow analyzer doesn't infer that
+        // the loop is non-terminating. Adding a trailing return keeps the
+        // function shape symmetric and satisfies the "must return Boolean"
+        // contract without a label hack. Genuinely unreachable.
+        @Suppress("UNREACHABLE_CODE") return false
+    }
+
+    // reason: ForbiddenVoid suppressed because Task<Void> is the Huawei SDK
+    // signature; replacing with Task<*> loses the type information.
+    @Suppress("ForbiddenVoid")
+    private suspend fun sendOnce(device: Device, msg: Message): Boolean =
+        suspendCancellableCoroutine { cont ->
+            // Per Huawei Wear Engine docs, onSendResult is the source of
+            // truth for actual delivery (207 = COMM_SUCCESS, 206 = COMM_FAIL).
+            // The Task<Void> only signals dispatch acknowledgment, not
+            // delivery. Resolve the continuation from the callback when
+            // available; use Task.onFailure only for dispatch failure
+            // (which prevents the callback from firing at all).
+            val task: Task<Void> = p2pClient.send(device, msg, object : SendCallback {
+                override fun onSendResult(resultCode: Int) {
+                    Log.d(TAG, "send onSendResult code=$resultCode (207=ok 206=fail)")
+                    if (resultCode == COMM_SUCCESS) {
+                        // Successful delivery = peer is definitely up + receiver
+                        // bound. Refresh the running cache so subsequent sends
+                        // in the same burst (or shortly after) skip the wake-
+                        // poll. The 30 s window in PEER_RUNNING_CACHE_MS lets a
+                        // typical alarm-ring → user-react → dismiss flow proceed
+                        // without re-pinging mid-flow.
+                        lastConfirmedRunningAtMs = System.currentTimeMillis()
+                    }
+                    if (cont.isActive) cont.resumeWith(Result.success(resultCode == COMM_SUCCESS))
+                }
+
+                override fun onSendProgress(progress: Long) {
+                    Log.v(TAG, "send onSendProgress=$progress")
+                }
+            })
+            task.addOnFailureListener { e ->
+                Log.w(TAG, "send Task dispatch failed: ${e.message}")
+                if (cont.isActive) cont.resumeWith(Result.success(false))
+            }
+        }
+
+    private suspend fun invalidateAndMarkError() {
+        connectionMutex.withLock {
+            pairedDevice = null
+            receiverRegistered = false
+            // A 206/send-throw means the receiver channel is no longer
+            // hot — drop the "peer is running" confirmation so the next
+            // send re-polls instead of trusting a stale cache hit.
+            lastConfirmedRunningAtMs = 0L
+            _statusFlow.value = WatchSyncStatus.ERROR
+        }
+    }
+
+    private suspend fun ensurePairedDevice(): Device? = connectionMutex.withLock {
+        pairedDevice?.let {
+            _statusFlow.value = WatchSyncStatus.CONNECTED
+            return@withLock it
+        }
+        val candidate = if (!ensurePermissionGranted()) {
+            null
+        } else {
+            _statusFlow.value = WatchSyncStatus.CONNECTING
+            val devices = awaitTask("getBondedDevices") {
+                HiWear.getDeviceClient(context).bondedDevices
+            }.orEmpty()
+            Log.i(TAG, "bondedDevices count=${devices.size}")
+            devices.forEachIndexed { i, d ->
+                Log.i(
+                    TAG,
+                    "  [$i] name='${d.name}' model='${d.model}' connected=${d.isConnected} uuid=${d.uuid}",
+                )
+            }
+            devices.firstOrNull { it.isConnected } ?: devices.firstOrNull()
+        }
+        _statusFlow.value = if (candidate == null) {
+            WatchSyncStatus.NOT_CONNECTED
+        } else if (candidate.isConnected) {
+            WatchSyncStatus.CONNECTED
+        } else {
+            WatchSyncStatus.NOT_CONNECTED
+        }
+        _pairedDeviceInfo.value = candidate?.let {
+            PairedDeviceInfo(
+                displayName = normalizeDeviceLabel(it.name, it.model),
+                connected = it.isConnected,
+            )
+        }
+        pairedDevice = candidate
+        candidate
+    }
+
+    // Registers the P2P receiver. NOTE: registration is process-scoped
+    // (this @Singleton owns it) — but Wear Engine only DELIVERS inbound
+    // messages to it while an Activity is in the task. See the class-level
+    // ACTIVITY RULE: a registered receiver is necessary but not sufficient;
+    // an Activity must also be alive for replies/acks to arrive.
+    private suspend fun ensureReceiverRegistered() {
+        val device = ensurePairedDevice() ?: return
+        connectionMutex.withLock {
+            if (pairedDevice !== device) return@withLock
+            if (receiverRegistered) return@withLock
+            val ok = awaitTask("registerReceiver") {
+                p2pClient.registerReceiver(device, receiver)
+            }
+            if (ok != null) {
+                receiverRegistered = true
+            }
+        }
+    }
+
+    override suspend fun hasWatchPermission(): Boolean? =
+        awaitTask("checkPermission") {
+            HiWear.getAuthClient(context).checkPermission(Permission.DEVICE_MANAGER)
+        }
+
+    private suspend fun ensurePermissionGranted(): Boolean = hasWatchPermission() == true
+
+    // reason: same as performSend — Wear Engine wraps all transport errors in
+    // RuntimeException subclasses; narrower catches would miss real failures.
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun <T> awaitTask(
+        op: String,
+        block: () -> Task<T>,
+    ): T? {
+        return try {
+            val task = block()
+            suspendCancellableCoroutine { cont ->
+                task.addOnSuccessListener { result ->
+                    if (cont.isActive) cont.resumeWith(Result.success(result))
+                }.addOnFailureListener { e ->
+                    Log.w(TAG, "$op failed: ${e.message}")
+                    if (cont.isActive) cont.resumeWith(Result.success(null))
+                }
+                cont.invokeOnCancellation {
+                    Log.d(TAG, "$op cancelled")
+                }
+            }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "$op threw: ${e.message}", e)
+            null
+        }
+    }
+
+    // The per-alarm `alarm` payload object. Shared by buildAlarmEnvelope
+    // (alarm_added / alarm_updated) and buildSyncReplaceEnvelope so the
+    // two paths cannot drift in field set or encoding.
+    private fun buildAlarmPayload(alarm: Alarm): JSONObject = JSONObject().apply {
+        put("id", alarm.id)
+        // alarm.label is intentionally NOT sent — the label is phone-only
+        // (shown on the phone ring screen). See sync-architecture.md §2.2.
+        put("hour", alarm.hour)
+        put("minute", alarm.minute)
+        put("daysOfWeek", alarm.daysOfWeek)
+        put("enabled", alarm.enabled)
+        put("audioUri", alarm.audioUri)
+        put("isVibrationOnly", alarm.isVibrationOnly)
+        put("snoozeMinutes", alarm.snoozeMinutes)
+        put("updatedAtEpoch", alarm.updatedAtEpoch)
+        // Only include relativeMinutes when present — keeps absolute
+        // alarm payloads byte-identical to the v1 wire format so old
+        // watch builds parse them unchanged. Watches that understand
+        // the field read it for the "Timer" label + cold-reboot recovery.
+        alarm.relativeMinutes?.let { put("relativeMinutes", it) }
+        // selfDestruct: always serialized so default-false is explicit
+        // on the wire. Old watch builds without the field treat the
+        // alarm as plain one-shot ("Once" label) which is the v1
+        // behavior — correct degradation.
+        put("selfDestruct", alarm.selfDestruct)
+        // backgroundImageUri: only serialized when set, mirroring
+        // relativeMinutes. Old watch builds without the field render
+        // the default ring screen (background-less) — correct
+        // degradation. The watch currently ignores it; future watch
+        // builds may consume it for a custom ring backdrop.
+        alarm.backgroundImageUri?.let { put("backgroundImageUri", it) }
+        // vibrationPattern: wire name of the preset enum. Old watch builds
+        // without the field fall back to the default phone pattern on
+        // their side (PULSE) — correct degradation.
+        put("vibrationPattern", alarm.vibrationPattern.name)
+        // maxSnoozeCount: 0 = unlimited. Old watch builds default to
+        // unlimited (current behavior) — correct degradation.
+        put("maxSnoozeCount", alarm.maxSnoozeCount)
+        // volumeRampSeconds: 0 = off. Watch doesn't use this today
+        // (single ringtone, no ramp on Lite Wearable), forwarded for
+        // forward-compat / log telemetry only.
+        put("volumeRampSeconds", alarm.volumeRampSeconds)
+        // skipNextEpoch: optional — only sent when set. Used by the
+        // watch for its display ("next skipped" hint) and to compute
+        // the right ring time after one skipped occurrence.
+        alarm.skipNextEpoch?.let { put("skipNextEpoch", it) }
+    }
+
+    /**
+     * Thin-client `alarm_fired` envelope. The spec calls this out explicitly:
+     * the watch MUST be able to ring with the correct pattern and Snooze
+     * affordance state WITHOUT prior `sync_replace` (cold-paired watch, sync
+     * drift, etc). So we ship the per-fire fields inline:
+     *
+     *  - `vibrationPattern` — enum name; watch reads VIBRATION_PATTERNS[name]
+     *    and falls back to PULSE on unknown / missing.
+     *  - `snoozeAllowed` — pre-computed boolean = `alarm.isSnoozeEnabled`
+     *    (collapses snoozeMinutes==0 OR consecutiveSnoozeCount >= cap). The
+     *    watch hides its Snooze button when false. Pre-computing on the phone
+     *    avoids shipping the raw counter (transient ring-cycle state that
+     *    would force hash mismatches) and avoids reimplementing the
+     *    cap-vs-minutes logic on the watch.
+     *
+     * The phone-side caller resolves the alarm from BFU cache pre-unlock
+     * (Room locked) or Room post-unlock; either path yields a domain Alarm
+     * with the right consecutiveSnoozeCount because BfuAlarmCache mirrors it.
+     */
+    private fun buildAlarmFiredEnvelope(
+        alarmId: Long,
+        now: Long,
+        ringHints: AlarmRingHints?,
+    ): JSONObject = JSONObject().apply {
+        put("type", "alarm_fired")
+        put("alarmId", alarmId)
+        put("updatedAtEpoch", now)
+        // Hints are nullable so the legacy missed-cache path (no domain Alarm
+        // resolvable) still ships a valid envelope; the watch falls back to
+        // its AlarmStore for the missing fields.
+        if (ringHints != null) {
+            put("vibrationPattern", ringHints.vibrationPatternName)
+            put("snoozeAllowed", ringHints.snoozeAllowed)
+        }
+    }
+
+    private fun buildAlarmEnvelope(type: String, alarm: Alarm): JSONObject = JSONObject().apply {
+        put("type", type)
+        put("alarmId", alarm.id)
+        put("updatedAtEpoch", alarm.updatedAtEpoch)
+        put("alarm", buildAlarmPayload(alarm))
+    }
+
+    // Authoritative full-state replace for force-sync (see
+    // docs/sync-architecture.md §5.7). The watch replaces its whole
+    // AlarmStore with this list and tombstones the dropped ids — that
+    // is what prunes watch-only rows an additive push can never remove.
+    private fun buildSyncReplaceEnvelope(alarms: List<Alarm>): JSONObject = JSONObject().apply {
+        put("type", "sync_replace")
+        put("updatedAtEpoch", System.currentTimeMillis())
+        put("alarms", JSONArray().apply { alarms.forEach { put(buildAlarmPayload(it)) } })
+    }
+
+    // End-of-sync marker — the last message of every forceSync. Lets the
+    // watch terminate its syncing page promptly instead of waiting out
+    // the drain-quiescence timer.
+    private fun buildSyncDoneEnvelope(): JSONObject = JSONObject().apply {
+        put("type", "sync_done")
+        put("updatedAtEpoch", System.currentTimeMillis())
+    }
+
+    private fun validateStamp(op: String, stamp: Long): Boolean {
+        if (stamp < MIN_VALID_EPOCH) {
+            Log.w(TAG, "$op: dropping send — stamp $stamp below NTP-sane threshold")
+            return false
+        }
+        return true
+    }
+
+    // reason: Wear Engine's ping is RuntimeException-heavy (P2pClient missing,
+    // bonded device went stale, Huawei Health out of date) — same policy as
+    // performSend's catch-all. ReturnCount: each early-return maps to a
+    // user-visible distinct ForceSyncResult case (auth / device / connected /
+    // ping-throw / ping-not-installed / wake-failed / already-in-sync /
+    // pushed-result); collapsing would require a wrapper type or nested
+    // when, neither of which is clearer. The push itself is delegated to
+    // pushFullReplace / pushAdditive so the bulk of the complexity is out.
+    // reason: CyclomaticComplexMethod — the chain of distinct connection/
+    // wake guards still sits near the threshold; each guard is a separate
+    // user-visible outcome and extracting them would smear the when-cases.
+    @Suppress("TooGenericExceptionCaught", "ReturnCount", "CyclomaticComplexMethod")
+    override suspend fun forceSync(freshAlarms: suspend () -> List<Alarm>): ForceSyncResult {
+        if (!ensurePermissionGranted()) {
+            Log.w(TAG, "forceSync: not authorized")
+            return ForceSyncResult.NotAuthorized
+        }
+        val device = ensurePairedDevice() ?: run {
+            Log.w(TAG, "forceSync: no bonded device")
+            return ForceSyncResult.NoDevice
+        }
+        if (!device.isConnected) {
+            Log.w(TAG, "forceSync: bonded but disconnected — '${device.name}'")
+            return ForceSyncResult.Disconnected
+        }
+        // Wake-and-wait BEFORE iterating sends. If the peer app isn't
+        // installed or never reaches 202 within the timeout, surface a
+        // distinct UI outcome instead of trying N doomed sends.
+        val pingCode = try {
+            pingPeer(device)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "forceSync: ping threw: ${e.message}", e)
+            return ForceSyncResult.Error(e.message.orEmpty())
+        }
+        Log.i(TAG, "forceSync: initial ping=$pingCode")
+        if (pingCode == PING_APP_NOT_INSTALLED) {
+            return ForceSyncResult.PeerAppMissing(pingCode)
+        }
+        if (!ensurePeerAppRunning(device, force = true)) {
+            return ForceSyncResult.Error("Watch app didn't reach RUNNING within ${PING_WAKE_TIMEOUT_MS}ms")
+        }
+        // Sync-check optimization: ask the watch for its current AlarmHash
+        // BEFORE snapshotting our alarm list. The ~2s round-trip is the
+        // TOCTOU window where the user could add/edit/delete an alarm; by
+        // re-fetching `alarms` AFTER the response, we hash the latest
+        // state and avoid skipping a needed push.
+        val remoteHash = requestRemoteHash(SYNC_CHECK_TIMEOUT_MS)
+        val alarms = freshAlarms()
+        Log.i(TAG, "forceSync alarms=${alarms.size}")
+        val localHash = AlarmHash.compute(alarms)
+        if (remoteHash != null && remoteHash == localHash) {
+            Log.i(TAG, "forceSync: hashes match ($localHash) — skipping full push")
+            // Still send sync_done so a watch woken purely for the
+            // sync_check terminates promptly instead of waiting out its
+            // drain timer.
+            sendJson(buildSyncDoneEnvelope())
+            return ForceSyncResult.AlreadyInSync(alarms.size)
+        }
+        Log.i(TAG, "forceSync: hashes differ local=$localHash remote=${remoteHash ?: "<timeout>"} — full push")
+        val result = pushFullReplace(alarms)
+        // Always mark the sync finished — both the replaced path here and
+        // the matched path above — so the watch's syncing page closes on
+        // the explicit signal rather than its drain-quiescence fallback.
+        sendJson(buildSyncDoneEnvelope())
+        return result
+    }
+
+    /**
+     * Push the phone's full alarm list to the watch as ONE authoritative
+     * `sync_replace` envelope. Unlike the legacy per-alarm `alarm_added`
+     * burst, this PRUNES watch-only rows (the watch replaces its store
+     * wholesale), so the hash converges. Falls back to the additive
+     * burst only if the serialized payload would exceed the 4 KiB cap.
+     */
+    private suspend fun pushFullReplace(alarms: List<Alarm>): ForceSyncResult {
+        val envelope = buildSyncReplaceEnvelope(alarms)
+        val sizeBytes = envelope.toString().toByteArray(Charsets.UTF_8).size
+        if (sizeBytes > SYNC_REPLACE_MAX_BYTES) {
+            Log.w(
+                TAG,
+                "forceSync: sync_replace ${sizeBytes}B over ${SYNC_REPLACE_MAX_BYTES}B cap " +
+                    "— falling back to additive alarm_added push (cannot prune)",
+            )
+            return pushAdditive(alarms)
+        }
+        val delivered = performSend(envelope, retryOnError = true)
+        Log.i(TAG, "forceSync done sync_replace ${sizeBytes}B delivered=$delivered n=${alarms.size}")
+        return if (delivered) {
+            ForceSyncResult.Ok(alarms.size)
+        } else {
+            ForceSyncResult.Error("Watch comm failed (sync_replace not delivered)")
+        }
+    }
+
+    /**
+     * Legacy additive push — one `alarm_added` per alarm. Only used as
+     * the over-cap fallback for [pushFullReplace]; it cannot remove
+     * watch-only rows, so the hash will not converge if the watch holds
+     * extras. Kept solely so an unrealistically large list still syncs
+     * its additions rather than failing outright.
+     */
+    private suspend fun pushAdditive(alarms: List<Alarm>): ForceSyncResult {
+        var ok = 0
+        for (alarm in alarms) {
+            if (!validateStamp("forceSync.send", alarm.updatedAtEpoch)) continue
+            val delivered = performSend(buildAlarmEnvelope("alarm_added", alarm), retryOnError = true)
+            if (delivered) ok++
+        }
+        Log.i(TAG, "forceSync additive fallback done sent=$ok of=${alarms.size}")
+        return when {
+            ok == alarms.size -> ForceSyncResult.Ok(ok)
+            ok == 0 -> ForceSyncResult.Error("Watch comm failed (0/${alarms.size} delivered)")
+            else -> ForceSyncResult.Error("Partial: $ok/${alarms.size} delivered")
+        }
+    }
+
+    // Round-trip a `sync_check` envelope to the watch and await its
+    // `sync_hash` response. Returns the watch's hash, or null if the send
+    // failed / no response arrived within `timeoutMs`. forceSync treats
+    // null as "fall through to full push" — never user-blocking.
+    //
+    // The mutex serializes concurrent callers. Only one outstanding hash
+    // request lives at a time. The atomic-ref pendingHashRequest gives
+    // the receiver lock-free atomic claim of the deferred via getAndSet,
+    // avoiding a mutex re-entry deadlock if the response fires while we
+    // still hold pendingHashMutex.
+    private suspend fun requestRemoteHash(timeoutMs: Long): String? = pendingHashMutex.withLock {
+        val deferred = CompletableDeferred<String>()
+        pendingHashRequest.set(deferred)
+        try {
+            val envelope = JSONObject().apply { put("type", "sync_check") }
+            val sent = performSend(envelope, retryOnError = false)
+            if (!sent) {
+                Log.w(TAG, "requestRemoteHash: sync_check send failed — falling back to full push")
+                return@withLock null
+            }
+            val result = withTimeoutOrNull(timeoutMs) { deferred.await() }
+            if (result == null) {
+                Log.w(TAG, "requestRemoteHash: timed out after ${timeoutMs}ms")
+            }
+            result
+        } finally {
+            // compareAndSet so we don't accidentally clear a deferred set
+            // by a re-entrant caller (shouldn't happen — pendingHashMutex
+            // serializes — but defense in depth against future refactors).
+            pendingHashRequest.compareAndSet(deferred, null)
+        }
+    }
+
+    // reason: ForbiddenVoid suppressed because Task<Void> is the Huawei SDK
+    // signature for `P2pClient.ping`; replacing with Task<*> would lose
+    // the type information from the SDK.
+    @Suppress("ForbiddenVoid")
+    private suspend fun pingPeer(device: Device): Int =
+        suspendCancellableCoroutine { cont ->
+            val task = p2pClient.ping(device, PingCallback { code ->
+                if (cont.isActive) cont.resumeWith(Result.success(code))
+            })
+            task.addOnFailureListener { e ->
+                Log.w(TAG, "ping Task failed: ${e.message}")
+                if (cont.isActive) cont.resumeWith(Result.success(PING_FAILED_SENTINEL))
+            }
+        }
+
+    // reason: Wear Engine's requestPermission is documented to throw
+    // RuntimeException when Huawei Health / HMS Core is missing or out of
+    // date — degrade silently so the host activity isn't crashed by a
+    // missing-vendor case.
+    @Suppress("TooGenericExceptionCaught")
+    override fun requestPermissionFromActivity(activity: android.app.Activity) {
+        try {
+            HiWear.getAuthClient(activity).requestPermission(
+                object : AuthCallback {
+                    override fun onOk(grantedPermissions: Array<out Permission>?) {
+                        Log.i(TAG, "Wear Engine permission granted: ${grantedPermissions?.size ?: 0}")
+                        scope.launch { ensureReceiverRegistered() }
+                    }
+                    override fun onCancel() {
+                        Log.w(TAG, "Wear Engine permission cancelled by user")
+                    }
+                },
+                Permission.DEVICE_MANAGER,
+            )
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "requestPermission threw: ${e.message}", e)
+        }
+    }
+
+    private companion object {
+        const val TAG = "HuaweiWearBridge"
+
+        // Logcat tag for watch-side log lines relayed via watch_log_batch.
+        const val WATCH_LOG_TAG = "WatchLog"
+
+        const val PEER_PKG_NAME = "com.kirkouski.gtwatch.watch"
+
+        // Format `<watch_bundleName>_<base64(raw_uncompressed_EC_pubKey)>`
+        // (P-256 self-signed keystore alias `gtalarm.watch`). Extraction
+        // procedure: see memory:wear_engine_lite_facts.md.
+        // Tracked Phase 5b: end-to-end pairing test on real GT 6 + Samsung
+        // phone validates this constant. If the SDK rejects this encoding,
+        // the fallback is the watch's own keystore-cert SHA-256 (hex),
+        // NOT the value in the watch's supportLists (that string carries
+        // the PHONE cert SHA-256 — opposite direction).
+        const val PEER_FP =
+            "com.kirkouski.gtwatch.watch_" +
+                "BKRRSb3Ens59ZZwrulVtsslDoBTwkSVHfkB803lwadnV7BXOg7rGXh5WrR6ddT84" +
+                "gZ6qnzwbJAh5my93Tx75XbY="
+
+        // Year 2023+ — reject sends before NTP sync after factory reset.
+        const val MIN_VALID_EPOCH = 1_700_000_000_000L
+
+        // Wear Engine ping result codes from
+        // https://developer.huawei.com/consumer/en/doc/development/connectivity-Guides/errocode-0000001054450278
+        const val PING_APP_NOT_INSTALLED = 200
+        const val PING_APP_NOT_RUNNING = 201
+        const val PING_APP_RUNNING = 202
+        const val PING_OTHER_ERROR = 203
+
+        // Wear Engine comm result codes (returned by SendCallback.onSendResult).
+        const val COMM_FAIL = 206
+        const val COMM_SUCCESS = 207
+
+        // Internal sentinel for "ping Task itself failed before a callback
+        // value arrived" — only used inside pingPeer to bubble the failure
+        // out of the suspending continuation.
+        const val PING_FAILED_SENTINEL = -1
+
+        // Wake-poll tuning. Calibrated against real GT 6 Pro behavior
+        // (2026-05-11, user-confirmed):
+        //
+        // - First ping that finds a dead watch app returns 201 in <500ms.
+        //   The ping itself IMPLICITLY triggers Wear Engine to launch the
+        //   watch app.
+        // - JS engine startup on the watch (onCreate → require chain →
+        //   setIncomingHandler → registerReceiver) completes in ~1 second.
+        //   Until registerReceiver fires on the watch side, every send from
+        //   the phone returns 206 (COMM_FAIL) — the receiver isn't bound.
+        // - Once the receiver is bound, the next ping returns 202 and
+        //   subsequent sends return 207 reliably.
+        //
+        // 10 s timeout = 10× the observed cold-launch (~1 s) — generous
+        // headroom for BT contention, watch CPU pressure, and the
+        // occasional GT 6 Pro launch that takes 5–8 s when the app was
+        // killed minutes ago and the JS engine has to fully restart.
+        // User-reported 2026-05-12: 5 s sometimes wasn't enough.
+        // 400 ms poll delay catches the 201→202 transition within ~one
+        // extra poll.
+        const val PING_WAKE_TIMEOUT_MS = 10_000L
+        const val PING_WAKE_POLL_DELAY_MS = 400L
+
+        // Cache "peer is 202 RUNNING" for this long so the dismiss / snooze
+        // path doesn't re-poll just because a few seconds passed since fire.
+        //
+        // 30 s, bumped 2026-05-13 (was 5 s). The cache is also refreshed on
+        // every successful onSendResult 207 and on every `alarm_ringing`
+        // receive, so as long as the watch keeps confirming it's reachable
+        // the cache stays warm indefinitely. Any 206 (COMM_FAIL) or send
+        // throw immediately invalidates it — never wedged stale.
+        //
+        // User-noticed: "why we need 'reconnecting' to watch to dismiss?" —
+        // 5 s was too short for a ring window where the user often takes
+        // 10–20 s to react before tapping Dismiss on the phone.
+        const val PEER_RUNNING_CACHE_MS = 30_000L
+
+        // On 206 (COMM_FAIL) the watch's JS receiver is either still
+        // launching or has detached. Wait between retries so the receiver
+        // has time to (re)bind. attempt 1 sleeps RETRY_BACKOFF_MS, attempt
+        // 2 sleeps 2× — total worst-case 3 s of sleep + 2 × ping waits
+        // (up to PING_WAKE_TIMEOUT_MS each). The total budget caps the
+        // whole retry path so we don't blow Android's 10 s ANR window on
+        // service-start callers (AlarmRingService pre-arm).
+        const val RETRY_BACKOFF_MS = 1_000L
+        const val RETRY_MAX_ATTEMPTS = 2
+        // Total budget for the retry path. Two attempts × up to 10 s wake
+        // each + 1 s backoff = 21 s worst case, but most operations resolve
+        // in well under 5 s. 12 s = one full PING_WAKE attempt + a 1 s
+        // backoff + most of a second. AlarmRingService callers run inside
+        // serviceScope and don't hit the ANR window; bridge callers from
+        // BroadcastReceivers should use shorter explicit timeouts.
+        const val RETRY_TOTAL_DEADLINE_MS = 12_000L
+
+        // Application-level re-send budget for the dismiss / snooze ack
+        // path. retrySend (above) only re-fires on a transport error
+        // (206/throw); it does NOT cover the case where the transport
+        // ACKs 207 but the watch's JS receiver was mid-transition and
+        // silently dropped the envelope. sendAwaitingAck re-sends the
+        // whole envelope ACK_RESEND_ROUNDS times, waiting
+        // ACK_RESEND_WAIT_MS for the watch's app-level ack each round.
+        // 2 rounds × 4 s ack-wait + per-round ping/send overhead fits
+        // inside the 12 s BROADCAST_AWAIT_MS caller budget.
+        const val ACK_RESEND_ROUNDS = 2
+        const val ACK_RESEND_WAIT_MS = 4_000L
+
+        // Hash-precheck budget for forceSync. The watch responds with a
+        // sync_hash envelope after computing the canonical hash of its
+        // alarm set. Round-trip is one send + one receive, so 2 s gives
+        // generous headroom even on a slow BT link. On timeout we fall
+        // through to a full push — never user-blocking.
+        const val SYNC_CHECK_TIMEOUT_MS = 2_000L
+
+        // Hard cap for the single sync_replace payload (UTF-8 bytes),
+        // matching the 4 KiB control-message cap in sync-architecture.md
+        // §2.1. A realistic ≤12-alarm list is well under 2 KiB; over the
+        // cap, forceSync falls back to the additive alarm_added burst.
+        const val SYNC_REPLACE_MAX_BYTES = 4096
+    }
+}

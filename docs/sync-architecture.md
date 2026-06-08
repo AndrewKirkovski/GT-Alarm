@@ -556,8 +556,8 @@ Researched 2026-04-25 + revised 2026-04-27. **Verdict: each side is partially te
 ### 8.1 — What works on emulators
 
 **Android Studio AVD (stock-Android pixel image, API 35):** ✅ confirmed
-- `AlarmManager.setAlarmClock` + `setShowWhenLocked` + full-screen-intent → `AlarmActivity` fires reliably. Verify with `adb shell dumpsys alarm | grep com.kirkouski.gtalarm`.
-- `BootReceiver` triggered via `adb shell am broadcast -a android.intent.action.BOOT_COMPLETED -n com.kirkouski.gtalarm/.scheduler.BootReceiver`.
+- `AlarmManager.setAlarmClock` + `setShowWhenLocked` + full-screen-intent → `AlarmActivity` fires reliably. Verify with `adb shell dumpsys alarm | grep com.kirkouski.gtwake.companion`.
+- `BootReceiver` triggered via `adb shell am broadcast -a android.intent.action.BOOT_COMPLETED -n com.kirkouski.gtwake.companion/.scheduler.BootReceiver`.
 - `setAlarmClock` is whitelisted from Doze; `adb shell dumpsys deviceidle force-idle` then wait for fire — confirmed working on AVD.
 - `MediaPlayer(USAGE_ALARM)` plays through emulator audio output.
 - Phase 5a `IncomingMessageHandler` unit-tested via fakes (82 tests passing).

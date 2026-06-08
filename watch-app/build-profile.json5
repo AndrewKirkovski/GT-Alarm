@@ -10,8 +10,8 @@
           "keyAlias": "gtalarm.watch",
           "keyPassword": "00000018B598E54F917FFED7A8DE4929A7F8D71A733DFA1AE0AA513167A7AF415DD5151C44AE99F9",
           "signAlg": "SHA256withECDSA",
-          "profile": "C:/Projects/GT-Alarm/cert/debug-gt6.p7b",
-          "certpath": "C:/Projects/GT-Alarm/cert/debug-gt6.cer"
+          "profile": "C:/Projects/GT-Alarm/cert/debug-gt6-EU.p7b",
+          "certpath": "C:/Projects/GT-Alarm/cert/debug-gt6-EU.cer"
         }
       },
       {
@@ -23,8 +23,8 @@
           "keyAlias": "gtalarm.watch",
           "keyPassword": "00000018B598E54F917FFED7A8DE4929A7F8D71A733DFA1AE0AA513167A7AF415DD5151C44AE99F9",
           "signAlg": "SHA256withECDSA",
-          "profile": "C:/Projects/GT-Alarm/cert/release-gt6.p7b",
-          "certpath": "C:/Projects/GT-Alarm/cert/release-gt6.cer"
+          "profile": "C:/Projects/GT-Alarm/cert/release-gt6-EU.p7b",
+          "certpath": "C:/Projects/GT-Alarm/cert/release-gt6-EU.cer"
         }
       }
     ],

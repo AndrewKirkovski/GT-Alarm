@@ -67,4 +67,15 @@
     <issue id="AndroidGradlePluginVersion" severity="ignore" />
     <issue id="GradleDependency" severity="ignore" />
     <issue id="NewerVersionAvailable" severity="ignore" />
+
+    <!-- IconLauncherShape / IconDuplicates: minSdk=31, so the adaptive icons in
+         mipmap-anydpi-v26 (ic_launcher.xml + ic_launcher_round.xml — the canonical
+         folder, see the ObsoleteSdkInt note above) render on every supported
+         device. The legacy density-bucket ic_launcher_round.png assets are only a
+         pre-API-26 fallback we never ship to; they currently mirror the square
+         ic_launcher.png pending the Phase 3 launcher-icon redesign (the same
+         redesign tracked under MonochromeLauncherIcon above), where they will be
+         redrawn circular / deduped. -->
+    <issue id="IconLauncherShape" severity="ignore" />
+    <issue id="IconDuplicates" severity="ignore" />
 </lint>

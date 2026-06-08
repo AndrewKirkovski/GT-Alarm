@@ -1,6 +1,13 @@
 # Work docs and temp outputs (global rule — user CLAUDE.md)
 .local/
 .cache/
+.kotlin/
+
+# Local scratch + regeneratable icon previews (the *.svg sources ARE tracked;
+# the *.generated.png are produced from them by gen-app-icons.py).
+/tmp/
+/screens/
+/*.generated.png
 
 # OS
 .DS_Store

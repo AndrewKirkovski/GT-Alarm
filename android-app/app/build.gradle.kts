@@ -53,11 +53,11 @@ agcp {
 }
 
 android {
-    namespace = "com.kirkouski.gtalarm"
+    namespace = "com.kirkouski.gtwake.companion"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "com.kirkouski.gtalarm"
+        applicationId = "com.kirkouski.gtwake.companion"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = 1
