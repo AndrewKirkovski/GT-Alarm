@@ -498,8 +498,8 @@ export default {
                 success: function () {},
                 fail: function () {},
             });
-            // The 2 s poll (refresh) surfaces bgSrc into bgDiag + the
-            // bg-box gate — no reliance on if=/async reactivity here.
+            // The 2 s poll (refresh) surfaces bgSrc into the bg-box gate
+            // — no reliance on if=/async reactivity here.
             self.refresh();
         });
         WearBridge.setIncomingHandler(function (msg) {

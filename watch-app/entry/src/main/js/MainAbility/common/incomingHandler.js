@@ -14,7 +14,6 @@
 // All apply paths are tombstone-aware and LWW-resolved.
 import app from '@system.app';
 import storage from '@system.storage';
-import file from '@system.file';
 import AlarmStore from './alarmStore.js';
 import SettingsStore from './settingsStore.js';
 import Tombstones from './tombstones.js';
@@ -59,50 +58,6 @@ var _drainTimer = null;
 // row, etc.) MUST NOT router.replace to the syncing page or arm a drain
 // timer — both would tear down the ring screen mid-alarm.
 var _ringActive = false;
-
-// Cross-bundle-shared diagnostic counter for inbound P2P messages. Per
-// gotcha #11, app.js and pages/*.js have isolated module state, so a
-// plain `var inboundCount = 0` here would not be visible from index.js's
-// bundle. Persisting to @system.file lets the index page read it.
-//
-// File API (not @system.storage) because the JSON includes a per-type
-// counter map that grows past @system.storage's 128 B per-value cap
-// once ~6+ distinct types accumulate. The file path has no equivalent
-// cap on Lite Wearable (verified working at 2 KB+ via alarmStore.js).
-var DIAG_INBOUND_URI = 'internal://app/diag_inbound.json';
-function bumpInboundDiag(type) {
-    file.readText({
-        uri: DIAG_INBOUND_URI,
-        success: function (data) {
-            applyAndWriteDiag((data && data.text) ? data.text : null, type);
-        },
-        fail: function () {
-            // Fresh install / first wake — no file yet. Treat as empty.
-            applyAndWriteDiag(null, type);
-        },
-    });
-}
-function applyAndWriteDiag(rawText, type) {
-    var obj;
-    try {
-        obj = rawText ? JSON.parse(rawText) : { total: 0, byType: {} };
-    } catch (e) {
-        obj = { total: 0, byType: {} };
-    }
-    obj.total = (obj.total || 0) + 1;
-    obj.lastType = type;
-    obj.lastTs = Date.now();
-    obj.byType = obj.byType || {};
-    obj.byType[type] = (obj.byType[type] || 0) + 1;
-    file.writeText({
-        uri: DIAG_INBOUND_URI,
-        text: JSON.stringify(obj),
-        success: function () {},
-        fail: function (data2, code) {
-            Logger.err('diag_inbound.write fail code=' + code, null);
-        },
-    });
-}
 
 var onAlarmFired = null;
 var onPeerEndedRing = null;
@@ -392,7 +347,6 @@ export default {
         // phone-originated request asking us to reply with our current
         // AlarmHash so it can skip a redundant force-sync.
         if (msg && msg.type === 'sync_check') {
-            bumpInboundDiag('sync_check');
             noteIncomingEnvelope();
             AlarmStore.getAll(function (items) {
                 var hash = AlarmHash.compute(items);
@@ -407,7 +361,6 @@ export default {
         // 1..7 = SUNDAY..SATURDAY per java.util.Calendar). null on either
         // means "follow watch system locale".
         if (msg && msg.type === 'settings_changed') {
-            bumpInboundDiag('settings_changed');
             noteIncomingEnvelope();
             var u = (msg.use24Hour === true || msg.use24Hour === false) ? msg.use24Hour : null;
             var d = (typeof msg.firstDayOfWeek === 'number' && isFinite(msg.firstDayOfWeek))
@@ -422,7 +375,6 @@ export default {
         // sync_replace: authoritative full-state replace from Force sync.
         // No top-level alarmId — bypass rejectMalformed.
         if (msg && msg.type === 'sync_replace') {
-            bumpInboundDiag('sync_replace');
             noteIncomingEnvelope();
             applyReplace(msg);
             return;
@@ -432,7 +384,6 @@ export default {
         // leave it unset). Do NOT noteIncomingEnvelope — sync_done means
         // "stop", not "more is coming".
         if (msg && msg.type === 'sync_done') {
-            bumpInboundDiag('sync_done');
             Logger.i('incoming.sync_done');
             if (onSyncDone) onSyncDone();
             return;
@@ -442,7 +393,6 @@ export default {
         // other meta envelopes. Drop bgSrc/hasBg, forget the persisted path,
         // and delete the received file so it can't restore on relaunch.
         if (msg && msg.type === 'watch_default_bg_cleared') {
-            bumpInboundDiag('watch_default_bg_cleared');
             noteIncomingEnvelope();
             Logger.i('incoming.watch_default_bg_cleared');
             if (onBgCleared) onBgCleared();
@@ -450,15 +400,9 @@ export default {
         }
         if (rejectMalformed(msg)) {
             Logger.w('incoming.rejected-malformed');
-            // Still count the inbound bytes so the diag UI shows "we got
-            // SOMETHING from phone even if it was unparseable" — useful
-            // when fingerprint validation lets a message through but the
-            // schema doesn't match our wire format.
-            bumpInboundDiag('malformed');
             return;
         }
         var type = msg.type;
-        bumpInboundDiag(type);
         if (type === 'alarm_added' || type === 'alarm_updated') {
             if (!msg.alarm) {
                 Logger.w('incoming.add-or-update missing alarm');

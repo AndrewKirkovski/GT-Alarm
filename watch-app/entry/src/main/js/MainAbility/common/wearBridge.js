@@ -70,38 +70,6 @@ function trace(s) {
     lastTrace = s;
 }
 
-// Raw inbound-message counter. Bumped in onReceiveMessage BEFORE any
-// parse/dispatch — counts EVERY message the watch's receiver fired for,
-// including unknown types and pre-parse-failure ones. The handled-type
-// counter `diag_inbound` (incomingHandler.js) only counts messages that
-// reached a dispatch branch. raw ticks but in doesn't => parse/dispatch
-// failed; neither ticks => the receiver never fired at all.
-function bumpRawRx(len) {
-    storage.get({
-        key: 'diag_rawrx',
-        default: '{"count":0}',
-        success: function (data) {
-            var obj;
-            try {
-                obj = JSON.parse(data);
-            } catch (e) {
-                obj = { count: 0 };
-            }
-            obj.count = (obj.count || 0) + 1;
-            obj.lastLen = len;
-            obj.lastMs = Date.now();
-            obj.lastTag = pageTag;
-            storage.set({
-                key: 'diag_rawrx',
-                value: JSON.stringify(obj),
-                success: function () {},
-                fail: function () {},
-            });
-        },
-        fail: function () {},
-    });
-}
-
 function ensureClient() {
     if (client === null) {
         client = new P2pClient();
@@ -163,11 +131,7 @@ function installReceiver() {
         onReceiveMessage: function (data) {
             // The wearengine.js wrapper passes the raw `data.message`
             // (string) for plain text messages. File messages arrive as
-            // `{ isFileType: true, name: ..., mode: ... }` — we don't
-            // use those. bumpRawRx FIRST so the diag strip counts even
-            // the ignored / unparseable ones.
-            var len = (data && !data.isFileType) ? ('' + data).length : 0;
-            bumpRawRx(len);
+            // `{ isFileType: true, name: ..., mode: ... }` — we don't use those.
             if (data && data.isFileType) {
                 Logger.i('wearBridge[' + pageTag + '].onReceiveMessage file=' +
                     data.name);
