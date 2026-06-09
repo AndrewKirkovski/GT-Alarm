@@ -201,7 +201,11 @@
     <string name="help_device_unsupported_title">Different watch?</string>
     <string name="help_device_unsupported_body">Tested target: Huawei GT 6 Pro Lite Wearable. Wear OS / Galaxy Watch and other watch families need separate work. If sync or layout looks wrong, contact the developer.</string>
     <string name="help_device_unsupported_button">Contact developer</string>
-    <string name="help_device_unsupported_url" translatable="false">mailto:ryotsuke+gtalarm@gmail.com?subject=GT%20Alarm%20-%20Device%20support</string>
+    <string name="help_device_unsupported_url" translatable="false">mailto:andrew.kirkovski@gmail.com?subject=GT%20Wake%20-%20Device%20support</string>
+
+    <!-- Privacy policy (hosted on the GT Wake site). -->
+    <string name="help_privacy_link">Privacy policy</string>
+    <string name="help_privacy_url" translatable="false">https://gtwake.kirkouski.com/privacy</string>
 
     <!-- WatchSyncCard + Force-sync — debug/diagnostic UI, English-only. -->
     <string name="watch_status_card_force_sync" translatable="false">Force sync</string>

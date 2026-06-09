@@ -85,4 +85,5 @@
     <string name="field_max_snooze">Limit drzemek</string>
     <string name="field_max_snooze_unlimited">Bez limitu</string>
     <string name="field_max_snooze_value">%1$d×</string>
+    <string name="help_privacy_link">Polityka prywatności</string>
 </resources>

@@ -85,4 +85,5 @@
     <string name="field_max_snooze">Лимит отложений</string>
     <string name="field_max_snooze_unlimited">Без лимита</string>
     <string name="field_max_snooze_value">%1$d×</string>
+    <string name="help_privacy_link">Политика конфиденциальности</string>
 </resources>

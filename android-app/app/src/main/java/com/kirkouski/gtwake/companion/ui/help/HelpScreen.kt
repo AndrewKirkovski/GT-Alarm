@@ -15,6 +15,7 @@ package com.kirkouski.gtwake.companion.ui.help
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,6 +63,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
@@ -125,6 +128,7 @@ fun HelpScreen(
 
     val donateUrl = stringResource(R.string.help_donate_url)
     val contactUrl = stringResource(R.string.help_device_unsupported_url)
+    val privacyUrl = stringResource(R.string.help_privacy_url)
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -287,6 +291,18 @@ fun HelpScreen(
                     }
                 }
             }
+
+            Text(
+                text = stringResource(R.string.help_privacy_link),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+                textAlign = TextAlign.Center,
+                textDecoration = TextDecoration.Underline,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 20.dp)
+                    .clickable { openExternalUrl(context, privacyUrl) },
+            )
 
             Spacer(
                 Modifier.height(
