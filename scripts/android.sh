@@ -10,6 +10,7 @@
 #   scripts/android.sh test         # :app:testDebugUnitTest
 #   scripts/android.sh check        # lint + detekt + test (default)
 #   scripts/android.sh all          # build + check
+#   scripts/android.sh release      # signed assembleRelease (APK) + bundleRelease (AAB)
 #   scripts/android.sh raw <task>   # passthrough — e.g. raw :app:dependencies
 #
 # Env overrides (rarely needed):
@@ -52,6 +53,7 @@ case "$cmd" in
     test)    TASKS=":app:testDebugUnitTest" ;;
     check)   TASKS=":app:lintDebug :app:detektDebug :app:testDebugUnitTest" ;;
     all)     TASKS=":app:assembleDebug :app:lintDebug :app:detektDebug :app:testDebugUnitTest" ;;
+    release) TASKS=":app:assembleRelease :app:bundleRelease" ;;
     raw)
         shift
         if [[ $# -eq 0 ]]; then
@@ -66,7 +68,7 @@ case "$cmd" in
         ;;
     *)
         echo "unknown command: $cmd" >&2
-        echo "valid: build | lint | detekt | test | check | all | raw <task>" >&2
+        echo "valid: build | lint | detekt | test | check | all | release | raw <task>" >&2
         exit 2
         ;;
 esac
@@ -78,5 +80,29 @@ echo "    workers=$MAX_WORKERS"
 echo
 
 cd "$APP_DIR"
+
+# Release builds MUST be signed with the shared .p12 (its SHA-256 is the
+# AGConnect-registered pairing identity). build.gradle.kts only creates the
+# signing config when keystore.properties is present; without it AGP
+# silently emits an UNSIGNED release APK. Fail loudly instead.
+if [[ "$cmd" == "release" && ! -f "$APP_DIR/keystore.properties" ]]; then
+    echo "ERROR: release build needs android-app/keystore.properties" >&2
+    echo "  (storeFile/storeType/keyAlias + passwords; passwords may instead" >&2
+    echo "   come from KEYSTORE_PASSWORD / KEY_PASSWORD env vars)." >&2
+    exit 3
+fi
+
 # shellcheck disable=SC2086
-exec ./gradlew $TASKS --max-workers="$MAX_WORKERS" --no-daemon
+./gradlew $TASKS --max-workers="$MAX_WORKERS" --no-daemon
+
+if [[ "$cmd" == "release" ]]; then
+    echo
+    echo "==> Release artifacts:"
+    apk="$APP_DIR/app/build/outputs/apk/release/app-release.apk"
+    aab="$APP_DIR/app/build/outputs/bundle/release/app-release.aab"
+    [[ -f "$apk" ]] && echo "    APK (AppGallery / sideload): $apk ($(stat -c %s "$apk") bytes)"
+    [[ -f "$aab" ]] && echo "    AAB (Google Play):           $aab ($(stat -c %s "$aab") bytes)"
+    if [[ ! -f "$apk" && ! -f "$aab" ]]; then
+        echo "    (no artifacts found — check the gradle output above)" >&2
+    fi
+fi
