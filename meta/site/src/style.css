@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+/* GT Wake brand tokens (reused from the app theme: primary #009EDA cyan,
+   secondary #6373F2 indigo, tertiary #E058CE magenta; dark bg #020513). */
+:root {
+  --background: #ffffff;
+  --foreground: #020513;
+  --card: #ffffff;
+  --card-foreground: #020513;
+  --muted: #f2f1f7;
+  --muted-foreground: #585366;
+  --border: #e6e3ef;
+  --primary: #009eda;
+  --primary-foreground: #ffffff;
+  --ring: #009eda;
+  --radius: 0.85rem;
+
+  --brand-cyan: #009eda;
+  --brand-indigo: #6373f2;
+  --brand-magenta: #e058ce;
+}
+
+.dark {
+  --background: #020513;
+  --foreground: #f1ecf7;
+  --card: #1d1726;
+  --card-foreground: #f1ecf7;
+  --muted: #242031;
+  --muted-foreground: #cfc5d8;
+  --border: #383145;
+  --primary: #2cb6ed;
+  --primary-foreground: #02131c;
+  --ring: #2cb6ed;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-ring: var(--ring);
+
+  --color-brand-cyan: var(--brand-cyan);
+  --color-brand-indigo: var(--brand-indigo);
+  --color-brand-magenta: var(--brand-magenta);
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 0.2rem);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Brand gradient helpers (the cyan -> indigo -> magenta identity). */
+.bg-brand-gradient {
+  background-image: linear-gradient(120deg, var(--brand-cyan), var(--brand-indigo) 45%, var(--brand-magenta));
+}
+.text-brand-gradient {
+  background-image: linear-gradient(120deg, var(--brand-cyan), var(--brand-indigo) 45%, var(--brand-magenta));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.bg-brand-radial {
+  background:
+    radial-gradient(60% 60% at 15% 10%, color-mix(in oklab, var(--brand-cyan) 22%, transparent), transparent 70%),
+    radial-gradient(55% 55% at 90% 25%, color-mix(in oklab, var(--brand-magenta) 20%, transparent), transparent 70%);
+}
