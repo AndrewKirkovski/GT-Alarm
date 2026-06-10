@@ -44,7 +44,7 @@
     <string name="delete_alarm">Usuń alarm</string>
 
     <string name="battery_opt_card_title">Niech alarmy będą niezawodne</string>
-    <string name="battery_opt_card_body">Samsung One UI może opóźniać alarmy, gdy aplikacja jest w głębokim uśpieniu. Zezwól GT Alarm na ignorowanie optymalizacji baterii, aby alarm zawsze dzwonił o czasie.</string>
+    <string name="battery_opt_card_body">Samsung One UI może opóźniać alarmy, gdy aplikacja jest w głębokim uśpieniu. Zezwól GT Wake na ignorowanie optymalizacji baterii, aby alarm zawsze dzwonił o czasie.</string>
     <string name="battery_opt_card_action">Otwórz ustawienia</string>
     <string name="battery_opt_card_dismiss">Nie teraz</string>
 
@@ -54,16 +54,16 @@
     <string name="voice_alarm_failed">Nie udało się ustawić alarmu</string>
 
     <string name="action_open_help">Pomoc</string>
-    <string name="help_intro">Android nie ma jednego ustawienia o nazwie „domyślna aplikacja alarmu”. Gdy poprosisz Asystenta Google o ustawienie alarmu, system użyje wcześniej wybranej aplikacji albo pokaże okno wyboru przy pierwszym uruchomieniu. Wybranie GT Alarm i naciśnięcie „Zawsze” ustawia ją jako domyślną.</string>
-    <string name="help_status_default">GT Alarm jest domyślną aplikacją alarmu na tym urządzeniu.</string>
-    <string name="help_status_disambiguator">Zainstalowano wiele aplikacji alarmu. Następnym razem, gdy powiesz „Hey Google, set an alarm”, Android pokaże okno wyboru — wybierz GT Alarm i naciśnij Zawsze.</string>
+    <string name="help_intro">Android nie ma jednego ustawienia o nazwie „domyślna aplikacja alarmu”. Gdy poprosisz Asystenta Google o ustawienie alarmu, system użyje wcześniej wybranej aplikacji albo pokaże okno wyboru przy pierwszym uruchomieniu. Wybranie GT Wake i naciśnięcie „Zawsze” ustawia ją jako domyślną.</string>
+    <string name="help_status_default">GT Wake jest domyślną aplikacją alarmu na tym urządzeniu.</string>
+    <string name="help_status_disambiguator">Zainstalowano wiele aplikacji alarmu. Następnym razem, gdy powiesz „Hey Google, set an alarm”, Android pokaże okno wyboru — wybierz GT Wake i naciśnij Zawsze.</string>
     <string name="help_status_other">Obecnie domyślną aplikacją jest %1$s. Aby przełączyć, użyj instrukcji dla swojej marki telefonu poniżej.</string>
     <string name="help_reset_hint">Jeśli inna aplikacja została ustawiona jako domyślna przez pomyłkę: Ustawienia → Aplikacje → ta aplikacja → Otwórz domyślnie → Wyczyść.</string>
     <string name="help_pair_watch_title">Autoryzacja zegarka Huawei</string>
     <string name="help_pair_watch_body">Połącz sparowany wcześniej zegarek Huawei Sports Watch / GT, aby alarmy dzwoniły na nadgarstku. Wymaga aplikacji Huawei Health i zegarka już sparowanego przez nią. Na urządzeniach bez Huawei Health nic się nie stanie.</string>
     <string name="help_pair_watch_button">Autoryzuj dostęp do zegarka</string>
     <string name="help_donate_title">Wesprzyj rozwój</string>
-    <string name="help_donate_body">GT Alarm jest darmowy i bez reklam. Jeśli ratuje Twoje poranki, postaw mi kawę — to bezpośrednio finansuje czas na nowe funkcje i wsparcie urządzeń.</string>
+    <string name="help_donate_body">GT Wake jest darmowy i bez reklam. Jeśli ratuje Twoje poranki, postaw mi kawę — to bezpośrednio finansuje czas na nowe funkcje i wsparcie urządzeń.</string>
     <string name="help_donate_button">Postaw kawę</string>
     <string name="help_device_unsupported_title">Inny zegarek?</string>
     <string name="help_device_unsupported_body">Na dziś w pełni przetestowany jest tylko Huawei GT 6 Pro. Jeśli Twój model się nie synchronizuje albo układ jest dziwny — napisz do mnie. Przekazanie urządzenia do testów to najszybsza droga do pełnego wsparcia.</string>

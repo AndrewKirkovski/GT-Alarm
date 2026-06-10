@@ -133,7 +133,7 @@
     <string name="swipe_delete_confirm_body_unlabeled" tools:ignore="MissingTranslation">Delete this alarm?</string>
 
     <string name="battery_opt_card_title">Keep alarms reliable</string>
-    <string name="battery_opt_card_body">Samsung One UI may delay alarms when the app is in deep sleep. Allow GT Alarm to ignore battery optimizations so it always rings on time.</string>
+    <string name="battery_opt_card_body">Samsung One UI may delay alarms when the app is in deep sleep. Allow GT Wake to ignore battery optimizations so it always rings on time.</string>
     <string name="battery_opt_card_action">Open settings</string>
     <string name="battery_opt_card_dismiss">Not now</string>
 
@@ -170,9 +170,9 @@
     <string tools:ignore="MissingTranslation" name="settings_default_background_set">Set</string>
     <string tools:ignore="MissingTranslation" name="settings_default_background_clear">Clear default background</string>
     <string tools:ignore="MissingTranslation" name="settings_watch_background_saved">Watch background saved. It will appear the next time the watch app opens.</string>
-    <string name="help_intro">Voice alarms use Android\'s standard set-alarm intent. If Android shows a chooser, pick GT Alarm and tap Always. On phones without Google services, Google Assistant voice setup is not available.</string>
-    <string name="help_status_default">GT Alarm handles voice alarms on this device.</string>
-    <string name="help_status_disambiguator">Multiple alarm apps can handle voice alarms. Next time Android asks, choose GT Alarm and tap Always.</string>
+    <string name="help_intro">Voice alarms use Android\'s standard set-alarm intent. If Android shows a chooser, pick GT Wake and tap Always. On phones without Google services, Google Assistant voice setup is not available.</string>
+    <string name="help_status_default">GT Wake handles voice alarms on this device.</string>
+    <string name="help_status_disambiguator">Multiple alarm apps can handle voice alarms. Next time Android asks, choose GT Wake and tap Always.</string>
     <string name="help_status_other">%1$s currently handles voice alarms.</string>
     <string name="help_reset_hint">To reset a wrong choice: Settings → Apps → that app → Open by default → Clear defaults.</string>
     <!-- reason: watch-pairing help card. Polished translations already exist in
@@ -183,7 +183,7 @@
     <string name="help_pair_watch_body" tools:ignore="UnusedResources">Connect an already-paired Huawei Sports Watch / GT so alarms ring on your wrist. Requires the Huawei Health app and a watch already paired through it. On devices without Huawei Health, nothing happens.</string>
     <string name="help_pair_watch_button" tools:ignore="UnusedResources">Authorize watch access</string>
 
-    <string name="help_companion_note" tools:ignore="MissingTranslation">Companion for GT Alarm on Huawei Watch GT 6 Pro. Pair in Huawei Health; the phone rings and the watch mirrors it.</string>
+    <string name="help_companion_note" tools:ignore="MissingTranslation">Companion for GT Wake on Huawei Watch GT 6 Pro. Pair in Huawei Health; the phone rings and the watch mirrors it.</string>
 
     <!-- Debug controls — intentionally English-only (translatable="false"). -->
     <string name="help_debug_title" translatable="false">Debug</string>
@@ -193,13 +193,13 @@
 
     <!-- Support development (ko-fi donate). -->
     <string name="help_donate_title">Support development</string>
-    <string name="help_donate_body">GT Alarm is free and ad-free. If it\'s saving your mornings, consider buying me a coffee — it directly funds time spent on features and device support.</string>
+    <string name="help_donate_body">GT Wake is free and ad-free. If it\'s saving your mornings, consider buying me a coffee — it directly funds time spent on features and device support.</string>
     <string name="help_donate_button">Buy me a coffee</string>
     <string name="help_donate_url" translatable="false">https://ko-fi.com/ryotsuke</string>
 
     <!-- Device-not-supported notice + contact CTA. -->
     <string name="help_device_unsupported_title">Different watch?</string>
-    <string name="help_device_unsupported_body">Tested target: Huawei GT 6 Pro Lite Wearable. Wear OS / Galaxy Watch and other watch families need separate work. If sync or layout looks wrong, contact the developer.</string>
+    <string name="help_device_unsupported_body">Tested target: Huawei GT 6 Pro Lite Wearable. Wear OS / Galaxy Watch and other watch families need separate work. If sync or layout looks wrong, contact the developer. Donating a device for testing is the fastest path to full support.</string>
     <string name="help_device_unsupported_button">Contact developer</string>
     <string name="help_device_unsupported_url" translatable="false">mailto:andrew.kirkovski@gmail.com?subject=GT%20Wake%20-%20Device%20support</string>
 
@@ -265,8 +265,8 @@
          full-screen, battery-unrestricted) is intentionally left out. -->
 
     <string tools:ignore="MissingTranslation" name="setup_oem_keep_pixel">No extra Pixel setup is normally needed.\n\n  •  If Do Not Disturb is on, make sure alarms are allowed in that mode.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_keep_samsung">Samsung may move unused apps into Sleeping or Deep sleeping apps, which restricts alarms and foreground services.\n\n  •  Settings → Battery → Background usage limits → Never sleeping apps → add GT Alarm.\n  •  Make sure GT Alarm is not listed under Sleeping apps or Deep sleeping apps.\n  •  If watch sync is late, add Huawei Health to Never sleeping apps too.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_keep_xiaomi">If alarms are late on Xiaomi / HyperOS, check background autostart.\n\n  •  Settings → Apps → Permissions → Background autostart → GT Alarm → On.\n  •  If available, allow background activity for GT Alarm.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_keep_oneplus">If alarms are late on OxygenOS, check the app\'s battery settings.\n\n  •  Settings → Battery → More settings → App battery management → GT Alarm.\n  •  Allow foreground/background activity for overnight alarm testing.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_keep_huawei">Huawei phones can block background launch unless you manage the app manually.\n\n  •  Phone Manager → App launch → GT Alarm → Manage manually.\n  •  Turn on Auto-launch, Secondary launch, and Run in background.\n  •  Do the same for Huawei Health if watch sync is unreliable.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_keep_other">If your phone has a Phone Manager / Security app, look for Protected apps, Autostart, or Background activity.\n\n  •  Add GT Alarm there only if alarms are late after the required checks pass.</string></resources>
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_samsung">Samsung may move unused apps into Sleeping or Deep sleeping apps, which restricts alarms and foreground services.\n\n  •  Settings → Battery → Background usage limits → Never sleeping apps → add GT Wake.\n  •  Make sure GT Wake is not listed under Sleeping apps or Deep sleeping apps.\n  •  If watch sync is late, add Huawei Health to Never sleeping apps too.</string>
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_xiaomi">If alarms are late on Xiaomi / HyperOS, check background autostart.\n\n  •  Settings → Apps → Permissions → Background autostart → GT Wake → On.\n  •  If available, allow background activity for GT Wake.</string>
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_oneplus">If alarms are late on OxygenOS, check the app\'s battery settings.\n\n  •  Settings → Battery → More settings → App battery management → GT Wake.\n  •  Allow foreground/background activity for overnight alarm testing.</string>
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_huawei">Huawei phones can block background launch unless you manage the app manually.\n\n  •  Phone Manager → App launch → GT Wake → Manage manually.\n  •  Turn on Auto-launch, Secondary launch, and Run in background.\n  •  Do the same for Huawei Health if watch sync is unreliable.</string>
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_other">If your phone has a Phone Manager / Security app, look for Protected apps, Autostart, or Background activity.\n\n  •  Add GT Wake there only if alarms are late after the required checks pass.</string></resources>

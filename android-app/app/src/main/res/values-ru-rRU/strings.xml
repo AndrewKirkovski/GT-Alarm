@@ -44,7 +44,7 @@
     <string name="delete_alarm">Удалить будильник</string>
 
     <string name="battery_opt_card_title">Чтобы будильники были надёжными</string>
-    <string name="battery_opt_card_body">Samsung One UI может задерживать будильники, когда приложение в глубоком сне. Разрешите GT Alarm игнорировать оптимизацию батареи, чтобы будильник всегда срабатывал вовремя.</string>
+    <string name="battery_opt_card_body">Samsung One UI может задерживать будильники, когда приложение в глубоком сне. Разрешите GT Wake игнорировать оптимизацию батареи, чтобы будильник всегда срабатывал вовремя.</string>
     <string name="battery_opt_card_action">Открыть настройки</string>
     <string name="battery_opt_card_dismiss">Не сейчас</string>
 
@@ -54,16 +54,16 @@
     <string name="voice_alarm_failed">Не удалось установить будильник</string>
 
     <string name="action_open_help">Справка</string>
-    <string name="help_intro">В Android нет единой настройки «приложение будильника по умолчанию». Когда вы просите Google Ассистент поставить будильник, система либо использует ранее выбранное приложение, либо показывает диалог выбора при первом запуске. Выбор GT Alarm и нажатие «Всегда» делает его приложением по умолчанию.</string>
-    <string name="help_status_default">GT Alarm — приложение будильника по умолчанию на этом устройстве.</string>
-    <string name="help_status_disambiguator">Установлено несколько приложений будильника. В следующий раз, когда вы скажете «Hey Google, set an alarm», Android покажет диалог выбора — выберите GT Alarm и нажмите «Всегда».</string>
+    <string name="help_intro">В Android нет единой настройки «приложение будильника по умолчанию». Когда вы просите Google Ассистент поставить будильник, система либо использует ранее выбранное приложение, либо показывает диалог выбора при первом запуске. Выбор GT Wake и нажатие «Всегда» делает его приложением по умолчанию.</string>
+    <string name="help_status_default">GT Wake — приложение будильника по умолчанию на этом устройстве.</string>
+    <string name="help_status_disambiguator">Установлено несколько приложений будильника. В следующий раз, когда вы скажете «Hey Google, set an alarm», Android покажет диалог выбора — выберите GT Wake и нажмите «Всегда».</string>
     <string name="help_status_other">%1$s — текущее приложение по умолчанию. Используйте инструкцию для марки вашего телефона ниже, чтобы переключить.</string>
     <string name="help_reset_hint">Если другое приложение по ошибке установлено как умолчание: Настройки → Приложения → это приложение → Открывать по умолчанию → Очистить.</string>
     <string name="help_pair_watch_title">Авторизация часов Huawei</string>
     <string name="help_pair_watch_body">Подключите уже сопряжённые часы Huawei Sports Watch / GT, чтобы будильники звонили на запястье. Требуется приложение Huawei Health и уже сопряжённые через него часы. На устройствах без Huawei Health ничего не произойдёт.</string>
     <string name="help_pair_watch_button">Авторизовать доступ к часам</string>
     <string name="help_donate_title">Поддержать разработку</string>
-    <string name="help_donate_body">GT Alarm бесплатен и без рекламы. Если он спасает ваше утро, можете угостить меня кофе — это напрямую оплачивает время на новые функции и поддержку устройств.</string>
+    <string name="help_donate_body">GT Wake бесплатен и без рекламы. Если он спасает ваше утро, можете угостить меня кофе — это напрямую оплачивает время на новые функции и поддержку устройств.</string>
     <string name="help_donate_button">Угостить кофе</string>
     <string name="help_device_unsupported_title">Другая модель часов?</string>
     <string name="help_device_unsupported_body">На сегодня полностью протестирован только Huawei GT 6 Pro. Если ваша модель не синхронизируется или вёрстка съезжает — напишите мне. Передача устройства на тесты — самый быстрый путь к полной поддержке.</string>
