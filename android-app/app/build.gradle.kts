@@ -2,14 +2,15 @@ import groovy.json.JsonSlurper
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
 
-// Load shared keystore credentials from gitignored keystore.properties.
-// Same .p12 signs BOTH the Android phone app AND the watch HAP — single
-// signer identity registered under both AGConnect Console entries. Without
-// this signing config wired into both debug AND release buildTypes, debug
-// builds fall back to Android Studio's default debug keystore (CN=Android
-// Debug), whose fingerprint will NOT match the SHA-256 registered in
-// AGConnect Console or the watch's `supportLists` value — Wear Engine
-// pairing fails silently with "peer app not authorized".
+// Load keystore credentials from gitignored keystore.properties. The shared
+// .p12 holds TWO keys: `gtwake.phone` (RSA 2048) signs THIS phone app —
+// Google Play App Signing requires RSA and rejects EC — while `gtalarm.watch`
+// (EC P-256) signs the AppGallery-only watch HAP. keystore.properties selects
+// the phone alias. Without this signing config on both debug AND release
+// buildTypes, debug builds fall back to Android Studio's default debug
+// keystore (CN=Android Debug), whose fingerprint will NOT match the one
+// registered in AGConnect Console or the watch's `supportLists` value —
+// Wear Engine pairing fails silently with "peer app not authorized".
 val keystoreProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
     if (f.exists()) f.inputStream().use { load(it) }
@@ -69,12 +70,13 @@ android {
         manifestPlaceholders["agconnectAppId"] = "appid=$agconnectAppId"
     }
 
-    // Single shared signing config for both debug and release: the shared
-    // .p12 (alias `gtalarm.watch`, EC P-256) is the AGConnect-registered
-    // signer for both this app and the watch HAP. See
-    // memory:keystore_path.md for the SHA-256 fingerprint and AGConnect
-    // pairing details. CI must gate release builds on keystore.properties
-    // presence — AGP otherwise silently produces an unsigned release APK.
+    // Single signing config for both debug and release: the phone alias
+    // `gtwake.phone` (RSA 2048, cert SHA-256 95:F6:00:1E:…) is the
+    // AGConnect-registered signer for THIS app. (The watch HAP is signed
+    // separately with the EC `gtalarm.watch` key.) See memory:keystore_path.md
+    // for fingerprints + AGConnect pairing. CI must gate release builds on
+    // keystore.properties presence — AGP otherwise silently produces an
+    // unsigned release APK.
     signingConfigs {
         if (keystoreProps.getProperty("storeFile") != null) {
             create("shared") {
