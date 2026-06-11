@@ -205,7 +205,16 @@
 
     <!-- Privacy policy (hosted on the GT Wake site). -->
     <string name="help_privacy_link">Privacy policy</string>
-    <string name="help_privacy_url" translatable="false">https://gtwake.kirkouski.com/privacy</string>
+    <!-- Per-locale privacy URL: zh-rCN overrides to the Chinese page (rule 7.1);
+         other locales fall back to this English page (ignore MissingTranslation). -->
+    <string name="help_privacy_url" tools:ignore="MissingTranslation">https://gtwake.kirkouski.com/privacy</string>
+
+    <!-- First-launch privacy consent (AppGallery review rule 7.5). -->
+    <string name="privacy_consent_title">Welcome to GT Wake</string>
+    <string name="privacy_consent_body">GT Wake has no accounts, no ads, and no tracking. Your alarms and settings stay on your device, and alarms sync directly to your paired watch — nothing is sent to us. Please review our privacy policy to continue.</string>
+    <string name="privacy_consent_read_policy">Read the full privacy policy</string>
+    <string name="privacy_consent_agree">Agree &amp; continue</string>
+    <string name="privacy_consent_disagree">Disagree</string>
 
     <!-- WatchSyncCard + Force-sync — debug/diagnostic UI, English-only. -->
     <string name="watch_status_card_force_sync" translatable="false">Force sync</string>

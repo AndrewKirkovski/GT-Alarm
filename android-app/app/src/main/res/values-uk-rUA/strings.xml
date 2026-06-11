@@ -86,4 +86,10 @@
     <string name="field_max_snooze_unlimited">Без ліміту</string>
     <string name="field_max_snooze_value">%1$d×</string>
     <string name="help_privacy_link">Політика конфіденційності</string>
+
+    <string name="privacy_consent_title">Ласкаво просимо до GT Wake</string>
+    <string name="privacy_consent_body">У GT Wake немає облікових записів, реклами та відстеження. Ваші будильники й налаштування зберігаються на пристрої, а будильники синхронізуються безпосередньо з підключеним годинником — ми нічого не отримуємо. Щоб продовжити, ознайомтеся з політикою конфіденційності.</string>
+    <string name="privacy_consent_read_policy">Відкрити політику конфіденційності</string>
+    <string name="privacy_consent_agree">Прийняти та продовжити</string>
+    <string name="privacy_consent_disagree">Відхилити</string>
 </resources>

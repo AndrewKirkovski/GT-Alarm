@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -33,6 +36,7 @@ import com.kirkouski.gtwake.companion.ui.edit.AlarmEditScreen
 import com.kirkouski.gtwake.companion.ui.edit.AlarmMode
 import com.kirkouski.gtwake.companion.ui.help.HelpScreen
 import com.kirkouski.gtwake.companion.ui.help.PermissionAudit
+import com.kirkouski.gtwake.companion.ui.onboarding.PrivacyConsentDialog
 import com.kirkouski.gtwake.companion.ui.list.AlarmListScreen
 import com.kirkouski.gtwake.companion.ui.nav.AppBottomBar
 import com.kirkouski.gtwake.companion.ui.nav.BOTTOM_BAR_ROUTES
@@ -177,6 +181,21 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+                // First-launch privacy consent (AppGallery rule 7.5). Blocks
+                // the app behind a non-dismissable dialog until the user agrees.
+                var showPrivacyConsent by remember {
+                    mutableStateOf(!onboardingState.privacyPolicyAccepted())
+                }
+                if (showPrivacyConsent) {
+                    PrivacyConsentDialog(
+                        onAgree = {
+                            onboardingState.markPrivacyPolicyAccepted()
+                            showPrivacyConsent = false
+                        },
+                        onDisagree = { finishAndRemoveTask() },
+                        onReadPolicy = { openPrivacyPolicy() },
+                    )
+                }
                 } // Box
             }
         }
@@ -289,6 +308,14 @@ class MainActivity : ComponentActivity() {
                     Log.w(TAG, "battery opt list fallback unavailable: ${it.message}")
                 }
         }
+    }
+
+    private fun openPrivacyPolicy() {
+        val intent = Intent(Intent.ACTION_VIEW, getString(R.string.help_privacy_url).toUri()).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        runCatching { startActivity(intent) }
+            .onFailure { Log.w(TAG, "open privacy policy failed: ${it.message}") }
     }
 
     companion object {

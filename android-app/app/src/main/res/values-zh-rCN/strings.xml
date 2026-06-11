@@ -86,4 +86,12 @@
     <string name="field_max_snooze_unlimited">无限制</string>
     <string name="field_max_snooze_value">%1$d×</string>
     <string name="help_privacy_link">隐私政策</string>
+    <string name="help_privacy_url">https://gtwake.kirkouski.com/privacy/zh</string>
+
+    <!-- 首次启动隐私政策同意（AppGallery 审核规则 7.5）。 -->
+    <string name="privacy_consent_title">欢迎使用 GT Wake</string>
+    <string name="privacy_consent_body">GT Wake 没有账号、没有广告，也不进行任何跟踪。您的闹钟和设置仅保存在本机，闹钟会直接与已配对的手表同步，不会发送给我们。请先阅读我们的隐私政策后再继续使用。</string>
+    <string name="privacy_consent_read_policy">阅读完整隐私政策</string>
+    <string name="privacy_consent_agree">同意并继续</string>
+    <string name="privacy_consent_disagree">不同意</string>
 </resources>

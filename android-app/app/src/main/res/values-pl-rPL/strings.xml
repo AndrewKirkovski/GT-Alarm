@@ -86,4 +86,10 @@
     <string name="field_max_snooze_unlimited">Bez limitu</string>
     <string name="field_max_snooze_value">%1$d×</string>
     <string name="help_privacy_link">Polityka prywatności</string>
+
+    <string name="privacy_consent_title">Witamy w GT Wake</string>
+    <string name="privacy_consent_body">GT Wake nie ma kont, reklam ani śledzenia. Twoje alarmy i ustawienia pozostają na urządzeniu, a alarmy synchronizują się bezpośrednio ze sparowanym zegarkiem — nic nie jest wysyłane do nas. Aby kontynuować, zapoznaj się z polityką prywatności.</string>
+    <string name="privacy_consent_read_policy">Przeczytaj politykę prywatności</string>
+    <string name="privacy_consent_agree">Akceptuję i kontynuuję</string>
+    <string name="privacy_consent_disagree">Nie akceptuję</string>
 </resources>

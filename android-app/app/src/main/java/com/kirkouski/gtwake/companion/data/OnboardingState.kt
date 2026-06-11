@@ -26,6 +26,23 @@ class OnboardingState @Inject constructor(
         prefs.edit { putBoolean(KEY_BATTERY_OPT_CARD_DISMISSED, true) }
     }
 
+    /**
+     * True iff the user has accepted the CURRENT privacy-policy version. We
+     * persist the accepted version (its effective date) rather than a boolean,
+     * so that publishing a revised policy (bumping [PRIVACY_POLICY_VERSION])
+     * re-prompts everyone for fresh consent.
+     */
+    fun privacyPolicyAccepted(): Boolean =
+        prefs.getString(KEY_PRIVACY_POLICY_ACCEPTED_VERSION, null) == PRIVACY_POLICY_VERSION
+
+    fun markPrivacyPolicyAccepted() {
+        // commit=true: persist synchronously before the user proceeds into the
+        // app, so a process death right after accepting can't re-show the gate.
+        prefs.edit(commit = true) {
+            putString(KEY_PRIVACY_POLICY_ACCEPTED_VERSION, PRIVACY_POLICY_VERSION)
+        }
+    }
+
     fun fsiPromptShown(): Boolean =
         prefs.getBoolean(KEY_FSI_PROMPT_SHOWN, false)
 
@@ -49,6 +66,12 @@ class OnboardingState @Inject constructor(
 
         private const val PREFS_FILE = "onboarding_v1"
         private const val KEY_BATTERY_OPT_CARD_DISMISSED = "battery_opt_card_dismissed"
+        // First-launch privacy-policy consent gate (AppGallery review rule 7.5).
+        // The CURRENT policy version = its effective date. Bump this whenever the
+        // privacy policy changes to re-prompt users; keep it in sync with
+        // meta/privacy-policy.md and the site Privacy.vue EFFECTIVE_DATE.
+        const val PRIVACY_POLICY_VERSION = "2026-06-08"
+        private const val KEY_PRIVACY_POLICY_ACCEPTED_VERSION = "privacy_policy_accepted_version"
         // One-shot flag: auto-launch the system's full-screen-intent settings
         // page on first detection that the appop is not MODE_ALLOWED. After
         // it fires once, subsequent launches rely on the Setup banner in the

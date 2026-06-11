@@ -5,6 +5,7 @@ const CONTACT = 'andrew.kirkovski@gmail.com'
 
 <template>
   <article class="policy mx-auto max-w-3xl px-5 py-14">
+    <p class="lang"><RouterLink to="/privacy/zh">中文</RouterLink></p>
     <h1 class="text-4xl font-extrabold tracking-tight">Privacy Policy</h1>
     <p class="meta">
       <strong>Effective date:</strong> {{ EFFECTIVE_DATE }} &nbsp;·&nbsp;
@@ -141,6 +142,10 @@ const CONTACT = 'andrew.kirkovski@gmail.com'
 }
 .policy .meta {
   margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+.policy .lang {
+  margin-bottom: 0.5rem;
   font-size: 0.9rem;
 }
 .policy a {
