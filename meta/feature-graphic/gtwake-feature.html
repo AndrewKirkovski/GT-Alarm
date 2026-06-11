@@ -1,0 +1,203 @@
+<!doctype html>
+<!-- GT Wake store feature graphic — 1024x500. Brand-left / devices-right.
+     Capture at viewport 1024x500. Palette + ring UI taken from the app:
+     #009EDA cyan / #6373F2 indigo / #896BE7 purple / #E058CE magenta. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1024px; height: 500px; }
+
+  .banner {
+    position: relative;
+    width: 1024px;
+    height: 500px;
+    overflow: hidden;
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    /* vivid brand diagonal gradient */
+    background:
+      linear-gradient(120deg, #009EDA 0%, #4A6BF0 34%, #6373F2 48%, #896BE7 68%, #E058CE 100%);
+  }
+  /* darken the left third so white text stays high-contrast */
+  .banner::before {
+    content: "";
+    position: absolute; inset: 0;
+    background: linear-gradient(90deg,
+      rgba(4,10,38,0.62) 0%,
+      rgba(4,10,38,0.34) 30%,
+      rgba(4,10,38,0.05) 52%,
+      transparent 64%);
+  }
+  /* soft glow behind the devices */
+  .banner::after {
+    content: "";
+    position: absolute;
+    right: -60px; top: 50%;
+    width: 620px; height: 620px;
+    transform: translateY(-50%);
+    background: radial-gradient(circle, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0) 60%);
+  }
+
+  /* ---------- LEFT: brand + tagline ---------- */
+  .left {
+    position: absolute;
+    left: 64px; top: 0; bottom: 0;
+    width: 540px;
+    display: flex; flex-direction: column; justify-content: center;
+    z-index: 5;
+  }
+  .brandrow { display: flex; align-items: center; gap: 22px; margin-bottom: 26px; }
+  .icon {
+    width: 88px; height: 88px;
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+    flex: 0 0 auto;
+  }
+  .icon svg { display: block; width: 88px; height: 88px; }
+  .wordmark {
+    color: #ffffff;
+    font-size: 78px;
+    font-weight: 800;
+    letter-spacing: -1.5px;
+    line-height: 1;
+    text-shadow: 0 3px 14px rgba(0,0,0,0.25);
+  }
+  .tagline {
+    color: #ffffff;
+    font-size: 38px;
+    font-weight: 600;
+    line-height: 1.18;
+    letter-spacing: -0.3px;
+    max-width: 470px;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.28);
+  }
+  .chip {
+    margin-top: 30px;
+    align-self: flex-start;
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 12px 20px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.16);
+    border: 1px solid rgba(255,255,255,0.34);
+    color: #ffffff;
+    font-size: 19px; font-weight: 600;
+    backdrop-filter: blur(2px);
+  }
+  .chip .dot { width: 9px; height: 9px; border-radius: 50%; background: #4DF0A0; box-shadow: 0 0 10px #4DF0A0; }
+
+  /* ---------- RIGHT: phone + watch ---------- */
+  .right { position: absolute; right: 0; top: 0; width: 470px; height: 500px; z-index: 4; }
+
+  .phone {
+    position: absolute;
+    right: 66px; top: 50%;
+    width: 232px; height: 442px;
+    transform: translateY(-50%) rotate(-6deg);
+    background: #0b0b14;
+    border-radius: 40px;
+    padding: 9px;
+    box-shadow: 0 26px 60px rgba(0,0,0,0.45);
+  }
+  .phone .screen {
+    width: 100%; height: 100%;
+    border-radius: 32px;
+    overflow: hidden;
+    background: linear-gradient(165deg, #009EDA 0%, #6373F2 42%, #896BE7 66%, #E058CE 100%);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 26px 20px;
+    color: #fff;
+  }
+  .phone .time { font-size: 66px; font-weight: 300; line-height: 1; letter-spacing: -1px; }
+  .phone .label { font-size: 18px; font-weight: 400; opacity: 0.92; margin-top: 12px; }
+  .phone .pills { width: 100%; margin-top: 54px; display: flex; flex-direction: column; gap: 12px; }
+  .phone .pill {
+    height: 46px; border-radius: 23px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; font-weight: 600;
+  }
+  .phone .pill.dismiss { background: #fff; color: #111; }
+  .phone .pill.snooze { border: 1.5px solid rgba(255,255,255,0.75); color: #fff; }
+
+  .watch {
+    position: absolute;
+    left: 6px; bottom: 58px;
+    width: 178px; height: 178px;
+    border-radius: 50%;
+    background: #0b0b14;
+    padding: 9px;
+    transform: rotate(4deg);
+    box-shadow: 0 22px 46px rgba(0,0,0,0.5);
+    z-index: 2;
+  }
+  .watch .face {
+    width: 100%; height: 100%;
+    border-radius: 50%;
+    overflow: hidden;
+    background: linear-gradient(160deg, #009EDA 0%, #6373F2 48%, #E058CE 100%);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    color: #fff;
+  }
+  .watch .wtime { font-size: 46px; font-weight: 300; line-height: 1; letter-spacing: -1px; }
+  .watch .wlabel {
+    margin-top: 8px;
+    font-size: 12px; font-weight: 700; letter-spacing: 1.5px;
+    text-transform: uppercase; opacity: 0.9;
+  }
+</style>
+</head>
+<body>
+  <div class="banner">
+    <div class="left">
+      <div class="brandrow">
+        <div class="icon">
+          <svg viewBox="0 0 46 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="46" height="46" fill="url(#g)"/>
+            <g>
+              <path d="M23 13.2499C17.6186 13.2499 13.25 17.6224 13.25 22.9999C13.25 28.3774 17.6186 32.7499 23 32.7499C28.3814 32.7499 32.75 28.3774 32.75 22.9999C32.75 17.6224 28.3814 13.2499 23 13.2499ZM23 31.9999C18.0418 31.9999 14.0058 27.9574 14.0058 22.9999C14.0058 18.0424 18.0418 13.9999 23 13.9999C27.9582 13.9999 31.9942 18.0424 31.9942 22.9999C31.9942 27.9574 27.9582 31.9999 23 31.9999Z" fill="white"/>
+              <path d="M24.9462 25.8796C24.8602 25.7931 24.1822 25.3986 24.1059 25.2831C23.7335 24.7444 23.7622 24.0616 23.7908 23.0997C23.8004 22.9169 23.8004 22.9458 23.8004 22.888C23.8004 21.5894 22.7214 20.5312 21.3942 20.5312C20.0574 20.5312 18.9784 21.5894 18.9784 22.888C18.9784 22.9457 18.9784 22.9169 18.9879 23.0997C19.0167 24.0616 19.0452 24.7444 18.6729 25.2831C18.5965 25.3985 17.9186 25.793 17.8327 25.8796C17.7467 25.9662 17.6895 26.0816 17.6895 26.2066C17.6895 26.4663 17.9091 26.6781 18.1764 26.6781H24.6122C24.7364 26.6781 24.8604 26.6204 24.9464 26.5338C25.0323 26.4569 25.0896 26.3318 25.0896 26.2068C25.0896 26.0818 25.0321 25.9662 24.9462 25.8796Z" fill="white"/>
+              <path d="M22.4765 27.3831H20.3691C20.343 27.3831 20.3183 27.3936 20.3004 27.4126C20.2825 27.4313 20.2728 27.4567 20.2735 27.4824C20.2929 27.9585 20.8082 28.3442 21.4235 28.3442H21.4295C22.0516 28.3412 22.5534 27.9626 22.5721 27.4824C22.5728 27.4563 22.5631 27.4312 22.5452 27.4126C22.5273 27.3936 22.5026 27.3831 22.4765 27.3831Z" fill="white"/>
+              <path d="M26.5441 23.3224H25.1551C25.064 23.3224 24.9818 23.2686 24.9453 23.1854C24.9088 23.1022 24.9244 23.0051 24.9864 22.9378L26.0214 21.8117H25.1551C25.0281 21.8117 24.9258 21.709 24.9258 21.5824C24.9258 21.4558 25.0281 21.3531 25.1551 21.3531H26.5441C26.6352 21.3531 26.7174 21.4069 26.7539 21.4901C26.7904 21.5733 26.7748 21.6704 26.7128 21.7377L25.6778 22.8638H26.5441C26.6711 22.8638 26.7734 22.9665 26.7734 23.0931C26.7734 23.2197 26.6711 23.3224 26.5441 23.3224Z" fill="white"/>
+              <path d="M29.2433 20.6267H27.5175C27.404 20.6267 27.3009 20.5595 27.2546 20.4553C27.209 20.3511 27.2292 20.2298 27.3061 20.1458L28.5898 18.7493H27.5174C27.3591 18.7493 27.2306 18.6209 27.2306 18.4625C27.2306 18.3041 27.359 18.1757 27.5174 18.1757H29.2432C29.3567 18.1757 29.4598 18.2429 29.5061 18.3471C29.5517 18.4513 29.5315 18.5726 29.4546 18.6566L28.1709 20.0531H29.2433C29.4016 20.0531 29.5301 20.1815 29.5301 20.3399C29.5301 20.4983 29.4017 20.6267 29.2433 20.6267Z" fill="white"/>
+              <path d="M34.0627 18.1211C34.0167 17.8993 33.9324 17.7081 33.8022 17.5399C33.0662 16.5994 32.3071 15.5134 31.5481 14.2899C30.8427 13.1428 30.2448 12.0799 29.7388 11.0553C29.5856 10.7341 29.3248 10.4894 28.9952 10.3747C28.6119 10.2447 28.2209 10.1071 27.8222 10.0077L27.8606 10.4129C27.9217 10.9559 27.5768 11.43 27.1246 11.43H18.9291C18.4691 11.43 18.1241 10.9559 18.1854 10.4129L18.2314 10C18.2314 10 17.388 10.2447 17.0047 10.3747C16.6751 10.4894 16.4143 10.7341 16.2611 11.0553C15.7551 12.0799 15.1571 13.1429 14.4517 14.2899C13.6927 15.5134 12.9338 16.5994 12.1978 17.5399C12.0675 17.7081 11.9833 17.8993 11.9373 18.1211C11.692 19.467 11.4926 21.1111 11.5002 23.0076C11.4926 24.8964 11.692 26.5405 11.9373 27.8864C11.9833 28.1082 12.0676 28.2993 12.1978 28.4676C12.9338 29.4159 13.6928 30.4941 14.4517 31.7176C15.1572 32.8647 15.7551 33.9353 16.2611 34.9524C16.4143 35.2735 16.6751 35.5182 17.0047 35.6329C17.388 35.763 18.193 36 18.2006 36L18.1623 35.5947C18.101 35.0518 18.4461 34.5777 18.8983 34.5777H27.1013C27.5537 34.5777 27.8987 35.0518 27.8373 35.5947L27.799 36C27.8067 36 28.6117 35.7629 28.995 35.6329C29.3246 35.5182 29.5854 35.2735 29.7386 34.9524C30.2446 33.9353 30.8426 32.8647 31.5479 31.7176C32.3069 30.4941 33.0659 29.4159 33.802 28.4676C33.9323 28.2994 34.0165 28.1082 34.0625 27.8864C34.3078 26.5405 34.5072 24.8964 34.4995 23.0076C34.5072 21.1111 34.308 19.467 34.0627 18.1211ZM22.9999 33.4999C17.2009 33.4999 12.4999 28.7989 12.4999 22.9999C12.4999 17.2009 17.2009 12.4999 22.9999 12.4999C28.7989 12.4999 33.4999 17.2009 33.4999 22.9999C33.4999 28.7989 28.7988 33.4999 22.9999 33.4999Z" fill="white"/>
+            </g>
+            <defs>
+              <linearGradient id="g" x1="62" y1="54" x2="-10.5" y2="-8.5" gradientUnits="userSpaceOnUse">
+                <stop offset="0.1039" stop-color="#009EDA"/>
+                <stop offset="0.4231" stop-color="#6373F2"/>
+                <stop offset="0.635" stop-color="#896BE7"/>
+                <stop offset="1" stop-color="#E058CE"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="wordmark">GT&nbsp;Wake</div>
+      </div>
+      <div class="tagline">Never sleep through an alarm.</div>
+      <div class="chip"><span class="dot"></span>Phone alarms mirrored to your Huawei Watch GT</div>
+    </div>
+
+    <div class="right">
+      <div class="phone">
+        <div class="screen">
+          <div class="time">7:00</div>
+          <div class="label">Wake up</div>
+          <div class="pills">
+            <div class="pill dismiss">Dismiss</div>
+            <div class="pill snooze">Snooze</div>
+          </div>
+        </div>
+      </div>
+      <div class="watch">
+        <div class="face">
+          <div class="wtime">7:00</div>
+          <div class="wlabel">Wake up</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
