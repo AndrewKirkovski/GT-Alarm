@@ -144,7 +144,14 @@ function installReceiver() {
                 }
                 return;
             }
-            Logger.i('wearBridge[' + pageTag + '].onReceiveMessage len=' + len);
+            // `len` was a declared local until commit bedafb7 (2026-06-09)
+            // removed the diag counter `var len = …; bumpRawRx(len)` but left
+            // this log referencing it — an undeclared read throws ReferenceError
+            // on ACELite/JerryScript (ES5.1), aborting the callback BEFORE
+            // dispatchIncoming and silently dropping every inbound JSON message.
+            // Recompute locally so the dispatch can never be gated on a log.
+            var n = (data == null) ? 0 : ('' + data).length;
+            Logger.i('wearBridge[' + pageTag + '].onReceiveMessage len=' + n);
             dispatchIncoming(data);
         },
     });
