@@ -47,6 +47,24 @@ Never flip 🟡 → ✅ on the strength of a successful build. Building is neces
 
 A criterion phrased as a vibe ("smoothly", "fast", "feels native") is not a criterion. Replace it with a measurable rule (frame budget, wall-clock time, count, threshold) before adding it to the spec. Drop subjective adjectives.
 
+## Release / versioning procedure
+
+When the user asks for a "new version" / release, follow this EXACTLY:
+
+1. **Ask the user for the new `versionName`** (e.g. `1.0.1`) — it is **shared** across both apps; never invent it.
+2. **Apply `versionName` to BOTH apps:**
+   - phone — `versionName` in `android-app/app/build.gradle.kts`
+   - watch — `version.name` in `watch-app/entry/src/main/config.json`
+3. **Bump the per-app integer release codes by +1.** The two sequences are **INDEPENDENT** — phone `versionCode` is a small int (…2, 3, 4…); watch `version.code` is a HarmonyOS code (…1000001, 1000002…). Stores reject re-uploading the same code (Play: "version code N already used"; AppGallery: "version code already used"), so **every** release MUST bump both:
+   - phone — `versionCode` in `android-app/app/build.gradle.kts`
+   - watch — `version.code` in `watch-app/entry/src/main/config.json`
+4. **Add a release-notes entry to [`docs/release-notes.md`](docs/release-notes.md):** a new row in the version table + a `## <version> — <YYYY-MM-DD>` section (fixes + release-engineering notes; absolute dates).
+5. **Commit** `Release v<version>: <summary>`, then create an **annotated tag** on that commit: `git tag -a v<version> -m "v<version>"`.
+6. **Push the commit AND the tag** (`git push origin main --follow-tags`).
+7. **Build signed store artifacts for upload:** `bash scripts/android.sh release` (phone APK+AAB) + `bash scripts/build-watch-release.sh` (watch `.app`). If the signing cert changed since the last release, also re-run `scripts/pack-signing-uploads.sh` and re-upload the store-signing packages.
+
+Keep `versionName` monotonic; never reuse a release code.
+
 ## Doc-verification protocol
 
 Order of escalation when an API contract is unclear:
