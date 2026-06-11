@@ -36,25 +36,16 @@ class IncomingMessageHandler @Inject constructor(
 ) {
 
     // reason: branch count is dominated by the IncomingMessage sealed
-    // hierarchy (7 cases) plus the WatchLog early-return + level switch.
-    // Each branch maps to a distinct wire-format type that has to be
-    // dispatched; splitting into helpers per-type adds files without
-    // changing logic.
-    // ReturnCount=4: WatchLog / SyncHash / AlarmRinging / bad-epoch — each
-    // is a structurally distinct early-out with its own diagnostic log.
+    // hierarchy (7 actionable alarm cases) plus the meta-envelope early-
+    // returns. SyncHash / AlarmRinging / AlarmDismissedAck / AlarmSnoozedAck /
+    // WatchScreen are all intercepted earlier in HuaweiWearBridge — each only
+    // reaches here on an interception miss/timeout and is logged + dropped.
+    // Splitting into helpers per-type adds files without changing logic.
+    // ReturnCount: SyncHash / AlarmRinging / AlarmDismissedAck /
+    // AlarmSnoozedAck / WatchScreen / bad-epoch — each a structurally distinct
+    // early-out with its own diagnostic log.
     @Suppress("CyclomaticComplexMethod", "ReturnCount")
     suspend fun handle(msg: IncomingMessage) {
-        // WatchLog is the dev-only log relay — surface to logcat under its
-        // own tag and exit. It legitimately carries `updatedAtEpoch` = ts
-        // not the LWW stamp, so it bypasses the regular epoch validation.
-        if (msg is IncomingMessage.WatchLog) {
-            when (msg.level) {
-                "E" -> Log.e(WATCH_LOG_TAG, msg.msg)
-                "W" -> Log.w(WATCH_LOG_TAG, msg.msg)
-                else -> Log.i(WATCH_LOG_TAG, msg.msg)
-            }
-            return
-        }
         // SyncHash is intercepted by HuaweiWearBridge for the pending
         // hash-request continuation. If it reaches the handler the
         // request had already timed out — silently drop instead of
@@ -83,6 +74,14 @@ class IncomingMessageHandler @Inject constructor(
             Log.d(TAG, "received AlarmSnoozedAck id=${msg.alarmId} after await window — dropping")
             return
         }
+        // WatchScreen is intercepted by HuaweiWearBridge (it persists the
+        // report keyed on the bonded watch model — the bridge owns that
+        // knowledge). If it reaches the handler the interception didn't claim
+        // it; log + drop, like SyncHash.
+        if (msg is IncomingMessage.WatchScreen) {
+            Log.d(TAG, "received WatchScreen ${msg.width}x${msg.height} ${msg.shape} unclaimed — dropping")
+            return
+        }
         if (msg.updatedAtEpoch <= 0L) {
             Log.w(TAG, "rejecting bad updatedAtEpoch=${msg.updatedAtEpoch} type=${msg::class.simpleName}")
             return
@@ -95,11 +94,11 @@ class IncomingMessageHandler @Inject constructor(
             is IncomingMessage.AlarmFired -> Log.d(TAG, "peer fired alarm id=${msg.alarmId}")
             is IncomingMessage.AlarmDismissed -> dispatchDismissFromPeer(msg.alarmId)
             is IncomingMessage.AlarmSnoozed -> applySnooze(msg.alarmId, msg.updatedAtEpoch)
-            is IncomingMessage.WatchLog -> Unit // handled above; exhaustiveness only
             is IncomingMessage.SyncHash -> Unit // handled above; exhaustiveness only
             is IncomingMessage.AlarmRinging -> Unit // handled above; exhaustiveness only
             is IncomingMessage.AlarmDismissedAck -> Unit // handled above; exhaustiveness only
             is IncomingMessage.AlarmSnoozedAck -> Unit // handled above; exhaustiveness only
+            is IncomingMessage.WatchScreen -> Unit // handled above; exhaustiveness only
         }
     }
 
@@ -217,9 +216,6 @@ class IncomingMessageHandler @Inject constructor(
 
     companion object {
         private const val TAG = "IncomingMsg"
-        // Separate tag so adb logcat filtering can pin just the watch's
-        // mirrored log lines (e.g. `adb logcat WatchLog:I *:S`).
-        private const val WATCH_LOG_TAG = "WatchLog"
 
         fun buildDismissFromPeerIntent(context: Context, alarmId: Long): Intent =
             Intent(context, AlarmRingService::class.java).apply {

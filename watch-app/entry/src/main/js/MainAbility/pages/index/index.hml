@@ -1,25 +1,31 @@
 <!-- Single-page watch UI. Three screens — list / sync / ring — are
      mutually-exclusive `if=`-rendered blocks switched by the `screen`
-     data field. No router: one page, one bundle, one P2P receiver. -->
-<stack class="root">
+     data field. No router: one page, one bundle, one P2P receiver.
+
+     RESPONSIVE: screen-dependent dimensions are driven by inline
+     `style="...{{screenW}}px..."` bindings (computed in index.js applyScreen
+     from @system.device). `%` does NOT propagate on Lite Wearable, so every
+     size is computed px. On the GT6 the computed values equal the old 466
+     constants (no visual change); rectangular watches fit + centre. -->
+<stack class="root" onswipe="onSwipe" style="width:{{screenW}}px; height:{{screenH}}px;">
 
     <!-- ================= LIST screen ================= -->
     <!-- Each screen is its own <stack> with a full-screen background
          <image> as the bottom layer. A bg <image> placed directly under
          the ROOT <stack> did NOT render; the ring stack proves a NESTED
          <stack> composites a layer behind its content. -->
-    <stack class="screen" if="{{screen === 'list'}}">
-        <image class="bg-full" src="{{bgSrc}}" if="{{hasBg}}"></image>
-        <div class="scrim" if="{{showScrim}}"></div>
-        <div class="content">
-        <text class="title">{{title}}</text>
+    <stack class="screen" if="{{screen === 'list'}}" style="width:{{screenW}}px; height:{{screenH}}px;">
+        <image class="bg-full" src="{{bgSrc}}" if="{{hasBg}}" style="width:{{screenW}}px; height:{{screenH}}px;"></image>
+        <div class="scrim" if="{{showScrim}}" style="width:{{screenW}}px; height:{{screenH}}px;"></div>
+        <div class="content" style="width:{{screenW}}px; height:{{screenH}}px;">
+        <text class="title" style="width:{{titleW}}px;">{{title}}</text>
 
-        <list class="alarm-list" ref="alarmList" if="{{alarms.length > 0}}">
+        <list class="alarm-list" ref="alarmList" if="{{alarms.length > 0}}" style="width:{{screenW}}px; height:{{listH}}px; padding-top:{{padTop}}px; padding-bottom:{{padBot}}px;">
             <list-item class="alarm-list-row" for="{{alarms}}" tid="id"
-                       onclick="onRowTap({{$item.id}})">
-                <div class="alarm-row" if="{{$item.enabled}}">
+                       onclick="onRowTap({{$item.id}})" style="width:{{$item.rowItemW}}px;">
+                <div class="alarm-row" if="{{$item.enabled}}" style="width:{{$item.rowW}}px; margin-left:{{$item.rowMargin}}px;">
                     <div class="status-dot"></div>
-                    <text class="alarm-time">{{$item.time}}</text>
+                    <text class="alarm-time" style="width:{{$item.timeW}}px;">{{$item.time}}</text>
                     <div class="alarm-days-grid" if="{{$item.isRecurring}}">
                         <div class="day-cell">
                             <text class="day-cell-letter">{{$item.dL0}}</text>
@@ -59,9 +65,9 @@
                     </div>
                     <text class="alarm-days-text" if="{{$item.isNotRecurring}}">{{$item.daysText}}</text>
                 </div>
-                <div class="alarm-row-dim" if="{{$item.notEnabled}}">
+                <div class="alarm-row-dim" if="{{$item.notEnabled}}" style="width:{{$item.rowW}}px; margin-left:{{$item.rowMargin}}px;">
                     <div class="status-dot-off"></div>
-                    <text class="alarm-time-dim">{{$item.time}}</text>
+                    <text class="alarm-time-dim" style="width:{{$item.timeW}}px;">{{$item.time}}</text>
                     <div class="alarm-days-grid" if="{{$item.isRecurring}}">
                         <div class="day-cell">
                             <text class="day-cell-letter-dim">{{$item.dL0}}</text>
@@ -104,51 +110,55 @@
             </list-item>
         </list>
 
-        <div class="empty" if="{{alarms.length === 0}}">
+        <div class="empty" if="{{alarms.length === 0}}" style="width:{{screenW}}px;">
             <text class="empty-title">{{emptyText}}</text>
             <text class="empty-hint">{{emptyHint}}</text>
         </div>
         </div>
         <!-- Tap hint — overlay shown when a row is tapped (alarms are
              edited on the phone, not the watch). Top layer of the stack. -->
-        <div class="tap-hint" if="{{tapHintShown}}">
+        <div class="tap-hint" if="{{tapHintShown}}" style="width:{{screenW}}px; height:{{screenH}}px;">
             <text class="tap-hint-text">{{tapHint}}</text>
         </div>
     </stack>
 
     <!-- ================= SYNC screen ================= -->
-    <stack class="screen" if="{{screen === 'sync'}}">
-        <image class="bg-full" src="{{bgSrc}}" if="{{hasBg}}"></image>
-        <div class="scrim" if="{{showScrim}}"></div>
-        <div class="content">
+    <stack class="screen" if="{{screen === 'sync'}}" style="width:{{screenW}}px; height:{{screenH}}px;">
+        <image class="bg-full" src="{{bgSrc}}" if="{{hasBg}}" style="width:{{screenW}}px; height:{{screenH}}px;"></image>
+        <div class="scrim" if="{{showScrim}}" style="width:{{screenW}}px; height:{{screenH}}px;"></div>
+        <div class="content" style="width:{{screenW}}px; height:{{screenH}}px;">
             <text class="title">{{syncTitle}}</text>
             <text class="sync-sub">{{syncSubtitle}}</text>
         </div>
     </stack>
 
     <!-- ================= RING screen ================= -->
-    <stack class="ring" if="{{screen === 'ring'}}" onswipe="onSwipe">
+    <stack class="ring" if="{{screen === 'ring'}}" onswipe="onSwipe" style="width:{{screenW}}px; height:{{screenH}}px;">
         <!-- Hidden, always-scrollable list: the digital crown scrolls the
              focused <list>, so this one turns the crown into scrollend
              ticks (crown-to-snooze). Bottom layer + transparent =
              invisible, and never intercepts touch from the buttons. -->
-        <list class="crown-list" ref="crownList" onscrollend="onCrownTick">
+        <list class="crown-list" ref="crownList" onscrollend="onCrownTick" style="width:{{screenW}}px; height:{{screenH}}px;">
             <list-item class="crown-item" for="{{crownItems}}">
                 <div class="crown-cell"></div>
             </list-item>
         </list>
-        <image class="bg-full" src="{{bgSrc}}" if="{{hasBg}}"></image>
-        <progress type="arc" percent="100" class="ring-arc" if="{{!ended}}"></progress>
-        <progress type="arc" percent="100" class="ring-arc-green" if="{{ended}}"></progress>
-        <div class="ring-content">
+        <image class="bg-full" src="{{bgSrc}}" if="{{hasBg}}" style="width:{{screenW}}px; height:{{screenH}}px;"></image>
+        <!-- Decorative pink/green ring is a circular <progress type="arc"> —
+             it can only draw a circle, which looks wrong framing a rectangular
+             screen, so it renders on ROUND watches only. On rect the green
+             "ended" confirmation is still carried by the thumbs-up image. -->
+        <progress type="arc" percent="100" class="ring-arc" if="{{!ended && isRound}}" style="width:{{screenW}}px; height:{{screenH}}px; center-x:{{arcCx}}px; center-y:{{arcCy}}px; radius:{{arcR}}px;"></progress>
+        <progress type="arc" percent="100" class="ring-arc-green" if="{{ended && isRound}}" style="width:{{screenW}}px; height:{{screenH}}px; center-x:{{arcCx}}px; center-y:{{arcCy}}px; radius:{{arcR}}px;"></progress>
+        <div class="ring-content" style="width:{{screenW}}px; height:{{screenH}}px;">
             <image src="common/bell.png" class="ring-bell"></image>
-            <text class="ring-title">{{ringTitle}}</text>
-            <text class="ring-time">{{ringTime}}</text>
+            <text class="ring-title" style="width:{{screenW}}px;">{{ringTitle}}</text>
+            <text class="ring-time" style="width:{{screenW}}px;">{{ringTime}}</text>
             <!-- Action row: snooze + stop when snoozable, stop-only when
                  the alarm has snoozeMinutes=0, OR the green thumbs-up
                  confirmation once ended. SAME Y position via identical
                  width/height/margin on all three slots. -->
-            <div class="ring-actions" if="{{!ended && ringSnoozeEnabled}}">
+            <div class="ring-actions" if="{{!ended && ringSnoozeEnabled}}" style="width:{{screenW}}px;">
                 <div class="ring-btn" onclick="onSnooze">
                     <image src="common/snooze.png" class="ring-btn-img"></image>
                 </div>
@@ -156,12 +166,12 @@
                     <image src="common/stop.png" class="ring-btn-img"></image>
                 </div>
             </div>
-            <div class="ring-actions-stop" if="{{!ended && !ringSnoozeEnabled}}">
+            <div class="ring-actions-stop" if="{{!ended && !ringSnoozeEnabled}}" style="width:{{screenW}}px;">
                 <div class="ring-btn" onclick="onDismiss">
                     <image src="common/stop.png" class="ring-btn-img"></image>
                 </div>
             </div>
-            <div class="ring-ended" if="{{ended}}">
+            <div class="ring-ended" if="{{ended}}" style="width:{{screenW}}px;">
                 <image src="common/thumbup.png" class="ring-thumb"></image>
             </div>
         </div>

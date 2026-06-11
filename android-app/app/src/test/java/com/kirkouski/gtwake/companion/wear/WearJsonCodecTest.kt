@@ -68,6 +68,78 @@ class WearJsonCodecTest {
     }
 
     @Test
+    fun `watch_screen round reply parses to WatchScreen`() {
+        val json = JSONObject().apply {
+            put("type", "watch_screen")
+            put("width", 466)
+            put("height", 466)
+            put("shape", "circle")
+            put("updatedAtEpoch", 100L)
+        }
+        val msg = WearJsonCodec.parseIncoming(json)
+        assertTrue(msg is IncomingMessage.WatchScreen)
+        msg as IncomingMessage.WatchScreen
+        assertEquals(466, msg.width)
+        assertEquals(466, msg.height)
+        assertEquals("circle", msg.shape)
+    }
+
+    @Test
+    fun `watch_screen rect reply keeps rect shape and portrait dims`() {
+        val json = JSONObject().apply {
+            put("type", "watch_screen")
+            put("width", 408)
+            put("height", 480)
+            put("shape", "rect")
+        }
+        val msg = WearJsonCodec.parseIncoming(json) as? IncomingMessage.WatchScreen
+        assertEquals(408, msg?.width)
+        assertEquals(480, msg?.height)
+        assertEquals("rect", msg?.shape)
+    }
+
+    @Test
+    fun `watch_screen with out-of-range dims is dropped`() {
+        val tooSmall = JSONObject().apply {
+            put("type", "watch_screen")
+            put("width", 0)
+            put("height", 466)
+            put("shape", "circle")
+        }
+        assertNull(WearJsonCodec.parseIncoming(tooSmall))
+        val tooBig = JSONObject().apply {
+            put("type", "watch_screen")
+            put("width", 466)
+            put("height", 9999)
+            put("shape", "circle")
+        }
+        assertNull(WearJsonCodec.parseIncoming(tooBig))
+    }
+
+    @Test
+    fun `watch_screen with unknown or missing shape normalizes to circle`() {
+        val unknownShape = JSONObject().apply {
+            put("type", "watch_screen")
+            put("width", 466)
+            put("height", 466)
+            put("shape", "oval")
+        }
+        assertEquals(
+            "circle",
+            (WearJsonCodec.parseIncoming(unknownShape) as IncomingMessage.WatchScreen).shape,
+        )
+        val missingShape = JSONObject().apply {
+            put("type", "watch_screen")
+            put("width", 466)
+            put("height", 466)
+        }
+        assertEquals(
+            "circle",
+            (WearJsonCodec.parseIncoming(missingShape) as IncomingMessage.WatchScreen).shape,
+        )
+    }
+
+    @Test
     fun `alarm_added requires alarm payload — returns null when missing`() {
         val json = JSONObject().apply {
             put("type", "alarm_added")

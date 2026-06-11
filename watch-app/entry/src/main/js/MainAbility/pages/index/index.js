@@ -12,10 +12,11 @@ import SettingsStore from '../../common/settingsStore.js';
 import WearBridge from '../../common/wearBridge.js';
 import IncomingHandler from '../../common/incomingHandler.js';
 import Logger from '../../common/logger.js';
+import Screen from '../../common/screen.js';
 
 // Bump per hardware-test build so the on-screen tag confirms the new
 // HAP actually replaced the old one.
-var BUILD_TAG = 'crownsnooze/05-19';
+var BUILD_TAG = 'responsive/06-11';
 
 // How long the row-tap hint overlay stays up.
 var TAP_HINT_MS = 2600;
@@ -217,6 +218,12 @@ function formatRow(self, alarm) {
         time: formatAlarmTime(alarm, self._use24Hour, self.ampmAM, self.ampmPM),
         enabled: enabled,
         notEnabled: !enabled,
+        // Responsive geometry (computed in applyScreen) carried per-row so the
+        // <list-item> inline-style bindings use the proven $item mechanism.
+        rowItemW: self.rowItemW,
+        rowW: self.rowW,
+        rowMargin: self.rowMargin,
+        timeW: self.timeW,
         isRecurring: isRecurring,
         isNotRecurring: !isRecurring,
         daysText: isRecurring ? '' : nonRecurringLabel(self, alarm),
@@ -313,6 +320,33 @@ export default {
         // client envelope without prior sync).
         ringVibrationPattern: 'PULSE',
 
+        // --- responsive layout (computed in onInit from @system.device) ---
+        // Defaults = GT 6 Pro (466x466 round). applyScreen() recomputes these
+        // from the REAL screen so rectangular watches (e.g. FIT 5 Pro 480x408)
+        // fill + centre instead of rendering a 466 box in a corner. Bound via
+        // inline style in index.hml — `%` does NOT propagate on Lite, computed
+        // px via data-bound `style="..."` does.
+        screenW: 466,
+        screenH: 466,
+        isRound: true,
+        listH: 320,
+        arcCx: 233,
+        arcCy: 233,
+        arcR: 220,
+        padTop: 24,
+        padBot: 56,
+        // Responsive list-row geometry. Defaults = GT6 (the previous hard-
+        // coded CSS values). On narrower watches (FIT 408 / FIT2 336) the
+        // row + time box shrink so content never clips the right edge; the
+        // day-grid stays fixed (legibility). Bound per-row via $item so the
+        // binding uses the same proven mechanism as $item.time. titleW is
+        // page-level (not in a loop) so it binds page data directly.
+        titleW: 420,
+        rowItemW: 466,
+        rowW: 390,
+        rowMargin: 38,
+        timeW: 204,
+
         // --- i18n bag (read by helpers via `self`) ---
         repeatOnce: '', repeatTimer: '',
         repeatAll: '', repeatWeekdays: '', repeatWeekends: '',
@@ -386,6 +420,14 @@ export default {
             }
         });
         Logger.i('index.onInit build=' + BUILD_TAG);
+
+        // Responsive layout: query the real screen size + shape and recompute
+        // every screen-dependent dimension. getInfo is async (callback-only on
+        // Lite); the first render uses the 466 defaults, then this corrects
+        // them — a no-op on the GT6 (466==466), a reflow-to-fit on rect watches.
+        Screen.load(function (m) {
+            self.applyScreen(m);
+        });
 
         // Incoming-envelope -> screen transitions. One page, so the
         // handler updates this page's data directly.
@@ -473,6 +515,49 @@ export default {
             },
             fail: function () {},
         });
+    },
+
+    // Recompute every screen-dependent dimension from real device metrics.
+    // GT6 (466x466 round) reproduces the previous hard-coded values exactly;
+    // rectangular screens fit content to their real W x H. Round-vs-rect is
+    // expressed through computed values (paddings), NOT a class swap — Lite
+    // forbids `class="{{...}}"` data binding.
+    applyScreen: function (m) {
+        var w = m.W;
+        var h = m.H;
+        var round = (m.shape !== 'rect');
+        this.screenW = w;
+        this.screenH = h;
+        this.isRound = round;
+        // List height: GT6 -> 320 (466-146), exact. Rect screens get their
+        // (shorter) height minus the header; the list scrolls either way.
+        this.listH = h - 146;
+        // Decorative arc centred on the real screen, radius tracking the
+        // smaller side. GT6: cx/cy 233, r round(0.472*466)=220 — unchanged.
+        this.arcCx = Math.round(w / 2);
+        this.arcCy = Math.round(h / 2);
+        this.arcR = Math.round(Math.min(w, h) * 0.472);
+        // Over-scroll chord headroom only matters on a round face.
+        this.padTop = round ? 24 : 8;
+        this.padBot = round ? 56 : 8;
+        // Row geometry. GT6 (w=466) reproduces the old CSS exactly:
+        //   rowW=min(390,418)=390, rowMargin=(466-390)/2=38, timeW=204≈200.
+        // Narrower screens shrink the row (keeping ~24px side gutters) and the
+        // time box; the 126px day-grid + 18px paddings stay fixed, so the time
+        // box absorbs the difference (FIT 408 -> timeW 174, FIT2 336 -> 102).
+        this.titleW = Math.min(420, w - 24);
+        this.rowItemW = w;
+        var rowW = Math.min(390, w - 48);
+        this.rowW = rowW;
+        this.rowMargin = Math.round((w - rowW) / 2);
+        // 186 = dot(12)+dotMargin(12) + padLeft(18)+padRight(18) + dayGrid(126).
+        this.timeW = rowW - 186;
+        // Rebuild any already-rendered rows so they pick up the new per-row
+        // geometry immediately (getInfo is async; rows may have first rendered
+        // with the 466 defaults before this ran). No-op cost on the GT6.
+        if (typeof this.refresh === 'function') {
+            this.refresh();
+        }
     },
 
     onShow: function () {
@@ -833,7 +918,16 @@ export default {
         this._vibrateTimer = null;
     },
 
-    onSwipe: function () {},
+    // Swipe-right is the system back/exit gesture on Huawei watches. This is a
+    // single-page app with no router, so nothing pops on back — we terminate
+    // explicitly (AppGallery rejected the app for not exiting on right-swipe).
+    // Guard the RING screen: there the user must dismiss/snooze, not swipe away.
+    onSwipe: function (e) {
+        if (e && e.direction === 'right' && this.screen !== 'ring') {
+            Logger.i('index.onSwipe right -> terminate (screen=' + this.screen + ')');
+            app.terminate();
+        }
+    },
 
     onDismiss: function () {
         Logger.i('index.onDismiss id=' + this._alarmId);

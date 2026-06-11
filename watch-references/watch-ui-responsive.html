@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GT Wake watch UI — responsive (round vs rectangular)</title>
+<!--
+  Browser mockup of the A1 responsive layout. Runs the SAME applyScreen() math
+  the watch uses (index.js) and renders each screen at the real device size for
+  a round GT6 (466x466) and a rectangular FIT 5 Pro (480x408). Verifies layout
+  INTENT only — browser CSS, NOT the ACELite renderer, so it cannot prove the
+  inline-style px binding / arc center-x behaviour on real hardware (that still
+  needs the GT6). Use it to confirm content FILLS + CENTERS on the rectangle
+  instead of sitting 466-in-a-corner, and that the list/ring fit the height.
+-->
+<style>
+  body { margin:0; padding:20px; font-family:"Segoe UI",system-ui,sans-serif; background:#1A1A1F; color:#E5E7EB; }
+  h1 { font-size:18px; font-weight:600; margin:0 0 4px; }
+  .legend { color:#9CA3AF; font-size:13px; margin-bottom:18px; max-width:900px; }
+  .grid { display:flex; flex-wrap:wrap; gap:28px; }
+  .panel { display:flex; flex-direction:column; align-items:center; }
+  .panel-label { font-size:13px; color:#9CA3AF; margin-bottom:6px; }
+  /* The physical display bezel. Width/height + clip set per-device inline. */
+  .watch { overflow:hidden; position:relative; box-shadow:0 0 0 4px #2C2C36, 0 8px 32px rgba(0,0,0,.6); background:#0F0F23; }
+
+  /* ---- screen container (filled to real W x H inline) ---- */
+  .content { display:flex; flex-direction:column; align-items:center; position:relative; z-index:2; }
+  .bg-full { position:absolute; top:0; left:0; z-index:0; background:linear-gradient(135deg,#3B2F6E,#6D5BC8 45%,#C77DC2); }
+
+  .title { text-align:center; color:#F1F5F9; font-size:33px; height:46px; line-height:46px; margin-top:30px; margin-bottom:4px; white-space:nowrap; }
+
+  /* list = explicit-height scroll container (matches native <list>) */
+  .alarm-list { overflow-y:auto; box-sizing:border-box; }
+  .alarm-list-row { height:92px; }
+  .alarm-row { display:flex; flex-direction:row; align-items:center; width:390px; height:84px; margin-left:38px; margin-bottom:8px; padding:0 18px; background-color:rgba(31,31,42,.55); border-radius:20px; box-sizing:border-box; }
+  .alarm-row-dim { background-color:rgba(20,20,28,.55); }
+  .status-dot { width:12px; height:12px; border-radius:6px; background-color:#35C84A; margin-right:12px; flex-shrink:0; }
+  .status-dot-off { background-color:transparent; border:2px solid #4B5563; width:8px; height:8px; border-radius:5px; margin-right:14px; flex-shrink:0; }
+  .alarm-time { color:#fff; font-size:42px; line-height:48px; flex:1; }
+  .alarm-time-dim { color:#9AA4C0; }
+  .alarm-days-grid { display:flex; flex-direction:row; align-items:flex-start; height:44px; }
+  .day-cell { display:flex; flex-direction:column; align-items:center; width:16px; margin-left:2px; }
+  .day-cell-letter { font-size:14px; line-height:16px; color:#AEB8CC; height:16px; margin-bottom:4px; }
+  .day-dot { width:12px; height:12px; border-radius:6px; background-color:#555E7A; }
+  .day-dot-on { background-color:#5FC9EF; }
+  .alarm-days-text { color:#C4CEE0; font-size:24px; line-height:33px; }
+
+  .empty { display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .empty-title { color:#F1F5F9; font-size:48px; height:60px; line-height:60px; margin-bottom:8px; }
+  .empty-hint { color:#AEB8CC; font-size:33px; height:42px; line-height:42px; }
+
+  /* ring */
+  .ring { position:relative; z-index:2; }
+  .ring-arc { position:absolute; border-radius:50%; border:6px solid #FCA5A5; box-sizing:border-box; }
+  .ring-content { display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative; }
+  .ring-bell { width:56px; height:56px; margin-bottom:8px; }
+  .ring-title { color:#FCA5A5; font-size:32px; height:40px; line-height:40px; text-align:center; margin-bottom:6px; }
+  .ring-time { color:#F1F5F9; font-size:112px; height:132px; line-height:132px; text-align:center; margin-bottom:4px; font-weight:200; }
+  .ring-actions { display:flex; flex-direction:row; justify-content:center; align-items:center; height:124px; margin-top:6px; }
+  .ring-btn { display:flex; align-items:center; justify-content:center; width:112px; height:112px; margin:0 22px; }
+  .ring-btn-img { width:112px; height:112px; }
+</style>
+</head>
+<body>
+<h1>GT Wake — responsive watch layout (A1) · all supported profiles</h1>
+<div class="legend">
+  Same <code>applyScreen()</code> math as <code>index.js</code>: <code>listH = H − 146</code>,
+  arc <code>cx=W/2, cy=H/2, r=round(min(W,H)·0.472)</code>, chord padding only when round.
+  Each profile must FILL + CENTER (no corner clip) and the list/ring must fit the height.
+  Round devices (GT 3/4/5/6, Runner, Cyber) are all 466×466; FIT 3/4/5 are <b>portrait</b> 408×480,
+  FIT 2 is 336×480. <b>Browser mock — intent only; ACELite render still needs the GT6.</b>
+</div>
+<style>
+  .profile-group { margin-bottom:8px; }
+  .profile-group h2 { font-size:15px; font-weight:600; color:#C7D2FE; margin:22px 0 2px; }
+  .profile-sub { font-size:12px; color:#7C8499; margin-bottom:10px; }
+</style>
+<div id="root"></div>
+
+<script>
+var REF = '../watch-app/entry/src/main/js/MainAbility/common/';
+
+function dims(W, H, shape) {
+  var round = shape !== 'rect';
+  var rowW = Math.min(390, W - 48);
+  return {
+    W: W, H: H, round: round,
+    listH: H - 146,
+    padTop: round ? 24 : 8,
+    padBot: round ? 56 : 8,
+    cx: Math.round(W / 2), cy: Math.round(H / 2),
+    r: Math.round(Math.min(W, H) * 0.472),
+    // Responsive row geometry — mirrors applyScreen() in index.js exactly.
+    titleW: Math.min(420, W - 24),
+    rowItemW: W,
+    rowW: rowW,
+    rowMargin: Math.round((W - rowW) / 2),
+    timeW: rowW - 186,
+  };
+}
+
+function rows(d) {
+  return ''
+    + row(d, '07:30', 'MTWTF', false)
+    + row(d, '09:00', 'timer', false)
+    + row(d, '22:00', '', true);
+}
+function row(d, time, kind, dim) {
+  var rc = dim ? 'alarm-row alarm-row-dim' : 'alarm-row';
+  var dot = dim ? 'status-dot status-dot-off' : 'status-dot';
+  var tc = dim ? 'alarm-time alarm-time-dim' : 'alarm-time';
+  var right;
+  if (kind === 'timer') {
+    right = '<div class="alarm-days-text">Timer</div>';
+  } else if (kind === 'MTWTF') {
+    right = grid([1,1,1,1,1,0,0]);
+  } else {
+    right = grid([0,0,0,0,0,1,1]);
+  }
+  // Inline geometry mirrors the device's $item bindings: list-item width,
+  // row width + margin, fixed time-box width (flex:none — Lite has no flex-grow).
+  return '<div class="alarm-list-row" style="width:' + d.rowItemW + 'px;">'
+    + '<div class="' + rc + '" style="width:' + d.rowW + 'px;margin-left:' + d.rowMargin + 'px;">'
+    + '<div class="' + dot + '"></div>'
+    + '<div class="' + tc + '" style="width:' + d.timeW + 'px;flex:none;">' + time + '</div>'
+    + right + '</div></div>';
+}
+function grid(on) {
+  var L = ['M','T','W','T','F','S','S'], out = '<div class="alarm-days-grid">';
+  for (var i = 0; i < 7; i++) {
+    out += '<div class="day-cell"><div class="day-cell-letter">' + L[i] + '</div>'
+      + '<div class="day-dot ' + (on[i] ? 'day-dot-on' : '') + '"></div></div>';
+  }
+  return out + '</div>';
+}
+
+function frame(label, d, inner) {
+  var clip = d.round ? 'border-radius:50%;' : 'border-radius:44px;';
+  return '<div class="panel"><div class="panel-label">' + label + ' (' + d.W + '×' + d.H + ' ' + (d.round ? 'round' : 'rect') + ')</div>'
+    + '<div class="watch" style="width:' + d.W + 'px;height:' + d.H + 'px;' + clip + '">' + inner + '</div></div>';
+}
+
+function listScreen(d) {
+  return '<div class="content" style="width:' + d.W + 'px;height:' + d.H + 'px;">'
+    + '<div class="title" style="width:' + d.titleW + 'px;">Alarms</div>'
+    + '<div class="alarm-list" style="width:' + d.W + 'px;height:' + d.listH + 'px;padding-top:' + d.padTop + 'px;padding-bottom:' + d.padBot + 'px;">'
+    + rows(d) + '</div></div>';
+}
+function emptyScreen(d) {
+  return '<div class="content" style="width:' + d.W + 'px;height:' + d.H + 'px;">'
+    + '<div class="title" style="width:' + d.W + 'px;">Alarms</div>'
+    + '<div class="empty" style="width:' + d.W + 'px;height:' + (d.H - 150) + 'px;">'
+    + '<div class="empty-title">No alarms</div><div class="empty-hint">Add one on phone</div></div></div>';
+}
+function ringScreen(d) {
+  // Pink ring (circular arc) is round-only — hidden on rectangular screens.
+  var arc = d.round
+    ? '<div class="ring-arc" style="width:' + (2 * d.r) + 'px;height:' + (2 * d.r) + 'px;left:' + (d.cx - d.r) + 'px;top:' + (d.cy - d.r) + 'px;"></div>'
+    : '';
+  return '<div class="bg-full" style="width:' + d.W + 'px;height:' + d.H + 'px;"></div>'
+    + '<div class="ring" style="width:' + d.W + 'px;height:' + d.H + 'px;">'
+    + arc
+    + '<div class="ring-content" style="width:' + d.W + 'px;height:' + d.H + 'px;">'
+    + '<img class="ring-bell" src="' + REF + 'bell.png">'
+    + '<div class="ring-title" style="width:' + d.W + 'px;">Alarm</div>'
+    + '<div class="ring-time" style="width:' + d.W + 'px;">07:30</div>'
+    + '<div class="ring-actions" style="width:' + d.W + 'px;">'
+    + '<div class="ring-btn"><img class="ring-btn-img" src="' + REF + 'snooze.png"></div>'
+    + '<div class="ring-btn"><img class="ring-btn-img" src="' + REF + 'stop.png"></div>'
+    + '</div></div></div>';
+}
+
+// The supported profiles. `known` flags whether the phone-side cropper draws a
+// crop overlay for this profile (Part C); unknown runtime resolutions get NO
+// overlay. Every current AppGallery round device is 466; FIT is portrait.
+var PROFILES = [
+  { name: 'Round · GT 3 / GT 4 / GT 5 / GT 6 · GT Runner / Runner 2 · GT Cyber · GT 2022',
+    sub: 'All current AppGallery round watches share the 466×466 panel (the reviewer-tested class).',
+    W: 466, H: 466, shape: 'circle' },
+  { name: 'Round · legacy GT 2 / GT 2 Pro (454×454)',
+    sub: 'Not on the current store list — shown to prove small-round scaling still fills + centres.',
+    W: 454, H: 454, shape: 'circle' },
+  { name: 'Rect · Watch FIT 3 / FIT 4 / FIT 5 (Pro) — portrait 408×480',
+    sub: 'The device the reviewer rejected us on (FIT 5 Pro). Taller than wide; list gets more rows.',
+    W: 408, H: 480, shape: 'rect' },
+  { name: 'Rect · Watch FIT 2 — portrait 336×480',
+    sub: 'Narrower 1.74″ panel. Rows/ring must still fit the 336 width without right-clip.',
+    W: 336, H: 480, shape: 'rect' },
+];
+
+var root = document.getElementById('root');
+var out = '';
+for (var i = 0; i < PROFILES.length; i++) {
+  var p = PROFILES[i];
+  var d = dims(p.W, p.H, p.shape);
+  out += '<div class="profile-group"><h2>' + p.name + '</h2>'
+    + '<div class="profile-sub">' + p.sub + '</div><div class="grid">'
+    + frame('Empty', d, emptyScreen(d))
+    + frame('List', d, listScreen(d))
+    + frame('Ring', d, ringScreen(d))
+    + '</div></div>';
+}
+root.innerHTML = out;
+</script>
+</body>
+</html>

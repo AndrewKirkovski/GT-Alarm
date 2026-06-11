@@ -5,6 +5,7 @@ the integer release codes are **per-app** and increment by 1 each release.
 
 | versionName | phone code | watch code | tag | date |
 |---|---|---|---|---|
+| 1.0.2 | 4 | 1000003 | `v1.0.2` | 2026-06-11 |
 | 1.0.1 | 3 | 1000002 | `v1.0.1` | 2026-06-11 |
 
 Apps:
@@ -12,6 +13,38 @@ Apps:
 - **Watch** — `com.kirkouski.gtwatch.watch` (HarmonyOS Lite Wearable, AppGallery only), `version.code` in `watch-app/entry/src/main/config.json`.
 
 ---
+
+## 1.0.2 — 2026-06-11
+phone `versionCode 4` · watch `code 1000003` · tag `v1.0.2`
+
+Addresses the AppGallery review rejections for both apps.
+
+**Watch — layout fixes**
+- **Responsive layout for every Lite Wearable screen.** The UI was hard-coded to the GT 6 Pro's
+  466×466 round panel and rendered in a corner / clipped on rectangular FIT watches (the reviewer
+  tested a FIT 5 Pro, 408×480). Every dimension is now computed from `@system.device.getInfo()`,
+  so round GT (466), legacy round (454/390) and portrait FIT (408×480, 336×480) all fill + centre.
+  On the GT 6 Pro the computed values reproduce the previous layout exactly (zero round-screen
+  regression).
+- **Swipe-right exits the app** (single-page app — previously a no-op back gesture).
+- **The pink ring arc is hidden on rectangular screens** — a circular arc only suits a round face.
+
+**Phone — privacy (AppGallery rules 7.5 / 7.1)**
+- **First-launch privacy-consent prompt** — the policy is presented and must be accepted before use.
+- **Chinese privacy policy** for the mainland-China region, in-app and on the landing site.
+
+**Watch background — adaptive sizing** (one watch at a time)
+- The phone learns the connected watch's screen (phone-initiated `screen_request` → `watch_screen`
+  reply, cached per watch model) and sizes/shapes the background cropper + uploaded image to the
+  real panel: circular crop for round, rounded-rect for FIT. An unrecognised resolution crops
+  without the watch-UI overlay.
+
+**Cleanup**
+- Removed the dead singular `watch_log` wire path (superseded by `watch_log_batch`); extracted a
+  shared cropper scaffold to de-duplicate the phone + watch background pickers.
+
+> Note: the watch layout + adaptive-background paths are device-pending verification at tag time
+> (the FIT rectangular path has no hardware on hand; GT 6 Pro is the dev device).
 
 ## 1.0.1 — 2026-06-11
 phone `versionCode 3` · watch `code 1000002` · tag `v1.0.1`

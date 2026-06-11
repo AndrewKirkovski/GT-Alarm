@@ -416,6 +416,21 @@ export default {
         });
     },
 
+    // Reply to a phone-originated `screen_request` with this watch's panel
+    // metrics so the phone can size + shape the uploaded background to the
+    // real screen. Phone-initiated only — the watch never pushes this
+    // unprompted. Fire-and-forget: if it's lost the phone re-asks on its next
+    // sync (gated on the bonded model, so a known watch isn't re-pinged).
+    sendWatchScreen: function (width, height, shape) {
+        sendJson({
+            type: 'watch_screen',
+            width: width,
+            height: height,
+            shape: shape,
+            updatedAtEpoch: Date.now(),
+        });
+    },
+
     // Confirms to the phone that the watch's ring page is up and
     // vibrating. Phone awaits this before starting its own audio so the
     // two devices ring in lock-step instead of phone-first / watch-late.

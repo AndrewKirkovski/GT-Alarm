@@ -72,6 +72,8 @@ import com.kirkouski.gtwake.companion.ui.components.GtSegmentedControl
 import com.kirkouski.gtwake.companion.ui.edit.PhoneBackgroundPickerDialog
 import com.kirkouski.gtwake.companion.ui.edit.RingScreenPreview
 import com.kirkouski.gtwake.companion.ui.edit.WatchBackgroundPickerDialog
+import com.kirkouski.gtwake.companion.wear.WatchCropProfile
+import com.kirkouski.gtwake.companion.wear.WatchScreenProfiles
 import com.kirkouski.gtwake.companion.ui.edit.rememberAudioPicker
 import com.kirkouski.gtwake.companion.ui.edit.rememberAudioPreview
 import com.kirkouski.gtwake.companion.ui.edit.rememberBackgroundBitmap
@@ -190,23 +192,43 @@ private fun BackgroundSection(state: SettingsState, vm: SettingsViewModel) {
             currentUri = state.defaultWatchBackgroundUri,
             onPicked = { uri -> vm.setDefaultWatchBackground(uri) },
             onClear = { vm.setDefaultWatchBackground(null) },
+            // Size + shape the cropper to the connected watch (reported via
+            // the phone-initiated watch_screen fetch); GT6 round when unknown.
+            watchProfile = WatchScreenProfiles.resolve(
+                state.watchScreenWidth,
+                state.watchScreenHeight,
+                state.watchScreenShape,
+            ),
         )
     }
 }
 
 /**
- * Watch-default variant of [BackgroundRow]. Opens the same circular-crop
- * [WatchBackgroundPickerDialog] used for per-alarm edits so the user gets
- * the watch-UI overlay preview here too, not just a plain SAF picker. The
- * picker keys its cached PNG/.bin by alarm id; we pass [DEFAULT_WATCH_BG_ID]
- * (a sentinel below Room's positive id range) so the default's cache file
- * (`watch_bg_-1.png`) can't collide with a real alarm's crop.
+ * Watch-default variant of [BackgroundRow]. Opens [WatchBackgroundPickerDialog],
+ * shaped to the connected watch ([WatchScreenProfiles.resolve] off the reported
+ * screen — circle for round GT, rounded-rect for FIT), so the user gets a
+ * shape-accurate preview, not just a plain SAF picker. The picker keys its
+ * cached PNG/.bin by alarm id; we pass [DEFAULT_WATCH_BG_ID] (a sentinel below
+ * Room's positive id range) so the default's cache file (`watch_bg_-1.png`)
+ * can't collide with a real alarm's crop.
  */
 @Composable
-private fun WatchFacePreview(backgroundUri: String?, reloadKey: Any? = null) {
+private fun WatchFacePreview(
+    backgroundUri: String?,
+    profile: WatchCropProfile,
+    reloadKey: Any? = null,
+) {
     val bm = rememberBackgroundBitmap(backgroundUri, reloadKey).value
+    // Shape + frame follow the connected watch (matching the cropper): circle
+    // for round GT, rounded-rect for FIT. Keep the longest side at 140dp so a
+    // portrait FIT frame is narrower + taller, not 140×140 distorted.
+    val shape = if (profile.round) CircleShape else RoundedCornerShape(24.dp)
+    val aspect = profile.outWidth.toFloat() / profile.outHeight.toFloat()
+    val maxSide = 140.dp
+    val frameWidth = if (aspect >= 1f) maxSide else maxSide * aspect
+    val frameHeight = if (aspect >= 1f) maxSide / aspect else maxSide
     Box(
-        modifier = Modifier.size(140.dp),
+        modifier = Modifier.size(width = frameWidth, height = frameHeight),
         contentAlignment = Alignment.Center,
     ) {
         if (bm != null) {
@@ -214,21 +236,25 @@ private fun WatchFacePreview(backgroundUri: String?, reloadKey: Any? = null) {
                 bitmap = bm,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                modifier = Modifier.fillMaxSize().clip(shape),
             )
         } else {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(CircleShape)
+                    .clip(shape)
                     .background(Color.Black),
             )
         }
-        Image(
-            painter = painterResource(R.drawable.watch_overlay),
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-        )
+        // Round watch-UI overlay only for recognized round panels — matches
+        // the cropper rule (we have no rect overlay asset).
+        if (profile.showOverlay) {
+            Image(
+                painter = painterResource(R.drawable.watch_overlay),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
     }
 }
 
@@ -237,6 +263,7 @@ private fun WatchBackgroundRow(
     currentUri: String?,
     onPicked: (String) -> Unit,
     onClear: () -> Unit,
+    watchProfile: WatchCropProfile,
 ) {
     var showPicker by remember { mutableStateOf(false) }
     // Bumped on every save so the preview re-decodes: the watch-bg picker
@@ -256,6 +283,7 @@ private fun WatchBackgroundRow(
                 onPicked(uri)
                 Toast.makeText(context, savedMessage, Toast.LENGTH_LONG).show()
             },
+            profile = watchProfile,
         )
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -291,7 +319,7 @@ private fun WatchBackgroundRow(
             }
         }
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            WatchFacePreview(backgroundUri = currentUri, reloadKey = reloadToken)
+            WatchFacePreview(backgroundUri = currentUri, profile = watchProfile, reloadKey = reloadToken)
         }
     }
 }

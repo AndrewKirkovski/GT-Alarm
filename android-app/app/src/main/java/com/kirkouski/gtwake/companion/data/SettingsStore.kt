@@ -58,6 +58,10 @@ class SettingsStore @Inject constructor(
             defaultRelativeRingtoneName = prefs[KEY_DEFAULT_REL_NAME],
             defaultPhoneBackgroundUri = prefs[KEY_DEFAULT_PHONE_BG_URI],
             defaultWatchBackgroundUri = prefs[KEY_DEFAULT_WATCH_BG_URI],
+            watchScreenWidth = prefs[KEY_WATCH_SCREEN_W] ?: 0,
+            watchScreenHeight = prefs[KEY_WATCH_SCREEN_H] ?: 0,
+            watchScreenShape = prefs[KEY_WATCH_SCREEN_SHAPE] ?: "",
+            watchScreenModel = prefs[KEY_WATCH_SCREEN_MODEL] ?: "",
         )
     }
 
@@ -92,6 +96,28 @@ class SettingsStore @Inject constructor(
     suspend fun setDefaultWatchBackgroundUri(uri: String?) {
         dataStore.edit { prefs ->
             if (uri == null) prefs.remove(KEY_DEFAULT_WATCH_BG_URI) else prefs[KEY_DEFAULT_WATCH_BG_URI] = uri
+        }
+    }
+
+    /**
+     * Persist the connected watch's reported screen (from the `watch_screen`
+     * envelope — see [com.kirkouski.gtwake.companion.data.sync.IncomingMessage.WatchScreen]).
+     * The background picker + encoder read this to size/shape the uploaded
+     * image to the real panel. One watch at a time, so a single stored triple
+     * is sufficient. `width<=0` means "no watch has reported yet" → callers
+     * fall back to the GT6 default (466 round).
+     *
+     * [model] is the bonded-device key the dims belong to (normalized display
+     * label). The bridge only re-requests the screen when the connected
+     * model differs from this stored value — so the watch isn't pinged for a
+     * resolution we already have.
+     */
+    suspend fun setWatchScreen(width: Int, height: Int, shape: String, model: String) {
+        dataStore.edit { prefs ->
+            prefs[KEY_WATCH_SCREEN_W] = width
+            prefs[KEY_WATCH_SCREEN_H] = height
+            prefs[KEY_WATCH_SCREEN_SHAPE] = shape
+            prefs[KEY_WATCH_SCREEN_MODEL] = model
         }
     }
 
@@ -160,6 +186,13 @@ class SettingsStore @Inject constructor(
         // per-alarm watch-bg field was removed in db v8; when this is null
         // the watch falls back to its own default ring UI.
         private val KEY_DEFAULT_WATCH_BG_URI = stringPreferencesKey("default_watch_bg_uri")
+        // Connected watch's reported screen (from the watch_screen envelope).
+        // 0/0/"" = no report yet → callers default to GT6 466 round.
+        private val KEY_WATCH_SCREEN_W = intPreferencesKey("watch_screen_w")
+        private val KEY_WATCH_SCREEN_H = intPreferencesKey("watch_screen_h")
+        private val KEY_WATCH_SCREEN_SHAPE = stringPreferencesKey("watch_screen_shape")
+        // Bonded-device label the cached dims belong to — re-request gate.
+        private val KEY_WATCH_SCREEN_MODEL = stringPreferencesKey("watch_screen_model")
 
         // Extension property generates a process-singleton DataStore<Preferences>
         // bound to the application Context. Hilt @Singleton on [SettingsStore]
@@ -179,4 +212,10 @@ data class SettingsState(
     val defaultRelativeRingtoneName: String? = null,
     val defaultPhoneBackgroundUri: String? = null,
     val defaultWatchBackgroundUri: String? = null,
+    // Connected watch's reported screen; 0/0/"" = unknown (no report yet).
+    val watchScreenWidth: Int = 0,
+    val watchScreenHeight: Int = 0,
+    val watchScreenShape: String = "",
+    // Bonded-device label the cached dims belong to (re-request gate).
+    val watchScreenModel: String = "",
 )

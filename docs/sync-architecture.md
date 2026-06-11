@@ -122,11 +122,25 @@ JSON over P2P. Every message is a single line, single object, no nesting.
 // manually dismiss on the watch too).
 { "type": "alarm_dismissed_ack", "alarmId": <number>, "updatedAtEpoch": <number> }
 { "type": "alarm_snoozed_ack",   "alarmId": <number>, "updatedAtEpoch": <number> }
+
+// phone → watch: ask the watch to report its physical screen so the phone
+// can size + shape the uploaded background image to the real panel. Carries
+// no alarmId (meta-protocol). ALL comms are phone-initiated — the watch
+// never pushes its screen unprompted.
+{ "type": "screen_request" }
+
+// watch → phone: reply to screen_request. `shape` = "circle" | "rect"
+// (mirrors @system.device.getInfo screenShape). Phone persists this keyed on
+// the bonded watch model and only re-requests when that model changes.
+{ "type": "watch_screen", "width": <number>, "height": <number>,
+  "shape": "circle" | "rect", "updatedAtEpoch": <number> }
 ```
 
 `sync_check` / `sync_hash` implement the force-sync precheck (§6). Phone sends `sync_check`, watch replies `sync_hash` with the result of `AlarmHash.compute(localAlarms)`. If the phone's local hash matches, it skips the per-alarm `alarm_added` push and surfaces `ForceSyncResult.AlreadyInSync`. Hash format is locked to 8 lowercase hex chars; receivers reject anything else.
 
 `watch_log_batch` is opt-in diagnostic; the phone receiver expands it to one `adb logcat` line per entry under the `WatchLog` tag, ts-ordered, and exits — never reaches the LWW handler. It replaces the former per-line `watch_log` envelope (one P2P send per log line was a real channel-pressure confound while diagnosing 206 failures).
+
+`screen_request` / `watch_screen` let the phone size the watch-background cropper + encoder to the real panel (round GT → circle-masked square; rectangular FIT → full-bleed W×H). **Phone-initiated only**, folded into `forceSync` right after the watch app is confirmed running (no extra wake), and **gated on the bonded model** — the phone caches the reply (`watchScreen{Width,Height,Shape,Model}` in `SettingsStore`) and re-asks only when the connected model differs, so a watch we've already measured is never re-pinged. The reply is intercepted in `HuaweiWearBridge` (it owns the bonded-model knowledge), not routed to the LWW handler. Fire-and-forget: if the reply is lost (watch app closed before it replied), the cropper falls back to the cached/default size and the next `forceSync` re-asks. The supported-panel matrix + the "unrecognized resolution → no crop overlay" rule live in `docs/watch-resolutions.md`.
 
 `sync_replace` is **authoritative, not LWW** — it is a deliberate user-initiated "Force sync", so the watch applies the whole list wholesale rather than per-row last-write-wins. Before writing, the watch diffs against its current store and **tombstones every id that the replace drops**, so a stale `alarm_updated` arriving afterward cannot resurrect a pruned row. `sync_done` is a meta-protocol terminate marker; the watch calls `app.terminate()` on it unless the ring page is active or the user opened the app themselves.
 

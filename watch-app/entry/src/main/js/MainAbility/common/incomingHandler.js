@@ -21,6 +21,7 @@ import Lww from './lwwResolver.js';
 import Logger from './logger.js';
 import AlarmHash from './alarmHash.js';
 import WearBridge from './wearBridge.js';
+import Screen from './screen.js';
 
 // Wake-reason tracking. When the phone wakes the watch app via Wear
 // Engine auto-launch for a sync push, the first state-mutation envelope
@@ -352,6 +353,18 @@ export default {
                 var hash = AlarmHash.compute(items);
                 Logger.i('incoming.sync_check responding hash=' + hash + ' n=' + items.length);
                 WearBridge.sendSyncHash(hash);
+            });
+            return;
+        }
+        // screen_request: phone asks for our panel size/shape so it can crop +
+        // size the uploaded background to this watch. ALL comms are phone-
+        // initiated — we only reply, never push proactively. Meta envelope
+        // (no alarmId), so it bypasses rejectMalformed.
+        if (msg && msg.type === 'screen_request') {
+            noteIncomingEnvelope();
+            Screen.load(function (m) {
+                Logger.i('incoming.screen_request reply ' + m.W + 'x' + m.H + ' ' + m.shape);
+                WearBridge.sendWatchScreen(m.W, m.H, m.shape);
             });
             return;
         }

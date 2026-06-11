@@ -1,473 +1,130 @@
-// reason: file groups the picker dialog Composable + small helpers
-// (loadSampledBitmap, computeCroppedBitmap, persistCrop, drawWatchOverlay).
-// Detekt's MatchingDeclarationName checks the FIRST top-level declaration,
-// which here is `WatchBackgroundPickerDialog` (the public Composable).
-// Splitting per-declaration would push tightly-coupled crop math across
-// more files for no readability gain.
+// Watch-background cropper. A thin wrapper over the shared CropperScaffold:
+// it supplies the watch crop shape (circle for round panels, rounded-rect for
+// FIT), the aspect from the connected watch's profile, the round watch-UI
+// overlay (shown only for recognized round panels), and the watch save target
+// (a PNG sized to the panel + a parallel BGRA .bin). The pan/zoom + crop math
+// is shared (ImageCropper.kt / CropperScaffold.kt).
 @file:Suppress("MatchingDeclarationName")
 
 package com.kirkouski.gtwake.companion.ui.edit
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.net.Uri
 import android.util.Log
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.TransformableState
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.kirkouski.gtwake.companion.R
-import com.kirkouski.gtwake.companion.ui.components.GtFloatingButton
-import com.kirkouski.gtwake.companion.ui.components.GtAccentButton
 import com.kirkouski.gtwake.companion.wear.WatchBackgroundEncoder
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import com.kirkouski.gtwake.companion.wear.WatchCropProfile
+import com.kirkouski.gtwake.companion.wear.WatchScreenProfiles
 import java.io.File
 
 /**
- * Full-screen modal cropper for the per-alarm watch background. The user
- * pinch-zooms / pans an image inside a circular viewport with a watch-UI
- * overlay (time + Dismiss/Snooze buttons) drawn on top so they can preview
- * how the crop will look on the watch face.
+ * Full-screen modal cropper for the watch ring-screen background, shaped to
+ * the connected watch ([profile]): a circular viewport + watch-UI overlay for
+ * a round GT panel, a rounded-rect viewport (no overlay) for a rectangular FIT
+ * panel, or — for an unrecognized runtime resolution — the reported aspect
+ * with no overlay (per the cropper rule in docs/watch-resolutions.md).
  *
- * Output: 466 × 466 PNG written to `cacheDir/watch_bg_<alarmId>.png` plus
- * the parallel BGRA `.bin` (`watch_bg_<alarmId>.bin`) consumed by
- * [WatchBackgroundEncoder]. The PNG is re-loaded next time the picker opens
- * so the user sees their prior crop (the .bin is one-way).
- *
- * Caller passes [alarmId] and a callback that receives the resulting PNG
- * `file://` URI on Save (no callback fires on cancel). Upload to the watch
- * is **not** done here — the file lands in cacheDir and is uploaded on
- * [AlarmEditViewModel.save] together with the alarm row push.
- *
- * # Cropping math
- *
- * The picker's transformable surface is a square of side `viewportPx`. The
- * source bitmap is laid out at "cover" scale (the shorter image edge
- * equals `viewportPx`); the user pinch-zooms (multiplier `userScale` ≥ 1)
- * and pans (`offsetX`, `offsetY` in view-space pixels), both stored in
- * MutableState so recomposition reflects the live transform.
- *
- * On Save, we materialize the visible viewport square into a 466 × 466
- * output bitmap. The encoder masks the inscribed circle internally.
- *
- * The output dimension is independent of `viewportPx` because the
- * src→view transform is dimensionally homogeneous: any view-space
- * position scales to the same destination-space position when we rebase
- * by (outputDim / viewportPx). We pass `viewportPx` from the Composable's
- * BoxWithConstraints scope into [persistCrop] so the inverse-map uses
- * the same reference frame the user saw.
- *
- * Sampling: the source bitmap is decoded with `inSampleSize` tuned for a
- * 1024 px max edge so a 50 MP photo doesn't OOM the picker viewport.
+ * Output: a PNG sized to [WatchCropProfile.outWidth] × outHeight written to
+ * `cacheDir/watch_bg_<alarmId>.png` plus the parallel BGRA `.bin`
+ * (`watch_bg_<alarmId>.bin`). The PNG is the production artifact (the watch
+ * renders runtime PNG); the `.bin` is the legacy BGRA path. Upload to the
+ * watch happens on save of the owning screen, not here.
  */
-// reason: top-level Composable that owns a full-screen picker UI is
-// inherently long because it routes 4 user actions (Pick, Save, Cancel,
-// pan/zoom), 3 derived state pieces (scale, offset, source bitmap), and
-// the cropping pipeline. Splitting would just smear state hoisting across
-// more files. Mirrors the suppression on AlarmEditScreen.
-@Suppress("LongMethod", "CyclomaticComplexMethod")
 @Composable
 fun WatchBackgroundPickerDialog(
     alarmId: Long,
     initialUri: String?,
     onDismiss: () -> Unit,
     onSaved: (uri: String) -> Unit,
+    profile: WatchCropProfile = WatchScreenProfiles.DEFAULT,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var sourceUriString by remember { mutableStateOf(initialUri) }
-    var sourceBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var saving by remember { mutableStateOf(false) }
-
-    // Pan/zoom state — additive on top of the base "cover" scale. Initial
-    // values: 1× zoom and 0,0 offset = exactly cover. Offset is clamped on
-    // every transformable callback so the image can never reveal the
-    // cropped-out region.
-    var userScale by remember(sourceUriString) { mutableFloatStateOf(1f) }
-    var offsetX by remember(sourceUriString) { mutableFloatStateOf(0f) }
-    var offsetY by remember(sourceUriString) { mutableFloatStateOf(0f) }
-    // Captured viewport in px. The BoxWithConstraints below writes this
-    // when laid out; the Save handler reads it from outside that scope.
-    var viewportPxState by remember { mutableFloatStateOf(0f) }
-
-    LaunchedEffect(sourceUriString) {
-        sourceBitmap?.recycle()
-        sourceBitmap = null
-        val uri = sourceUriString ?: return@LaunchedEffect
-        // reason: InjectDispatcher — Compose helper, not a Hilt entry point.
-        // Threading the @IoDispatcher qualifier through every caller of
-        // this picker would be cargo-cult. Same rationale as
-        // BackgroundImageBitmap.loadImageBitmap.
-        @Suppress("InjectDispatcher")
-        sourceBitmap = withContext(Dispatchers.IO) {
-            loadSampledBitmap(context = context, uriString = uri, tag = TAG)
-        }
-    }
-
-    val pickLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-    ) { uri: Uri? ->
-        if (uri != null) {
-            persistImagePermission(context = context, uri = uri, tag = TAG)
-            sourceUriString = uri.toString()
-            userScale = 1f
-            offsetX = 0f
-            offsetY = 0f
-        }
-    }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = false,
-        ),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surface),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            // Compact app-bar style header: title left-aligned, X close on
-            // the right. The previous design centered an h5 title + 2-line
-            // helper hint across the top, eating ~120 dp of vertical space
-            // and pushing the circular preview into a cramped middle band.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text = stringResource(R.string.watch_bg_picker_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_close),
-                        contentDescription = stringResource(R.string.cancel),
-                        tint = Color.Unspecified,
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-            }
-            Text(
-                text = stringResource(R.string.watch_bg_picker_help),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 4.dp),
-            )
-
-            BoxWithConstraints(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 24.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                val viewportDp = minOf(maxWidth, maxHeight)
-                val density = LocalDensity.current
-                val viewportPx = with(density) { viewportDp.toPx() }
-                // Push the viewport-px upward so the Save handler (which
-                // lives outside this BoxWithConstraints scope) can use the
-                // exact value the user is seeing.
-                LaunchedEffect(viewportPx) { viewportPxState = viewportPx }
-                val bmp = sourceBitmap
-                if (bmp != null) {
-                    val viewport = CropViewport(widthPx = viewportPx, heightPx = viewportPx)
-                    @Suppress("DEPRECATION")
-                    // reason: the new 4-arg `rememberTransformableState` (with
-                    // centroid) is a UX upgrade for "zoom around point" but
-                    // we always zoom around viewport center, so the centroid
-                    // parameter would be ignored. Stick with the 3-arg
-                    // overload until the Compose version makes it disappear.
-                    val transformState: TransformableState = rememberTransformableState { zoomChange, panChange, _ ->
-                        val newScale = (userScale * zoomChange).coerceIn(USER_SCALE_MIN, USER_SCALE_MAX)
-                        userScale = newScale
-                        val nextOffsetX = offsetX + panChange.x
-                        val nextOffsetY = offsetY + panChange.y
-                        // Clamp so the image edges never enter the
-                        // viewport. With base "cover" scale + user zoom,
-                        // the half-overflow on each axis is
-                        // (imageOnScreen - viewport) / 2.
-                        val (clampedX, clampedY) = clampCropOffset(
-                            srcW = bmp.width,
-                            srcH = bmp.height,
-                            viewport = viewport,
-                            userScale = newScale,
-                            offsetX = nextOffsetX,
-                            offsetY = nextOffsetY,
-                        )
-                        offsetX = clampedX
-                        offsetY = clampedY
-                    }
-                    // Circle clip + ContentScale.Crop for the image. The
-                    // previous design used Image.size(viewportDp) with
-                    // separate graphicsLayer scaleX/scaleY computed from
-                    // bmp.width vs bmp.height — which stretched any non-
-                    // square photo horizontally OR vertically depending
-                    // on aspect, making the preview lie about what got
-                    // saved (bug 2026-05-13, user reported "broken
-                    // proportions" + "revisit doesn't match itself").
-                    //
-                    // The fix: ContentScale.Crop handles base "cover" math
-                    // with correct aspect ratio preservation. graphicsLayer
-                    // applies only UNIFORM userScale + translate on top.
-                    // What the user sees now exactly equals what
-                    // persistCrop's inverse-map captures.
-                    Box(
-                        modifier = Modifier
-                            .size(viewportDp)
-                            .clip(CircleShape)
-                            .background(Color.Black)
-                            .transformable(transformState),
-                    ) {
-                        Image(
-                            bitmap = bmp.asImageBitmap(),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .size(viewportDp)
-                                .graphicsLayer {
-                                    scaleX = userScale
-                                    scaleY = userScale
-                                    translationX = offsetX
-                                    translationY = offsetY
-                                },
-                        )
-                        // Watch ring-screen UI overlay — single source-of-truth
-                        // PNG generated from .local/watch-ring-overlay.svg via
-                        // .local/render-watch-overlay.py (cairosvg). The SVG
-                        // mirrors watch ring.css + the HTML mockup; bumping
-                        // any one means re-running the render script. See
-                        // memory:watch_overlay_sync.md for the discipline.
-                        //
-                        // 0.85 alpha keeps the photo readable through the
-                        // overlay without making the watch UI feel ghostly.
-                        Image(
-                            painter = androidx.compose.ui.res.painterResource(
-                                R.drawable.watch_overlay,
-                            ),
-                            contentDescription = null,
-                            contentScale = ContentScale.Fit,
-                            alpha = OVERLAY_ASSET_ALPHA,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                } else {
-                    // Empty-state placeholder — a dashed-style circle with
-                    // a centered "pick image" prompt + small icon. Renders
-                    // the watch shape from the moment the picker opens so
-                    // the user immediately reads "this is a round crop".
-                    EmptyCircle(
-                        viewportDp = viewportDp,
-                        onPick = { pickLauncher.launch(arrayOf("image/*")) },
-                    )
-                }
-            }
-
-            // Compact two-button row. Pick (raised) + Save (gradient,
-            // disabled until an image loads). Dismiss removed in favor
-            // of the X close icon in the header — earlier 3-button design
-            // forced "Choose image" to wrap to 2 lines on narrow phones.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                GtFloatingButton(
-                    onClick = { pickLauncher.launch(arrayOf("image/*")) },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_image),
-                        contentDescription = null,
-                        tint = Color.Unspecified,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Text(stringResource(R.string.watch_bg_picker_pick))
-                }
-                GtAccentButton(
-                    onClick = {
-                        val bmp = sourceBitmap ?: return@GtAccentButton
-                        if (saving) return@GtAccentButton
-                        val capturedViewport = viewportPxState
-                        if (capturedViewport <= 0f) return@GtAccentButton
-                        saving = true
-                        scope.launch {
-                            // reason: same as the loader above — Compose
-                            // save-button handler, not a Hilt entry point.
-                            @Suppress("InjectDispatcher")
-                            val out = withContext(Dispatchers.IO) {
-                                persistCrop(
-                                    context = context,
-                                    alarmId = alarmId,
-                                    src = bmp,
-                                    viewportPx = capturedViewport,
-                                    userScale = userScale,
-                                    offsetX = offsetX,
-                                    offsetY = offsetY,
-                                )
-                            }
-                            saving = false
-                            if (out != null) onSaved(Uri.fromFile(out).toString())
-                        }
-                    },
-                    enabled = sourceBitmap != null && !saving && viewportPxState > 0f,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text(stringResource(R.string.action_save))
-                }
-            }
-        }
-    }
-}
-
-/**
- * Empty-state for the picker — a dashed circle the size of the viewport
- * with a centered "pick image" affordance. Renders the watch's circular
- * shape upfront so the user understands what they're about to crop. The
- * whole circle is the tap target.
- */
-@Composable
-private fun EmptyCircle(
-    viewportDp: androidx.compose.ui.unit.Dp,
-    onPick: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .size(viewportDp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(width = 2.dp, color = MaterialTheme.colorScheme.outline, shape = CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            IconButton(onClick = onPick) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_image),
+    CropperScaffold(
+        titleRes = R.string.watch_bg_picker_title,
+        helpRes = R.string.watch_bg_picker_help,
+        initialUri = initialUri,
+        cropShape = if (profile.round) CircleShape else RoundedCornerShape(28.dp),
+        cropAspect = profile.outWidth.toFloat() / profile.outHeight.toFloat(),
+        tag = TAG,
+        onDismiss = onDismiss,
+        onSaved = onSaved,
+        onSave = { src, viewport, userScale, offsetX, offsetY ->
+            persistCrop(context, alarmId, src, viewport, userScale, offsetX, offsetY, profile)
+        },
+        overlay = {
+            // Round watch-UI preview overlay — recognized round panels only (we
+            // have a single round overlay asset; rect + unrecognized panels show
+            // none). Single source-of-truth PNG from .local/watch-ring-overlay.svg
+            // — see memory:watch_overlay_sync.md for the regen discipline. The
+            // photo shows through the asset's transparent regions, so full alpha
+            // renders the watch UI exactly as on-device.
+            if (profile.showOverlay) {
+                Image(
+                    painter = painterResource(R.drawable.watch_overlay),
                     contentDescription = null,
-                    modifier = Modifier.size(40.dp),
-                    tint = Color.Unspecified,
+                    contentScale = ContentScale.Fit,
+                    alpha = OVERLAY_ASSET_ALPHA,
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
-            Text(
-                text = stringResource(R.string.watch_bg_picker_empty),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-            )
-        }
-    }
+        },
+    )
 }
 
 /**
- * Materialize the user's crop into a 466 × 466 PNG + parallel BGRA `.bin`
- * in [Context.getCacheDir]. Returns the PNG file on success, null on
- * failure.
- *
- * Math: the view-space transform places source pixel `s` at view-space
- * position
- *   v = (viewportPx - bmpDim * totalScale) / 2 + offset + s * totalScale
- * Inverting:
- *   s = (v - imgOrigin_view) / totalScale
- * The OUTPUT bitmap is at scale (outDim / viewportPx) of the viewport:
- *   v = outV * (viewportPx / outDim)
- * So
- *   s = (outV * (viewportPx / outDim) - imgOrigin_view) / totalScale
- * Evaluating at outV = 0 and outV = outDim gives srcLeft, srcRight (same
- * for Y). We coerce to the bitmap bounds.
+ * Materialize the user's crop into a PNG sized to the connected watch
+ * ([profile].outWidth × outHeight) + parallel BGRA `.bin` in
+ * [Context.getCacheDir]. Returns the PNG file on success, null on failure. The
+ * `.bin` is encoded shape-aware (circle-masked only on round panels).
  */
-// reason: 7 params for an internal helper that captures the picker's full
-// crop transform (bitmap + viewport + user scale + 2D offset) plus the
-// destination context + alarm id. Bundling into a `CropParams` data class
-// would just push the same field count behind a wrapper — the file is
-// the only caller.
+// reason: 8 params for an internal helper that captures the picker's full crop
+// transform (bitmap + viewport + user scale + 2D offset) plus the destination
+// context + alarm id + watch profile. Bundling into a `CropParams` data class
+// would just push the same field count behind a wrapper — the file is the only
+// caller.
 @Suppress("LongParameterList")
 private fun persistCrop(
     context: Context,
     alarmId: Long,
     src: Bitmap,
-    viewportPx: Float,
+    viewport: CropViewport,
     userScale: Float,
     offsetX: Float,
     offsetY: Float,
+    profile: WatchCropProfile,
 ): File? {
     return runCatching {
-        val outDim = WatchBackgroundEncoder.WATCH_BG_NATIVE_PX
         val pngFile = File(context.cacheDir, "watch_bg_$alarmId.png")
         val output = persistCroppedPng(
             dest = pngFile,
             src = src,
-            viewport = CropViewport(widthPx = viewportPx, heightPx = viewportPx),
+            viewport = viewport,
             userScale = userScale,
             offsetX = offsetX,
             offsetY = offsetY,
-            outWidth = outDim,
-            outHeight = outDim,
+            outWidth = profile.outWidth,
+            outHeight = profile.outHeight,
             tag = TAG,
         )?.let { android.graphics.BitmapFactory.decodeFile(it.absolutePath) }
             ?: return@runCatching null
         val binFile = File(context.cacheDir, "watch_bg_$alarmId.bin")
-        val binOk = WatchBackgroundEncoder.encodeFromCroppedBitmap(output, binFile)
+        val binOk = WatchBackgroundEncoder.encodeFromCroppedBitmap(
+            src = output,
+            dest = binFile,
+            targetWidth = profile.outWidth,
+            targetHeight = profile.outHeight,
+            round = profile.round,
+        )
         output.recycle()
         if (!binOk) {
             Log.w(TAG, "persistCrop: encodeFromCroppedBitmap returned false for id=$alarmId")
@@ -479,27 +136,9 @@ private fun persistCrop(
     }.getOrNull()
 }
 
-// User pinch-zoom range. 1× = cover (image edges just touch the viewport
-// edge). 4× = max useful crop-in. Clamped at the transformable callback
-// so we never store an out-of-range value.
-private const val USER_SCALE_MIN = 1.0f
-private const val USER_SCALE_MAX = 4.0f
-// Overlay tunings. The watch's actual ring screen renders against a
-// square 466 × 466 canvas with corner pixels invisibly masked by the
-// round hardware. Cloning the literal ring.css ratios (180×88 buttons,
-// 88 px time) put the buttons + time AT the circle's edge — in the
-// picker they got clipped by `.clip(CircleShape)` and competed
-// visually with the user's photo. These tuned-down ratios pull the
-// overlay inward so it reads as a *hint* of the watch UI rather than
-// an opaque mockup. The picker's job is "preview your image with the
-// alarm UI on top"; the ring page itself is where the user reads time.
-// Picker overlay PNG alpha. Full 1.0 = the watch UI renders exactly as
-// it does on the actual watch (the watch UI is NOT transparent — the
-// arc, time, and buttons sit ON TOP of the wallpaper opaquely). 2026-
-// 05-13: previous attempts at 0.28 / 0.4 / 0.85 alpha were all wrong;
-// the user's photo can fully show through the asset's already-
-// transparent background, no need to ghost the UI itself. The overlay
-// PNG already has transparent regions outside the ring + text + pills
-// so the photo is visible where the watch UI isn't.
+// Picker overlay PNG alpha. Full 1.0 = the watch UI renders exactly as on the
+// actual watch (the arc/time/buttons sit opaquely on the wallpaper; the asset's
+// background is already transparent, so the photo shows through where the watch
+// UI isn't). 2026-05-13: earlier 0.28/0.4/0.85 attempts were all wrong.
 private const val OVERLAY_ASSET_ALPHA = 1.0f
 private const val TAG = "WatchBgPicker"

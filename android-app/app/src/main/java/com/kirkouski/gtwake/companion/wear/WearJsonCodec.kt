@@ -31,6 +31,11 @@ internal object WearJsonCodec {
     // push.
     private val HASH_REGEX = Regex("^[0-9a-f]{8}$")
 
+    // Upper bound for a reported watch screen dimension. Largest current Lite
+    // Wearable panel is 480 (FIT portrait height); 512 leaves headroom and
+    // matches WatchBackgroundEncoder.MAX_DIM (the .bin reader's guard).
+    private const val MAX_SCREEN_PX = 512
+
     private val DISPATCH: Map<String, (Long, Long, JSONObject) -> IncomingMessage?> = mapOf(
         "alarm_added" to { id, ts, j -> j.optJSONObject("alarm")?.let { payload ->
             parseAlarm(payload, id)?.let { IncomingMessage.AlarmAdded(id, ts, it) }
@@ -51,22 +56,16 @@ internal object WearJsonCodec {
         "alarm_snoozed_ack" to { id, ts, _ -> IncomingMessage.AlarmSnoozedAck(id, ts) },
     )
 
-    // reason: ReturnCount=5 covers: missing type / watch_log envelope /
-    // sync_hash envelope / malformed alarm envelope / dispatch result.
-    // Each return matches a distinct wire-format shape; collapsing them
-    // would smear unrelated parsing logic together.
+    // reason: ReturnCount covers the distinct meta-envelope shapes handled
+    // ahead of the standard alarmId/epoch path: missing type / sync_hash /
+    // watch_screen (via parseWatchScreen) / missing-id / dispatch result. Each
+    // return matches a distinct wire-format shape; collapsing them would smear
+    // unrelated parsing logic together.
     @Suppress("ReturnCount")
     fun parseIncoming(json: JSONObject): IncomingMessage? {
         val type = json.optString("type").takeIf { it.isNotEmpty() } ?: return null
-        // Dev-only log relay from the watch. Doesn't carry alarmId/epoch in
-        // the standard sense, so handle it before the regular envelope
-        // validation that would otherwise reject it.
-        if (type == "watch_log") {
-            val level = json.optString("level", "I")
-            val msg = json.optString("msg", "")
-            val ts = json.optLong("ts", System.currentTimeMillis())
-            return IncomingMessage.WatchLog(alarmId = 0L, updatedAtEpoch = ts, level = level, msg = msg)
-        }
+        // Dev log relay (`watch_log_batch`) is expanded in HuaweiWearBridge
+        // before parseIncoming runs, so it never reaches here.
         // Sync-check response from the watch. Carries only `hash`; no
         // alarmId/updatedAtEpoch on the wire (this is a meta-protocol
         // message). Phone uses the hash to decide whether to skip the
@@ -81,6 +80,12 @@ internal object WearJsonCodec {
             }
             return IncomingMessage.SyncHash(alarmId = 0L, updatedAtEpoch = 0L, hash = hash)
         }
+        // Watch screen report — meta-protocol (no alarmId/LWW stamp), the
+        // watch's reply to a phone screen_request. Parsed in a helper to keep
+        // parseIncoming's branch count under the detekt complexity ceiling.
+        if (type == "watch_screen") {
+            return parseWatchScreen(json)
+        }
         val alarmId = json.optLong("alarmId", -1L).takeIf { it >= 0L }
         val ts = json.optLong("updatedAtEpoch", -1L).takeIf { it >= 0L }
         return if (alarmId == null || ts == null) {
@@ -88,6 +93,30 @@ internal object WearJsonCodec {
         } else {
             DISPATCH[type]?.invoke(alarmId, ts, json)
         }
+    }
+
+    // Parse a `watch_screen` reply. Validates dims into a sane pixel range
+    // (drop out-of-range — would otherwise exceed the encoder's MAX_DIM guard)
+    // and normalizes shape to circle|rect. A shape/aspect mismatch (e.g. a
+    // "circle" with width≠height) is NOT rejected — WatchScreenProfiles.resolve
+    // treats any unrecognized (w,h,shape) as "unknown → crop to aspect, no
+    // overlay", so a quirky report degrades gracefully rather than poisoning
+    // the crop.
+    private fun parseWatchScreen(json: JSONObject): IncomingMessage? {
+        val width = json.optInt("width", -1)
+        val height = json.optInt("height", -1)
+        if (width !in 1..MAX_SCREEN_PX || height !in 1..MAX_SCREEN_PX) {
+            Log.w(TAG, "watch_screen dropped — width=$width height=$height out of [1,$MAX_SCREEN_PX]")
+            return null
+        }
+        val shape = if (json.optString("shape", "") == "rect") "rect" else "circle"
+        return IncomingMessage.WatchScreen(
+            alarmId = 0L,
+            updatedAtEpoch = json.optLong("updatedAtEpoch", System.currentTimeMillis()),
+            width = width,
+            height = height,
+            shape = shape,
+        )
     }
 
     /**

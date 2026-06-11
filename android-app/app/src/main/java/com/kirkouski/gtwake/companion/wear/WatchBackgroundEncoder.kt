@@ -51,27 +51,33 @@ object WatchBackgroundEncoder {
     const val WATCH_BG_NATIVE_PX = 466
 
     /**
-     * Encode the input bitmap to BGRA `.bin` at the watch native
-     * resolution. The source is centered + scaled (cover mode within a
-     * circle) into a 466 × 466 canvas; pixels outside the circular
-     * region are filled black so the watch's circular display masks
-     * them naturally.
+     * Encode the input bitmap to BGRA `.bin` at the target watch resolution.
+     * The source is scaled into a [targetWidth] × [targetHeight] canvas. On a
+     * [round] panel a circular alpha-clip fills the off-circle corners black
+     * (the round hardware masks them anyway); a rectangular panel is encoded
+     * full-bleed. Defaults reproduce the legacy GT6 behaviour (466 round).
      *
-     * Returns true on success, false on any I/O failure. Logs the
-     * failure reason; caller surfaces a Snackbar if needed.
+     * Returns true on success, false on any I/O failure. Logs the failure
+     * reason; caller surfaces a Snackbar if needed.
      */
     @Suppress("TooGenericExceptionCaught")
-    fun encodeFromCroppedBitmap(src: Bitmap, dest: File): Boolean {
+    fun encodeFromCroppedBitmap(
+        src: Bitmap,
+        dest: File,
+        targetWidth: Int = WATCH_BG_NATIVE_PX,
+        targetHeight: Int = WATCH_BG_NATIVE_PX,
+        round: Boolean = true,
+    ): Boolean {
         return try {
-            // Hard-fail if we got a non-square or sub-native bitmap.
-            // The picker is responsible for producing exactly 466×466 —
-            // anything else is a bug.
-            val scaled = if (src.width == WATCH_BG_NATIVE_PX && src.height == WATCH_BG_NATIVE_PX) {
+            // The picker should already produce exactly targetWidth×targetHeight;
+            // scale defensively if a caller hands us something else.
+            val scaled = if (src.width == targetWidth && src.height == targetHeight) {
                 src
             } else {
-                src.scale(WATCH_BG_NATIVE_PX, WATCH_BG_NATIVE_PX)
+                src.scale(targetWidth, targetHeight)
             }
-            writeBgraBin(scaled, dest)
+            writeBgraBin(scaled, dest, round)
+            if (scaled !== src) scaled.recycle()
             true
         } catch (e: RuntimeException) {
             Log.w(TAG, "encodeFromCroppedBitmap failed: ${e.message}", e)
@@ -82,17 +88,17 @@ object WatchBackgroundEncoder {
         }
     }
 
-    private fun writeBgraBin(src: Bitmap, dest: File) {
+    private fun writeBgraBin(src: Bitmap, dest: File, round: Boolean) {
         val w = src.width
         val h = src.height
         require(w in 1..MAX_DIM) { "width=$w out of range" }
         require(h in 1..MAX_DIM) { "height=$h out of range" }
 
-        // Apply circular alpha-clip. Pixels outside the circle become
-        // opaque black — the watch's circular hardware mask covers them
-        // anyway, but we want predictable bytes so the file hashes
-        // stably across re-encodes of the same source.
-        val masked = applyCircularMask(src, w, h)
+        // Round panels get a circular alpha-clip — pixels outside the circle
+        // become opaque black (the round hardware masks them anyway, but we
+        // want predictable bytes so the file hashes stably). Rect panels are
+        // encoded full-bleed (no mask).
+        val masked = if (round) applyCircularMask(src, w, h) else src
 
         val totalBytes = HEADER_BYTES + w * h * BYTES_PER_PIXEL
         val buffer = ByteBuffer.allocate(totalBytes).order(ByteOrder.LITTLE_ENDIAN)
@@ -143,9 +149,11 @@ object WatchBackgroundEncoder {
     }
 
     /**
-     * Convenience: decode a PNG file at [pngPath] then encode the BGRA
-     * `.bin` to [destBinPath]. Used by the upload pipeline so the watch
-     * keeps a stable on-disk artifact addressed by the same alarm row.
+     * Convenience: decode a PNG file at [pngPath] then encode the BGRA `.bin`
+     * to [destBinPath] **at the default 466 round** target. This is the legacy
+     * BGRA test path (`WatchBgTestEncoder` BIN format); for a panel-adaptive
+     * `.bin`, call [encodeFromCroppedBitmap] with explicit targetWidth/
+     * targetHeight/round (as the picker's persistCrop does).
      */
     fun encodePngToBin(pngPath: File, destBinPath: File): Boolean {
         val bitmap = BitmapFactory.decodeFile(pngPath.absolutePath)

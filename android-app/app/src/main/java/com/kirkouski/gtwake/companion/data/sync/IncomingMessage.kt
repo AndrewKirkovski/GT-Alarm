@@ -50,17 +50,6 @@ sealed class IncomingMessage {
         override val updatedAtEpoch: Long,
     ) : IncomingMessage()
 
-    // Dev-only log relay from the watch — surfaces watch-side Logger lines
-    // in phone adb logcat (HiLog access from DevEco is unreliable on
-    // Windows). `alarmId`/`updatedAtEpoch` aren't meaningful here; the
-    // handler logs `level`+`msg` under tag "WatchLog" and exits.
-    data class WatchLog(
-        override val alarmId: Long,
-        override val updatedAtEpoch: Long,
-        val level: String,
-        val msg: String,
-    ) : IncomingMessage()
-
     // Response to a `sync_check` request the phone sent before initiating a
     // full force-sync. Carries the watch's current AlarmHash so the phone
     // can skip the push when both sides already match. Doesn't traverse
@@ -104,5 +93,21 @@ sealed class IncomingMessage {
     data class AlarmSnoozedAck(
         override val alarmId: Long,
         override val updatedAtEpoch: Long,
+    ) : IncomingMessage()
+
+    // Watch reports its physical screen so the phone can size + shape the
+    // uploaded background image to match (round watches get a circle-masked
+    // square; rectangular watches like the FIT 5 Pro get a full-bleed W×H).
+    // Sent from the watch on foreground once `@system.device.getInfo()`
+    // resolves. `alarmId` is meaningless (set 0); `updatedAtEpoch` is the
+    // watch's report time — used only for logging, not LWW. Handled before
+    // the LWW epoch gate in IncomingMessageHandler. `shape` is "circle" |
+    // "rect" (mirrors getInfo screenShape + watch screen.js).
+    data class WatchScreen(
+        override val alarmId: Long,
+        override val updatedAtEpoch: Long,
+        val width: Int,
+        val height: Int,
+        val shape: String,
     ) : IncomingMessage()
 }

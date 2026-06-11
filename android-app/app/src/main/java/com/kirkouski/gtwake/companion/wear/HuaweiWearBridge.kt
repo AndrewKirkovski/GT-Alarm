@@ -12,6 +12,7 @@ import com.huawei.wearengine.p2p.P2pClient
 import com.huawei.wearengine.p2p.PingCallback
 import com.huawei.wearengine.p2p.Receiver
 import com.huawei.wearengine.p2p.SendCallback
+import com.kirkouski.gtwake.companion.data.SettingsStore
 import com.kirkouski.gtwake.companion.data.sync.IncomingMessageHandler
 import com.kirkouski.gtwake.companion.di.IoDispatcher
 import com.kirkouski.gtwake.companion.domain.Alarm
@@ -67,6 +68,7 @@ import javax.inject.Singleton
 class HuaweiWearBridge @Inject constructor(
     @param:ApplicationContext private val context: Context,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+    private val settingsStore: SettingsStore,
 ) : WearBridgeService {
 
     private val supervisorJob: Job = SupervisorJob()
@@ -102,6 +104,11 @@ class HuaweiWearBridge @Inject constructor(
     // Invalidated on any 206 (COMM_FAIL) send result.
     @Volatile
     private var lastConfirmedRunningAtMs: Long = 0L
+
+    // Debounce for the phone-initiated screen_request — collapses rapid
+    // forceSyncs into one in-flight request (see maybeRequestWatchScreen).
+    @Volatile
+    private var screenRequestInFlightUntilMs: Long = 0L
 
     private val p2pClient: P2pClient by lazy {
         HiWear.getP2pClient(context)
@@ -286,6 +293,15 @@ class HuaweiWearBridge @Inject constructor(
             }
             if (parsed is IncomingMessage.AlarmSnoozedAck) {
                 completePendingAck(pendingSnoozeAck, parsed.alarmId, "alarm_snoozed_ack")
+                return@launch
+            }
+            // WatchScreen is the watch's reply to our phone-initiated
+            // screen_request. Persist it keyed on the bonded model (we own
+            // that knowledge here, the LWW handler doesn't) so the background
+            // picker/encoder can size to the real panel; never reaches the
+            // LWW handler.
+            if (parsed is IncomingMessage.WatchScreen) {
+                persistWatchScreen(parsed)
                 return@launch
             }
             incomingHandler?.handle(parsed)
@@ -1096,6 +1112,10 @@ class HuaweiWearBridge @Inject constructor(
         if (!ensurePeerAppRunning(device, force = true)) {
             return ForceSyncResult.Error("Watch app didn't reach RUNNING within ${PING_WAKE_TIMEOUT_MS}ms")
         }
+        // Phone-initiated, model-gated screen fetch — reuses the wake above
+        // (never an extra ping) and only fires when the bonded model differs
+        // from the resolution we already cached.
+        maybeRequestWatchScreen()
         // Sync-check optimization: ask the watch for its current AlarmHash
         // BEFORE snapshotting our alarm list. The ~2s round-trip is the
         // TOCTOU window where the user could add/edit/delete an alarm; by
@@ -1202,6 +1222,42 @@ class HuaweiWearBridge @Inject constructor(
             // serializes — but defense in depth against future refactors).
             pendingHashRequest.compareAndSet(deferred, null)
         }
+    }
+
+    // Phone-initiated, model-gated screen fetch. Sends `screen_request`; the
+    // watch replies `watch_screen` (intercepted by [persistWatchScreen]). We
+    // ask ONLY when the bonded model differs from the one we already cached a
+    // resolution for — so a watch we've already measured is never re-pinged.
+    // The in-flight debounce additionally collapses rapid forceSyncs into a
+    // single request while a reply is still pending (without it, every
+    // forceSync re-sends until the reply lands). Fire-and-forget: if the reply
+    // is lost (watch app closed), the cropper falls back to the cached/default
+    // size and a later forceSync — past the debounce — re-asks.
+    private suspend fun maybeRequestWatchScreen() {
+        val model = _pairedDeviceInfo.value?.displayName.orEmpty()
+        if (model.isBlank()) return
+        val cached = settingsStore.snapshot()
+        if (model == cached.watchScreenModel && cached.watchScreenWidth > 0) return
+        val now = System.currentTimeMillis()
+        if (now < screenRequestInFlightUntilMs) return
+        screenRequestInFlightUntilMs = now + SCREEN_REQUEST_DEBOUNCE_MS
+        Log.i(TAG, "screen_request (model='$model' cached='${cached.watchScreenModel}')")
+        performSend(JSONObject().apply { put("type", "screen_request") }, retryOnError = false)
+    }
+
+    // Persist the watch's `watch_screen` reply, keyed on the bonded model so
+    // [maybeRequestWatchScreen] won't re-ask for a watch we've measured. Drop
+    // a reply we can't key (no bonded model resolved) — persisting an empty
+    // key would never satisfy the gate, re-requesting forever. The next
+    // forceSync (with a resolved model) re-asks and persists correctly.
+    private suspend fun persistWatchScreen(msg: IncomingMessage.WatchScreen) {
+        val model = _pairedDeviceInfo.value?.displayName.orEmpty()
+        if (model.isBlank()) {
+            Log.w(TAG, "watch_screen ${msg.width}x${msg.height} dropped — no bonded model to key on")
+            return
+        }
+        Log.i(TAG, "watch_screen ${msg.width}x${msg.height} ${msg.shape} model='$model'")
+        settingsStore.setWatchScreen(msg.width, msg.height, msg.shape, model)
     }
 
     // reason: ForbiddenVoid suppressed because Task<Void> is the Huawei SDK
@@ -1355,6 +1411,13 @@ class HuaweiWearBridge @Inject constructor(
         // generous headroom even on a slow BT link. On timeout we fall
         // through to a full push — never user-blocking.
         const val SYNC_CHECK_TIMEOUT_MS = 2_000L
+
+        // In-flight window for the model-gated screen_request. A watch that's
+        // up replies in well under a second; 5 s comfortably covers a slow BT
+        // round-trip so rapid forceSyncs don't each re-send while one reply is
+        // pending. If the watch never replies, the next forceSync past this
+        // window re-asks (matches the fire-and-forget fallback).
+        const val SCREEN_REQUEST_DEBOUNCE_MS = 5_000L
 
         // Hard cap for the single sync_replace payload (UTF-8 bytes),
         // matching the 4 KiB control-message cap in sync-architecture.md
