@@ -12,11 +12,13 @@ import {
   LayoutGrid,
 } from 'lucide-vue-next'
 
-// Fill the AppGallery URLs once the apps are published (the C-numbers only
-// exist after approval). Play URL is final.
+// AppGallery uses the package-name URL form (verified to resolve) — no C-number
+// needed. These go live once the apps pass review. NOTE: the watch app can't be
+// installed from a web link; it's installed on the watch via Huawei Health, so
+// the watch URL is an info page and the copy below explains the real steps.
 const PLAY_URL = 'https://play.google.com/store/apps/details?id=com.kirkouski.gtwake.companion'
-const APPGALLERY_PHONE = '#'
-const APPGALLERY_WATCH = '#'
+const APPGALLERY_PHONE = 'https://appgallery.huawei.com/app/detail?id=com.kirkouski.gtwake.companion'
+const APPGALLERY_WATCH = 'https://appgallery.huawei.com/app/detail?id=com.kirkouski.gtwatch.watch'
 const CONTACT = 'mailto:andrew.kirkovski@gmail.com'
 
 const features = [

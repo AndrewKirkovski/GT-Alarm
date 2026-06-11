@@ -28,6 +28,8 @@ Then add the custom domain **gtwake.kirkouski.com** to the `gtwake-site` Pages p
 `public/_redirects` handles SPA fallback so `/privacy` resolves on refresh.
 
 ## Before publishing — edit
-- `src/pages/Home.vue` — `APPGALLERY_PHONE` / `APPGALLERY_WATCH` (the `C`-numbers exist only after
-  the apps are approved), and `CONTACT`.
+- `src/pages/Home.vue` — `CONTACT`. The AppGallery URLs use the package-name form
+  (`/app/detail?id=<pkg>`, verified to resolve) so they need no post-publish C-numbers; they go
+  live when the apps pass review. The watch URL is an info page — the watch app installs via
+  Huawei Health, not a web link.
 - `src/pages/Privacy.vue` — `CONTACT`.

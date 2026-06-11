@@ -414,10 +414,10 @@ screen is the natural place) so Huawei §7.1's in-app-link requirement is met.
 ## F. Cross-link URLs (for the listings / in-app "get the other app")
 
 - **Phone on Google Play:** `https://play.google.com/store/apps/details?id=com.kirkouski.gtwake.companion`
-- **Phone on AppGallery:** `https://appgallery.huawei.com/app/C<phone-appid>`
-  (C-number final only after publish; pkg fallback
-  `https://appgallery.cloud.huawei.com/appDetail?pkgName=com.kirkouski.gtwake.companion`)
-- **Watch on AppGallery:** `https://appgallery.huawei.com/app/C<watch-appid>`
+- **Phone on AppGallery:** `https://appgallery.huawei.com/app/detail?id=com.kirkouski.gtwake.companion`
+  (package-name form — verified 2026-06-11 to resolve, no post-publish C-number needed)
+- **Watch on AppGallery:** `https://appgallery.huawei.com/app/detail?id=com.kirkouski.gtwatch.watch`
+  — info page only; the watch app installs via **Huawei Health → Devices → (watch) → AppGallery**, never from a web link.
 - **phone → watch:** always the AppGallery URL (watch is AppGallery-only).
 - **watch → phone:** the phone could be on either store → use a **neutral landing
   page on your domain** that redirects HMS→AppGallery, GMS→Play. Lets you fill in
