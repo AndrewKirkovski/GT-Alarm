@@ -9,16 +9,33 @@
      constants (no visual change); rectangular watches fit + centre. -->
 <stack class="root" onswipe="onSwipe" style="width:{{screenW}}px; height:{{screenH}}px;">
 
+    <!-- ================= SPLASH (loading) ================= -->
+    <!-- Branded loading screen shown once `sized` (real dims known) until the
+         cold-start load finishes (contentReady) or an event takes over. Bg +
+         centred hourglass. Nested <stack> so the bg <image> composites (same
+         trick the screens use). splashBg = custom bg if received, else the
+         shipped default gradient. -->
+    <stack class="screen" if="{{showSplash}}" style="width:{{screenW}}px; height:{{screenH}}px;">
+        <image class="bg-full" src="{{splashBg}}" style="width:{{screenW}}px; height:{{screenH}}px;"></image>
+        <!-- Centred loading hourglass. The splash only ever shows when `sized`,
+             so it's correctly centred on every resolution — no dims gate. -->
+        <div class="splash-center" style="width:{{screenW}}px; height:{{screenH}}px;">
+            <image class="loading-icon" src="common/loading.png"></image>
+        </div>
+    </stack>
+
     <!-- ================= LIST screen ================= -->
     <!-- Each screen is its own <stack> with a full-screen background
          <image> as the bottom layer. A bg <image> placed directly under
          the ROOT <stack> did NOT render; the ring stack proves a NESTED
          <stack> composites a layer behind its content. -->
-    <stack class="screen" if="{{screen === 'list'}}" style="width:{{screenW}}px; height:{{screenH}}px;">
-        <image class="bg-full" src="{{bgSrc}}" if="{{hasBg}}" style="width:{{screenW}}px; height:{{screenH}}px;"></image>
+    <stack class="screen" if="{{contentReady && screen === 'list'}}" style="width:{{screenW}}px; height:{{screenH}}px;">
+        <image class="bg-full" src="{{splashBg}}" style="width:{{screenW}}px; height:{{screenH}}px;"></image>
         <div class="scrim" if="{{showScrim}}" style="width:{{screenW}}px; height:{{screenH}}px;"></div>
         <div class="content" style="width:{{screenW}}px; height:{{screenH}}px;">
-        <text class="title" style="width:{{titleW}}px;">{{title}}</text>
+        <!-- Header hides on the empty/onboarding state so its content can
+             centre in the full screen (clear of the round chords). -->
+        <text class="title" if="{{alarms.length > 0}}" style="width:{{titleW}}px;">{{title}}</text>
 
         <list class="alarm-list" ref="alarmList" if="{{alarms.length > 0}}" style="width:{{screenW}}px; height:{{listH}}px; padding-top:{{padTop}}px; padding-bottom:{{padBot}}px;">
             <list-item class="alarm-list-row" for="{{alarms}}" tid="id"
@@ -110,30 +127,56 @@
             </list-item>
         </list>
 
-        <div class="empty" if="{{alarms.length === 0}}" style="width:{{screenW}}px;">
-            <text class="empty-title">{{emptyText}}</text>
-            <text class="empty-hint">{{emptyHint}}</text>
+        <!-- Empty / onboarding state. Copy switches on hasConnected
+             (computed in index.js): never-connected shows "set up" wording,
+             connected-but-empty shows "no alarms". Both render the QR to the
+             companion's AppGallery listing so the watch self-explains setup. -->
+        <div class="empty" if="{{alarms.length === 0}}" style="width:{{screenW}}px; height:{{emptyH}}px;">
+            <text class="empty-title" style="width:{{titleW}}px;">{{emptyText}}</text>
+            <text class="empty-hint" style="width:{{titleW}}px;">{{emptyHint}}</text>
+            <qrcode class="onb-qr" value="https://appgallery.huawei.com/app/detail?id=com.kirkouski.gtwake.companion"></qrcode>
+            <text class="onb-scan" style="width:{{titleW}}px;">{{onbScan}}</text>
         </div>
         </div>
         <!-- Tap hint — overlay shown when a row is tapped (alarms are
              edited on the phone, not the watch). Top layer of the stack. -->
         <div class="tap-hint" if="{{tapHintShown}}" style="width:{{screenW}}px; height:{{screenH}}px;">
-            <text class="tap-hint-text">{{tapHint}}</text>
+            <text class="tap-hint-text" style="width:{{titleW}}px;">{{tapHint}}</text>
+        </div>
+    </stack>
+
+    <!-- ================= PRIVACY consent screen (first launch, rule 7.5) ================= -->
+    <!-- Non-skippable gate: Agree persists consent + drops into the list;
+         Decline (or swipe-right) exits. QR opens the full policy on the
+         phone (the watch has no webview). -->
+    <stack class="screen" if="{{contentReady && screen === 'privacy'}}" style="width:{{screenW}}px; height:{{screenH}}px;">
+        <div class="privacy-content" style="width:{{screenW}}px; height:{{screenH}}px;">
+            <text class="privacy-title" style="width:{{titleW}}px;">{{privacyTitle}}</text>
+            <text class="privacy-body" style="width:{{titleW}}px;">{{privacyBody}}</text>
+            <qrcode class="privacy-qr" value="{{privacyQr}}"></qrcode>
+            <text class="privacy-scan" style="width:{{titleW}}px;">{{privacyScan}}</text>
+            <div class="privacy-actions" style="width:{{titleW}}px;">
+                <div class="privacy-btn-decline" onclick="onPrivacyDecline">
+                    <text class="privacy-btn-decline-text">{{privacyDecline}}</text>
+                </div>
+                <div class="privacy-btn-agree" onclick="onPrivacyAgree">
+                    <text class="privacy-btn-agree-text">{{privacyAgree}}</text>
+                </div>
+            </div>
         </div>
     </stack>
 
     <!-- ================= SYNC screen ================= -->
-    <stack class="screen" if="{{screen === 'sync'}}" style="width:{{screenW}}px; height:{{screenH}}px;">
-        <image class="bg-full" src="{{bgSrc}}" if="{{hasBg}}" style="width:{{screenW}}px; height:{{screenH}}px;"></image>
-        <div class="scrim" if="{{showScrim}}" style="width:{{screenW}}px; height:{{screenH}}px;"></div>
-        <div class="content" style="width:{{screenW}}px; height:{{screenH}}px;">
-            <text class="title">{{syncTitle}}</text>
-            <text class="sync-sub">{{syncSubtitle}}</text>
+    <stack class="screen" if="{{sized && screen === 'sync'}}" style="width:{{screenW}}px; height:{{screenH}}px;">
+        <image class="bg-full" src="{{splashBg}}" style="width:{{screenW}}px; height:{{screenH}}px;"></image>
+        <!-- Sync state mirrors the splash: bg + centred refresh icon, no text. -->
+        <div class="splash-center" style="width:{{screenW}}px; height:{{screenH}}px;">
+            <image class="loading-icon" src="common/sync.png"></image>
         </div>
     </stack>
 
     <!-- ================= RING screen ================= -->
-    <stack class="ring" if="{{screen === 'ring'}}" onswipe="onSwipe" style="width:{{screenW}}px; height:{{screenH}}px;">
+    <stack class="ring" if="{{sized && screen === 'ring'}}" onswipe="onSwipe" style="width:{{screenW}}px; height:{{screenH}}px;">
         <!-- Hidden, always-scrollable list: the digital crown scrolls the
              focused <list>, so this one turns the crown into scrollend
              ticks (crown-to-snooze). Bottom layer + transparent =
@@ -143,7 +186,7 @@
                 <div class="crown-cell"></div>
             </list-item>
         </list>
-        <image class="bg-full" src="{{bgSrc}}" if="{{hasBg}}" style="width:{{screenW}}px; height:{{screenH}}px;"></image>
+        <image class="bg-full" src="{{splashBg}}" style="width:{{screenW}}px; height:{{screenH}}px;"></image>
         <!-- Decorative pink/green ring is a circular <progress type="arc"> —
              it can only draw a circle, which looks wrong framing a rectangular
              screen, so it renders on ROUND watches only. On rect the green
@@ -171,7 +214,7 @@
                     <image src="common/stop.png" class="ring-btn-img"></image>
                 </div>
             </div>
-            <div class="ring-ended" if="{{ended}}" style="width:{{screenW}}px;">
+            <div class="ring-ended" if="{{ended}}" style="width:{{screenW}}px;"
                 <image src="common/thumbup.png" class="ring-thumb"></image>
             </div>
         </div>

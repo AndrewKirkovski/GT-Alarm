@@ -21,7 +21,9 @@ import datetime
 import io
 import json
 import sys
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # noqa: S405 - trusted vendored SVGs only
+# Inputs are SVGs we vendor ourselves (tabler/ + iconify/), parsed at build time.
+# No untrusted XML reaches this tool, so stdlib ET (not defusedxml) is fine here.
 from pathlib import Path
 
 import cairosvg  # type: ignore[reportMissingImports]  # untyped, no stubs published
@@ -86,6 +88,7 @@ def inject_gradient(root, grad_id, c0, c1):
 def rasterize(root, px):
     data = ET.tostring(root, encoding="utf-8")
     png = cairosvg.svg2png(bytestring=data, output_width=px, output_height=px)
+    assert png is not None  # svg2png returns bytes when write_to is unset
     return Image.open(io.BytesIO(png)).convert("RGBA")
 
 
@@ -125,13 +128,23 @@ def build_icon(spec, palette):
     mode = spec["mode"]
     size = int(spec["size"])
     big = size * SUPERSAMPLE
-    svg = TABLER_DIR / variant / f"{spec['glyph']}.svg"
+    # Optional `src` points at a vendored non-Tabler SVG (relative to icongen/),
+    # e.g. an Iconify export already colored white. Those are PRE-COLORED, so we
+    # skip the ElementTree paint mutation (which assumes Tabler's stroke struct).
+    src = spec.get("src")
+    if src:
+        svg = SCRIPT_DIR / src
+        pre_colored = True
+    else:
+        svg = TABLER_DIR / variant / f"{spec['glyph']}.svg"
+        pre_colored = False
     if not svg.exists():
-        raise FileNotFoundError(f"missing Tabler SVG: {svg}")
+        raise FileNotFoundError(f"missing SVG: {svg}")
     root = ET.parse(svg).getroot()
 
     if mode == "raw":
-        set_paint(root, variant, palette["colors"][spec["paint"]])
+        if not pre_colored:
+            set_paint(root, variant, palette["colors"][spec["paint"]])
         return render_padded(root, big, size)
 
     if mode == "grad":
@@ -142,7 +155,8 @@ def build_icon(spec, palette):
 
     if mode == "circle":
         c0, c1 = palette["gradients"][spec["paint"]]
-        set_paint(root, variant, "#FFFFFF")
+        if not pre_colored:
+            set_paint(root, variant, "#FFFFFF")
         glyph_px = int(big * GLYPH_FRACTION)
         glyph = rasterize(root, glyph_px)
         canvas = circle_layer(big, c0, c1)

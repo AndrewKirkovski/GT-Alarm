@@ -13,10 +13,29 @@ import WearBridge from '../../common/wearBridge.js';
 import IncomingHandler from '../../common/incomingHandler.js';
 import Logger from '../../common/logger.js';
 import Screen from '../../common/screen.js';
+import PrivacyStore from '../../common/privacyStore.js';
+import ConnectionStore from '../../common/connectionStore.js';
 
 // Bump per hardware-test build so the on-screen tag confirms the new
 // HAP actually replaced the old one.
-var BUILD_TAG = 'responsive/06-11';
+var BUILD_TAG = 'v1.0.5';
+
+// Startup sequence (deterministic): get size → set responsive dims → show
+// splash (bg + centred hourglass) → load the rest (i18n/privacy/connection/
+// alarms) → reveal content. SIZE is the critical hard gate — NOTHING renders
+// before `sized` (the AppGallery flicker rejection was a pre-size reflow).
+// Two safety nets for the pathological cases:
+//   SIZED_SAFETY_MS  — getInfo never returns → apply default dims so the
+//                      splash + load still proceed.
+//   REVEAL_SAFETY_MS — the cold-start load stalls → reveal anyway rather than
+//                      sit on the splash forever (normal reveal ~2–2.5 s,
+//                      dominated by the ACELite $t i18n cost).
+var SIZED_SAFETY_MS = 1200;
+var REVEAL_SAFETY_MS = 5000;
+
+// i18n strings load per-key in loadStrings() via explicit this.$t('strings.<key>')
+// calls. Per-key literal $t() is the proven snapshot-safe form on ACELite — a
+// $t('strings') sub-object fetch or nested named functions break install (err 10).
 
 // How long the row-tap hint overlay stays up.
 var TAP_HINT_MS = 2600;
@@ -31,6 +50,14 @@ var BG_PATH_KEY = 'bg_path';
 // Writing '' did NOT persist on the watch runtime (empty values don't stick),
 // so the cleared state must be a real non-empty string the restore ignores.
 var BG_CLEARED = '__cleared__';
+// Shipped default backdrop — a dark brand gradient (tools: .local gen script).
+// Small 240x240 source; the bg-full <image> upscales it to each screen
+// (a smooth gradient shows no upscale artifacts), keeping the bundled BGRA
+// bitmap small. Shown whenever no custom P2P background is set, and as the
+// loading splash so the first frame our app paints is branded, not flat
+// dark. Bundled PNG (the build pre-decodes it to BGRA, like the ring icons;
+// runtime-RECEIVED images still require the BGRA .bin path).
+var DEFAULT_BG = 'common/default-bg.png';
 
 var DAY_BITS = [1, 2, 4, 8, 16, 32, 64];
 var DEFAULT_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -272,14 +299,37 @@ function formatLastSync(self, epoch) {
 
 export default {
     data: {
-        // 'list' | 'sync' | 'ring'
+        // 'list' | 'sync' | 'ring' | 'privacy'
         screen: 'list',
+
+        // SIZE is the critical root gate (the AppGallery flicker rejection was
+        // a pre-size reflow): NOTHING renders until `sized` (real dims known).
+        // Set in applyScreen.
+        sized: false,
+        // Cold-start load complete (dims + i18n + privacy + connection) — gates
+        // ONLY the list/privacy screens. Set in maybeReveal. Ring/sync gate on
+        // `sized` alone so an alarm shows at once, not waiting for the ~2 s i18n.
+        contentReady: false,
+        // Gates the splash (bg + centred hourglass): true from applyScreen
+        // (once sized) until maybeReveal or an event (ring/sync) takes over.
+        showSplash: false,
 
         // --- list screen ---
         title: '',
         alarms: [],
         emptyText: '',
         emptyHint: '',
+
+        // --- privacy consent screen (first launch; rule 7.5) ---
+        privacyTitle: '', privacyBody: '', privacyScan: '',
+        privacyAgree: '', privacyDecline: '', privacyQr: '',
+
+        // --- onboarding (empty / never-connected) ---
+        // hasConnected drives the empty-state copy: never-connected shows
+        // "install the companion" + an AppGallery QR; connected-but-empty
+        // shows the plain "add alarms on the phone" hint. Both show the QR.
+        onbScan: '',
+        hasConnected: false,
 
         // --- background photo ---
         // bgSrc: on-watch path of a P2P-received PNG, fed straight into
@@ -291,14 +341,14 @@ export default {
         // truthy string, so `if="{{bgSrc}}"` never rendered the <image>.
         hasBg: false,
         showScrim: false,
+        // Always-on backdrop src: the custom bg if received, else the shipped
+        // default gradient. Set in updateScrim(); defaults to the gradient so
+        // the very first paint (and the no-custom-bg case) is branded.
+        splashBg: 'common/default-bg.png',
 
         // --- row-tap hint overlay ---
         tapHint: '',
         tapHintShown: false,
-
-        // --- sync screen ---
-        syncTitle: '',
-        syncSubtitle: '',
 
         // --- ring screen ---
         ringTitle: '',
@@ -330,6 +380,10 @@ export default {
         screenH: 466,
         isRound: true,
         listH: 320,
+        // Empty / onboarding block fills the FULL screen (the header is
+        // hidden when empty) so its content centres clear of the round
+        // chords — otherwise the bottom scan line clips on a round face.
+        emptyH: 466,
         arcCx: 233,
         arcCy: 233,
         arcR: 220,
@@ -356,6 +410,26 @@ export default {
         ampmAM: '', ampmPM: '',
 
         // non-reactive scratch — not bound in HML
+        // Cold-start load latches; maybeReveal() flips contentReady when all set.
+        _onInitMs: 0,
+        // Reliable startup timing (Date.now() captured on the watch at each
+        // step; emitted as ONE consolidated line at contentReady so the log
+        // relay can't drop/reorder individual marks).
+        _tApplyScreen: 0,
+        _tLoadRestStart: 0,
+        _tLoadStringsStart: 0,
+        _tLoadStringsEnd: 0,
+        _i18nDone: false,
+        _privacyDone: false,
+        _connDone: false,
+        // One-shot guard so startLoadRest() runs once (applyScreen + the
+        // sized-safety could both reach it).
+        _loadRestStarted: false,
+        // Default true → a forced reveal (safety timeout) with consent still
+        // unresolved fails SAFE to showing the consent gate, never skipping it.
+        needsConsent: true,
+        // Cached i18n copy for the empty-state variants (see _applyEmptyCopy).
+        _noAlarms: '', _noAlarmsHint: '', _onbTitle: '', _onbHint: '',
         _alarmId: 0,
         _explicitAction: null,
         _userEngaged: false,
@@ -374,6 +448,21 @@ export default {
 
     onInit: function () {
         var self = this;
+        // Timing anchor for the applyScreen / loadStrings deltas.
+        this._onInitMs = Date.now();
+        // SIZE safety: if getInfo never returns, apply default dims so the
+        // splash + load still proceed (nothing renders before `sized`).
+        setTimeout(function () {
+            if (!self.sized) {
+                Logger.w('index.sized-safety — forcing default dims');
+                self.applyScreen({ W: 466, H: 466, shape: 'circle' });
+            }
+        }, SIZED_SAFETY_MS);
+        // REVEAL safety: if the cold-start load stalls, reveal anyway rather
+        // than sit on the splash forever.
+        setTimeout(function () {
+            self.maybeReveal(true);
+        }, REVEAL_SAFETY_MS);
         // Fill the hidden crown-capture <list> with placeholder rows so it
         // always has scrollable content (see the CROWN_* constants).
         var crownFill = [];
@@ -381,32 +470,31 @@ export default {
             crownFill.push(ci);
         }
         this.crownItems = crownFill;
-        this.title = this.$t('strings.app_name');
-        this.emptyText = this.$t('strings.no_alarms');
-        this.emptyHint = this.$t('strings.no_alarms_hint');
-        this.syncTitle = this.$t('strings.syncing_title');
-        this.syncSubtitle = this.$t('strings.syncing_subtitle');
-        this.ringTitle = this.$t('strings.reminder_default_title');
-        this.repeatOnce = this.$t('strings.repeat_once');
-        this.repeatTimer = this.$t('strings.repeat_timer');
-        this.repeatAll = this.$t('strings.repeat_every_day');
-        this.repeatWeekdays = this.$t('strings.repeat_weekdays');
-        this.repeatWeekends = this.$t('strings.repeat_weekends');
-        this.noSyncYet = this.$t('strings.sync_never');
-        this.syncJustNow = this.$t('strings.sync_just_now');
-        this.syncMinAgo = this.$t('strings.sync_min_ago');
-        this.syncHrAgo = this.$t('strings.sync_hr_ago');
-        this.syncDayAgo = this.$t('strings.sync_day_ago');
-        this.editOnPhoneToast = this.$t('strings.edit_on_phone');
-        this.d0 = this.$t('strings.day_sun');
-        this.d1 = this.$t('strings.day_mon');
-        this.d2 = this.$t('strings.day_tue');
-        this.d3 = this.$t('strings.day_wed');
-        this.d4 = this.$t('strings.day_thu');
-        this.d5 = this.$t('strings.day_fri');
-        this.d6 = this.$t('strings.day_sat');
-        this.ampmAM = this.$t('strings.ampm_am');
-        this.ampmPM = this.$t('strings.ampm_pm');
+        // Restore a previously-received custom background FIRST (before the
+        // other async kickoffs) so the loading splash shows the user's
+        // photo, not the default gradient. updateScrim() recomputes splashBg →
+        // the custom bg the moment it's restored; WITHOUT it splashBg stays at
+        // the default gradient and the splash shows the gradient even when a
+        // custom bg exists. The default gradient is only the fallback for when
+        // no custom bg has ever been received.
+        storage.get({
+            key: BG_PATH_KEY,
+            default: '',
+            success: function (v) {
+                Logger.i('index.bgPath get=[' + v + ']');
+                if (v && v !== BG_CLEARED) {
+                    self.bgSrc = '' + v;
+                    self.hasBg = true;
+                    self.updateScrim();
+                    Logger.i('index.bgPath restored=' + v);
+                }
+            },
+            fail: function () {},
+        });
+        // i18n + privacy + connection + alarms all load in startLoadRest(),
+        // which applyScreen() kicks off AFTER size is known and the splash has
+        // painted. The ~35 per-key $t() lookups (~1.8 s on ACELite) are the long
+        // pole — they run behind the visible splash, not on the first-paint path.
 
         // Anchor the wake-reason clock BEFORE the receiver is installed.
         IncomingHandler.markAppStart();
@@ -428,6 +516,9 @@ export default {
         Screen.load(function (m) {
             self.applyScreen(m);
         });
+
+        // (Privacy consent + connection state load in startLoadRest, AFTER
+        // size is known and the splash is up — see applyScreen.)
 
         // Incoming-envelope -> screen transitions. One page, so the
         // handler updates this page's data directly.
@@ -475,6 +566,10 @@ export default {
         IncomingHandler.setOnSyncWake(function () {
             if (self.screen === 'list') {
                 self.screen = 'sync';
+                // Sync gates on `sized` only (waits for size, skips the ~2 s
+                // i18n). Drop the splash. applyScreen always triggers the load
+                // (deferred), so don't call it here (it blocks ~2 s).
+                self.showSplash = false;
                 self.updateScrim();
                 Logger.i('index.screen=sync (wake-by-sync)');
             }
@@ -499,22 +594,6 @@ export default {
             self._use24Hour = s.use24Hour;
             self._dayOrder = computeDayOrder(s.firstDayOfWeek);
         });
-
-        // Restore a previously-received background path so a relaunch
-        // shows the image without re-uploading from the phone.
-        storage.get({
-            key: BG_PATH_KEY,
-            default: '',
-            success: function (v) {
-                Logger.i('index.bgPath get=[' + v + ']');
-                if (v && v !== BG_CLEARED) {
-                    self.bgSrc = '' + v;
-                    self.hasBg = true;
-                    Logger.i('index.bgPath restored=' + v);
-                }
-            },
-            fail: function () {},
-        });
     },
 
     // Recompute every screen-dependent dimension from real device metrics.
@@ -532,6 +611,9 @@ export default {
         // List height: GT6 -> 320 (466-146), exact. Rect screens get their
         // (shorter) height minus the header; the list scrolls either way.
         this.listH = h - 146;
+        // Empty/onboarding fills the full screen (header hidden when empty)
+        // and centres its content — keeps the bottom scan line off the chord.
+        this.emptyH = h;
         // Decorative arc centred on the real screen, radius tracking the
         // smaller side. GT6: cx/cy 233, r round(0.472*466)=220 — unchanged.
         this.arcCx = Math.round(w / 2);
@@ -558,6 +640,165 @@ export default {
         if (typeof this.refresh === 'function') {
             this.refresh();
         }
+        // SIZE known — the critical gate. Now the splash (bg + centred
+        // hourglass) can paint, correctly sized on every resolution. If an
+        // event already chose ring/sync, leave showSplash false so that screen
+        // paints instead (it was waiting on `sized`).
+        this.sized = true;
+        this._tApplyScreen = Date.now();
+        if (this.screen !== 'ring' && this.screen !== 'sync' && !this.contentReady) {
+            this.showSplash = true;
+        }
+        Logger.i('index.applyScreen +' + (this._tApplyScreen - this._onInitMs) +
+            'ms ' + w + 'x' + h + ' round=' + round);
+        // Defer the heavy load so the splash PAINTS before the blocking i18n.
+        var selfAS = this;
+        setTimeout(function () {
+            selfAS.startLoadRest();
+        }, 0);
+    },
+
+    // Reveal the cold-start content once dims + i18n + privacy + connection are
+    // all loaded (or `force` from the reveal-safety timeout). Picks privacy vs
+    // list and drops the splash. Idempotent. Ring/sync do NOT go through here —
+    // they gate on `sized` alone and reveal immediately on their event.
+    maybeReveal: function (force) {
+        if (this.contentReady) return;
+        if (!force && !(this._i18nDone && this._privacyDone && this._connDone)) {
+            return;
+        }
+        // Invariant: content never renders before size is known. Normally
+        // `sized` is already true (applyScreen runs upstream of every reveal
+        // path); this guards the pathological forced-reveal-without-dims case.
+        this.sized = true;
+        this._pickScreen();
+        this.contentReady = true;
+        this.showSplash = false;
+        // ONE consolidated, watch-side timing breakdown (Date.now() marks) so
+        // we can see exactly where startup time goes, relay-drop-proof:
+        //   size     = onInit → applyScreen (getInfo)
+        //   splashGap= applyScreen → startLoadRest (render/macrotask gap; how
+        //              long until the splash actually gets a chance to paint)
+        //   preI18n  = startLoadRest → loadStrings start (privacy/conn/refresh)
+        //   i18n     = loadStrings $t block (the suspected ~1.8 s)
+        //   total    = onInit → contentReady
+        var t0 = this._onInitMs;
+        Logger.i('index.TIMING size=' + (this._tApplyScreen - t0) +
+            ' splashGap=' + (this._tLoadRestStart - this._tApplyScreen) +
+            ' preI18n=' + (this._tLoadStringsStart - this._tLoadRestStart) +
+            ' i18n=' + (this._tLoadStringsEnd - this._tLoadStringsStart) +
+            ' total=' + (Date.now() - t0) + 'ms' + (force ? ' (forced)' : ''));
+        this.refresh();
+    },
+
+    // Choose the cold-start screen (privacy gate vs list). Never overrides a
+    // ring/sync screen an inbound event already selected.
+    _pickScreen: function () {
+        if (this.screen === 'ring' || this.screen === 'sync') return;
+        this.screen = this.needsConsent ? 'privacy' : 'list';
+        this.updateScrim();
+    },
+
+    // Empty-state copy: never-connected → "set up GT Wake" + onboarding hint;
+    // connected-but-empty → plain "no alarms". Both render the AppGallery QR.
+    _applyEmptyCopy: function () {
+        if (this.hasConnected) {
+            this.emptyText = this._noAlarms;
+            this.emptyHint = this._noAlarmsHint;
+        } else {
+            this.emptyText = this._onbTitle;
+            this.emptyHint = this._onbHint;
+        }
+    },
+
+    // Deferred i18n load — see startLoadRest. ~35 per-key $t() lookups (each an
+    // explicit literal call, the snapshot-safe form) split into 4 setTimeout-
+    // yielded CHUNKS so ACELite can flush the render between batches and keep the
+    // splash painted during the ~1.7 s load (one unbroken $t block starves the
+    // renderer → the splash only flashes). Reveal fires after the LAST chunk
+    // (_loadStrings4) sets _i18nDone + maybeReveal — content shows fully texted.
+    loadStrings: function () {
+        this._tLoadStringsStart = Date.now();
+        this.title = this.$t('strings.app_name');
+        this.emptyText = this.$t('strings.no_alarms');
+        this.emptyHint = this.$t('strings.no_alarms_hint');
+        this.ringTitle = this.$t('strings.reminder_default_title');
+        this.repeatOnce = this.$t('strings.repeat_once');
+        this.repeatTimer = this.$t('strings.repeat_timer');
+        this.repeatAll = this.$t('strings.repeat_every_day');
+        this.repeatWeekdays = this.$t('strings.repeat_weekdays');
+        this.repeatWeekends = this.$t('strings.repeat_weekends');
+        var self = this;
+        setTimeout(function () { self._loadStrings2(); }, 0);
+    },
+    _loadStrings2: function () {
+        this.noSyncYet = this.$t('strings.sync_never');
+        this.syncJustNow = this.$t('strings.sync_just_now');
+        this.syncMinAgo = this.$t('strings.sync_min_ago');
+        this.syncHrAgo = this.$t('strings.sync_hr_ago');
+        this.syncDayAgo = this.$t('strings.sync_day_ago');
+        this.editOnPhoneToast = this.$t('strings.edit_on_phone');
+        this.d0 = this.$t('strings.day_sun');
+        this.d1 = this.$t('strings.day_mon');
+        this.d2 = this.$t('strings.day_tue');
+        var self = this;
+        setTimeout(function () { self._loadStrings3(); }, 0);
+    },
+    _loadStrings3: function () {
+        this.d3 = this.$t('strings.day_wed');
+        this.d4 = this.$t('strings.day_thu');
+        this.d5 = this.$t('strings.day_fri');
+        this.d6 = this.$t('strings.day_sat');
+        this.ampmAM = this.$t('strings.ampm_am');
+        this.ampmPM = this.$t('strings.ampm_pm');
+        this.privacyTitle = this.$t('strings.privacy_consent_title');
+        this.privacyBody = this.$t('strings.privacy_consent_body_short');
+        this.privacyScan = this.$t('strings.privacy_consent_scan');
+        var self = this;
+        setTimeout(function () { self._loadStrings4(); }, 0);
+    },
+    _loadStrings4: function () {
+        this.privacyAgree = this.$t('strings.privacy_consent_agree');
+        this.privacyDecline = this.$t('strings.privacy_consent_decline');
+        this.privacyQr = this.$t('strings.privacy_qr');
+        this.onbScan = this.$t('strings.onboarding_scan');
+        this._noAlarms = this.$t('strings.no_alarms');
+        this._noAlarmsHint = this.$t('strings.no_alarms_hint');
+        this._onbTitle = this.$t('strings.onboarding_get_app_title');
+        this._onbHint = this.$t('strings.onboarding_get_app_hint');
+        this._applyEmptyCopy();
+        this._tLoadStringsEnd = Date.now();
+        this._i18nDone = true;
+        Logger.i('index.loadStrings +' + (this._tLoadStringsEnd - this._onInitMs) + 'ms chunked');
+        this.maybeReveal();
+    },
+
+    // Load everything the cold-start content needs, AFTER size is known (called
+    // deferred from applyScreen). Privacy/connection are quick storage reads;
+    // loadStrings (i18n) is the ~1.7 s cost, run in setTimeout-yielded chunks so
+    // the splash keeps painting. Each completion calls maybeReveal(); content
+    // reveals when all are in.
+    startLoadRest: function () {
+        if (this._loadRestStarted) return;
+        this._loadRestStarted = true;
+        this._tLoadRestStart = Date.now();
+        var self = this;
+        PrivacyStore.get(function (agreed) {
+            self.needsConsent = !agreed;
+            self._privacyDone = true;
+            self.maybeReveal();
+        });
+        ConnectionStore.get(function (c) {
+            self.hasConnected = !!c.connectedOnce;
+            self._applyEmptyCopy();
+            self._connDone = true;
+            self.maybeReveal();
+        });
+        // Settings + alarms for the list rows.
+        this.refresh();
+        // i18n LAST — chunked $t load (yields between batches so the splash
+        // stays painted); the async gets above resolve alongside it.
+        this.loadStrings();
     },
 
     onShow: function () {
@@ -644,6 +885,13 @@ export default {
     // ---- LIST ----
     refresh: function () {
         var self = this;
+        // Connection state may flip (first sync arrives while the empty
+        // screen is up) — re-read so the onboarding copy updates live.
+        // ConnectionStore caches after the first read, so this is cheap.
+        ConnectionStore.get(function (c) {
+            self.hasConnected = !!c.connectedOnce;
+            self._applyEmptyCopy();
+        });
         SettingsStore.get(function (s) {
             self._use24Hour = s.use24Hour;
             self._dayOrder = computeDayOrder(s.firstDayOfWeek);
@@ -684,6 +932,11 @@ export default {
     // strength. Recomputed on every screen change + the 2 s poll.
     updateScrim: function () {
         this.showScrim = !!this.bgSrc && this.screen !== 'ring';
+        // Backdrop src tracks the custom bg, falling back to the default
+        // gradient. Updated here since updateScrim() is called on every bg /
+        // screen change. Scrim stays custom-bg-only (the dark gradient needs
+        // none — white text is legible on it).
+        this.splashBg = this.bgSrc ? this.bgSrc : DEFAULT_BG;
     },
 
     // ---- CROWN-TO-SNOOZE (ring screen) ----
@@ -817,6 +1070,13 @@ export default {
         this.ringVibrationPattern = 'PULSE';
         cancelTerminate();
         this.screen = 'ring';
+        // Ring gates on `sized` only — it shows the instant dims are known
+        // (waits for size to avoid the flicker, but NOT for the ~2 s i18n;
+        // ringTime + buttons render now, ringTitle fills in when loadStrings
+        // lands). Drop the splash. Do NOT call startLoadRest here — it BLOCKS
+        // ~2 s, which would delay the ring paint; applyScreen always triggers
+        // it (deferred), so the title fills in without blocking the ring.
+        this.showSplash = false;
         this.updateScrim();
         // Apply inline ring hints from the envelope FIRST — that's the
         // thin-client criterion: the watch must ring with the right
@@ -926,6 +1186,29 @@ export default {
         if (e && e.direction === 'right' && this.screen !== 'ring') {
             Logger.i('index.onSwipe right -> terminate (screen=' + this.screen + ')');
             app.terminate();
+        }
+    },
+
+    // ---- PRIVACY CONSENT (first launch) ----
+    // Agree → persist + drop into the list. Decline → exit the app (mirrors
+    // the phone's PrivacyConsentDialog Disagree path).
+    onPrivacyAgree: function () {
+        Logger.i('index.privacy agree');
+        this.needsConsent = false;
+        PrivacyStore.setAgreed(function (ok) {
+            Logger.i('index.privacy persisted ok=' + ok);
+        });
+        this.screen = 'list';
+        this.updateScrim();
+        this.refresh();
+    },
+
+    onPrivacyDecline: function () {
+        Logger.i('index.privacy decline -> terminate');
+        try {
+            app.terminate();
+        } catch (e) {
+            Logger.err('index.privacy decline term', e);
         }
     },
 

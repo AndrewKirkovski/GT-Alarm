@@ -42,8 +42,25 @@ export DEVECO_SDK_HOME="C:/Program Files/Huawei/DevEco Studio/sdk"
 export NODE_HOME="C:/Program Files/Huawei/DevEco Studio/tools/node"
 export MSYS_NO_PATHCONV=1   # keep any /literal paths intact under Git Bash
 
-echo "==> Building watch release App Pack (product=release, buildMode=release)"
+# ALWAYS full clean build (same rationale as build-watch.sh): an incremental
+# build can sign the App Pack against a stale bin. For a store artifact this
+# MUST be a clean, fully-recompiled-and-signed build.
+echo "==> Cleaning (forcing full recompile)"
 cd "$WATCH_DIR"
+"$HVIGOR" clean --no-daemon 2>/dev/null || true
+rm -rf "$WATCH_DIR/entry/build" "$WATCH_DIR/build" "$WATCH_DIR/entry/.preview" "$WATCH_DIR/.hvigor/cache" 2>/dev/null || true
+# See build-watch.sh: a Windows file lock can make `rm -rf` silently fail, leaving
+# a stale build dir -> incremental no-op ships a STALE App Pack. Retry once, fail loud.
+for d in "$WATCH_DIR/entry/build" "$WATCH_DIR/build"; do
+  if [ -d "$d" ]; then sleep 1; rm -rf "$d" 2>/dev/null || true; fi
+  if [ -d "$d" ]; then
+    echo "ERROR: $d survived the clean (file lock?) — refusing to ship a stale App Pack." >&2
+    echo "       Close DevEco Studio / kill any lingering hvigor or java, then retry." >&2
+    exit 1
+  fi
+done
+
+echo "==> Building watch release App Pack (product=release, buildMode=release)"
 "$HVIGOR" assembleApp --mode project -p product=release -p "buildMode=release" --no-daemon
 
 # Locate the produced .app (path varies by hvigor version / product name).

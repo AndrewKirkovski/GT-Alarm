@@ -271,38 +271,59 @@
     align-items: center;
     justify-content: center;
     width: 466px;
-    height: 280px;
+    height: 466px;
     background-color: transparent;
 }
 
+/* Empty/onboarding texts use flex-centered boxes so 1-line ("No alarms") and
+   wrapped ("Set up GT Wake" on narrow screens) both stay vertically centred.
+   Width is bound inline to titleW so they wrap to the real screen width. */
 .empty-title {
-    color: #FFFFFF;
-    font-size: 48px;
-    height: 60px;
-    margin-bottom: 8px;
-    text-align: center;
-}
-
-.empty-hint {
-    color: #AEB8CC;
-    font-size: 33px;
-    height: 42px;
-    text-align: center;
-}
-
-/* ---- Sync screen ---- */
-.sync-sub {
     display: flex;
     flex-direction: row;
     align-items: center;
     justify-content: center;
-    width: 400px;
-    height: 45px;
-    margin-top: 8px;
-    color: #AEB8CC;
-    font-size: 30px;
+    color: #FFFFFF;
+    font-size: 42px;
+    height: 96px;
+    margin-bottom: 6px;
     text-align: center;
 }
+
+.empty-hint {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    color: #AEB8CC;
+    font-size: 26px;
+    height: 76px;
+    margin-bottom: 12px;
+    text-align: center;
+}
+
+/* Onboarding QR (companion AppGallery listing) + scan hint. Shown on the
+   empty state so the watch self-explains how to get the phone app — the QR
+   PNG carries its own white quiet zone, so it reads on the dark background. */
+.onb-qr {
+    width: 154px;
+    height: 154px;
+    margin-bottom: 8px;
+    background-color: #ffffff;
+    color: #000000;
+}
+
+.onb-scan {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    color: #C4CEE0;
+    font-size: 22px;
+    height: 28px;
+    text-align: center;
+}
+
 
 /* ---- Ring screen ---- */
 /* Ring screen — no background-color so the .bg-full photo shows at full
@@ -453,4 +474,128 @@
     width: 466px;
     height: 16px;
     background-color: transparent;
+}
+
+/* ---- Privacy consent screen (first launch) ----
+   Opaque dark column (its own background, like .content) over the per-screen
+   <stack>. Vertically centred; the block is kept compact so it clears the
+   round-face top/bottom chords. Text widths are bound inline to titleW so
+   they wrap to the real screen width on rect/narrow watches. */
+.privacy-content {
+    /* Size from the inline {{screenW}}/{{screenH}} binding (responsive). */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background-color: #0F0F23;
+}
+
+.privacy-title {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    color: #FFFFFF;
+    font-size: 32px;
+    height: 40px;
+    margin-bottom: 6px;
+    text-align: center;
+}
+
+.privacy-body {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    color: #AEB8CC;
+    font-size: 22px;
+    height: 78px;
+    margin-bottom: 8px;
+    text-align: center;
+}
+
+/* The QR PNG carries its own white quiet zone, so it reads on the dark bg. */
+.privacy-qr {
+    width: 120px;
+    height: 120px;
+    margin-bottom: 6px;
+    background-color: #ffffff;
+    color: #000000;
+}
+
+.privacy-scan {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    color: #C4CEE0;
+    font-size: 20px;
+    height: 26px;
+    margin-bottom: 12px;
+    text-align: center;
+}
+
+.privacy-actions {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 420px;
+    height: 58px;
+}
+
+/* Decline — subtle. Agree — primary (solid accent, no gradient per Lite). */
+.privacy-btn-decline {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 144px;
+    height: 58px;
+    margin-right: 12px;
+    border-radius: 29px;
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+.privacy-btn-decline-text {
+    color: #AEB8CC;
+    font-size: 26px;
+    text-align: center;
+}
+
+.privacy-btn-agree {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 144px;
+    height: 58px;
+    border-radius: 29px;
+    background-color: #3B82F6;
+}
+
+.privacy-btn-agree-text {
+    color: #FFFFFF;
+    font-size: 26px;
+    text-align: center;
+}
+
+/* ---- Splash loading screen ---- */
+/* Transparent full-screen layer over the splash bg, centring the hourglass.
+   Explicit transparent (a no-background-color div renders opaque on Lite). */
+.splash-center {
+    /* Size comes from the inline {{screenW}}/{{screenH}} binding in the HML —
+       responsive on every watch size. No hardcoded screen dimension here. */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background-color: transparent;
+}
+
+/* The hourglass/refresh glyph is a fixed-size ICON (not a screen dimension);
+   84px reads well on the smallest supported width (336) up to 466. */
+.loading-icon {
+    width: 84px;
+    height: 84px;
 }

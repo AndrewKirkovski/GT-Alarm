@@ -33,6 +33,15 @@
         "sync_hr_ago": "Synced {n} hr ago",
         "sync_day_ago": "Synced {n} d ago",
         "syncing_title": "Syncing alarms",
-        "syncing_subtitle": "…"
+        "syncing_subtitle": "…",
+        "privacy_consent_title": "Privacy",
+        "privacy_consent_body_short": "No accounts, no ads, no tracking. Your alarms stay on your devices and sync only to your paired watch.",
+        "privacy_consent_scan": "Scan for the full policy",
+        "privacy_consent_agree": "Agree",
+        "privacy_consent_decline": "Decline",
+        "privacy_qr": "https://gtwake.kirkouski.com/privacy",
+        "onboarding_get_app_title": "Set up GT Wake",
+        "onboarding_get_app_hint": "Install GT Wake on your phone to add alarms",
+        "onboarding_scan": "Scan to get the phone app"
     }
 }

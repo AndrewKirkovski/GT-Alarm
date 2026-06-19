@@ -33,6 +33,15 @@
         "sync_hr_ago": "{n} 小时前同步",
         "sync_day_ago": "{n} 天前同步",
         "syncing_title": "正在同步",
-        "syncing_subtitle": "…"
+        "syncing_subtitle": "…",
+        "privacy_consent_title": "隐私政策",
+        "privacy_consent_body_short": "无账号、无广告、不跟踪。您的闹钟保存在本机，仅与已配对的手表同步。",
+        "privacy_consent_scan": "扫码查看完整隐私政策",
+        "privacy_consent_agree": "同意",
+        "privacy_consent_decline": "不同意",
+        "privacy_qr": "https://gtwake.kirkouski.com/privacy/zh",
+        "onboarding_get_app_title": "设置 GT Wake",
+        "onboarding_get_app_hint": "在手机上安装 GT Wake 以添加闹钟",
+        "onboarding_scan": "扫码获取手机应用"
     }
 }

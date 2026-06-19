@@ -1,5 +1,5 @@
 {
-  "_comment": "GT-Alarm icon manifest. Each icon: name (output stem), glyph (Tabler file), variant (outline|filled), mode (raw|grad|circle), paint (key into palette.colors for raw, palette.gradients otherwise), size (px), out (android|watch). See README.md.",
+  "_comment": "GT-Alarm icon manifest. Each icon: name (output stem), glyph (Tabler file), variant (outline|filled), mode (raw|grad|circle), paint (key into palette.colors for raw, palette.gradients otherwise), size (px), out (android|watch). Optional src: a vendored non-Tabler SVG path (relative to icongen/, e.g. iconify/*.svg) already colored — overrides the Tabler glyph lookup and skips paint mutation. See README.md.",
   "palette": {
     "_comment": "GT-Alarm brand palette. primary cyan #009EDA, secondary indigo #6373F2, tertiary magenta #E058CE, success green #1EA52C, warning orange #DE6D23, snooze rose #FF678D; error stays true red #DC2626. Gradients are 135deg linear (top-left -> bottom-right).",
     "colors": {
@@ -49,8 +49,9 @@
 
     { "name": "snooze",            "glyph": "zzz",                      "variant": "outline", "mode": "circle", "paint": "circle-snooze",  "size": 256, "out": "watch",   "_use": "ring screen, snooze button" },
     { "name": "stop",              "glyph": "player-stop",              "variant": "filled",  "mode": "circle", "paint": "circle-stop",    "size": 256, "out": "watch",   "_use": "ring screen, stop button" },
-    { "name": "sync",              "glyph": "refresh",                  "variant": "outline", "mode": "circle", "paint": "circle-primary", "size": 256, "out": "watch",   "_use": "sync screen, syncing indicator" },
+    { "name": "sync",              "glyph": "sync-outline",             "variant": "outline", "mode": "raw",    "paint": "white",          "size": 128, "out": "watch",   "src": "iconify/famicons-sync-outline.svg", "_use": "sync screen indicator (famicons:sync-outline, MIT) — raw white, matches splash loading icon" },
     { "name": "thumbup",           "glyph": "thumb-up",                 "variant": "filled",  "mode": "grad",   "paint": "fill-green",     "size": 192, "out": "watch",   "_use": "ring screen, dismissed/snoozed confirm" },
-    { "name": "bell",              "glyph": "bell",                     "variant": "filled",  "mode": "raw",    "paint": "white",          "size": 128, "out": "watch",   "_use": "ring screen, alarm bell (white)" }
+    { "name": "bell",              "glyph": "bell",                     "variant": "filled",  "mode": "raw",    "paint": "white",          "size": 128, "out": "watch",   "_use": "ring screen, alarm bell (white)" },
+    { "name": "loading",           "glyph": "hourglass-outline",        "variant": "outline", "mode": "raw",    "paint": "white",          "size": 128, "out": "watch",   "src": "iconify/ion-hourglass-outline.svg", "_use": "splash loading indicator (ion:hourglass-outline, MIT; static — Lite has no transform)" }
   ]
 }

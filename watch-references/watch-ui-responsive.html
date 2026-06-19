@@ -45,8 +45,25 @@
   .alarm-days-text { color:#C4CEE0; font-size:24px; line-height:33px; }
 
   .empty { display:flex; flex-direction:column; align-items:center; justify-content:center; }
-  .empty-title { color:#F1F5F9; font-size:48px; height:60px; line-height:60px; margin-bottom:8px; }
-  .empty-hint { color:#AEB8CC; font-size:33px; height:42px; line-height:42px; }
+  .empty-title { color:#F1F5F9; font-size:42px; margin-bottom:6px; text-align:center; }
+  .empty-hint { color:#AEB8CC; font-size:26px; margin-bottom:12px; text-align:center; }
+  /* Onboarding QR (companion AppGallery listing) + scan hint. */
+  .onb-qr { width:154px; height:154px; margin-bottom:8px; }
+  /* The watch uses a NATIVE <qrcode value="url"> (ArkUI.Lite) rendered on-device;
+     the browser can't render it, so these placeholders stand in at the same size. */
+  .qr-ph { background:#fff; color:#000; border:1px solid #aaa; box-sizing:border-box;
+           display:flex; align-items:center; justify-content:center; text-align:center;
+           font-size:13px; font-weight:700; line-height:1.2; }
+  .onb-scan { color:#C4CEE0; font-size:22px; text-align:center; }
+  /* Privacy consent screen. */
+  .privacy-content { display:flex; flex-direction:column; align-items:center; justify-content:center; background-color:#0F0F23; position:relative; z-index:2; }
+  .privacy-title { color:#fff; font-size:32px; margin-bottom:6px; text-align:center; }
+  .privacy-body { color:#AEB8CC; font-size:22px; line-height:26px; margin-bottom:8px; text-align:center; }
+  .privacy-qr { width:120px; height:120px; margin-bottom:6px; }
+  .privacy-scan { color:#C4CEE0; font-size:20px; margin-bottom:12px; text-align:center; }
+  .privacy-actions { display:flex; flex-direction:row; align-items:center; justify-content:center; height:58px; }
+  .privacy-btn-decline { display:flex; align-items:center; justify-content:center; width:144px; height:58px; margin-right:12px; border-radius:29px; background-color:rgba(255,255,255,.12); color:#AEB8CC; font-size:26px; }
+  .privacy-btn-agree { display:flex; align-items:center; justify-content:center; width:144px; height:58px; border-radius:29px; background-color:#3B82F6; color:#fff; font-size:26px; }
 
   /* ring */
   .ring { position:relative; z-index:2; }
@@ -85,6 +102,7 @@ function dims(W, H, shape) {
   return {
     W: W, H: H, round: round,
     listH: H - 146,
+    emptyH: H,
     padTop: round ? 24 : 8,
     padBot: round ? 56 : 8,
     cx: Math.round(W / 2), cy: Math.round(H / 2),
@@ -145,11 +163,41 @@ function listScreen(d) {
     + '<div class="alarm-list" style="width:' + d.W + 'px;height:' + d.listH + 'px;padding-top:' + d.padTop + 'px;padding-bottom:' + d.padBot + 'px;">'
     + rows(d) + '</div></div>';
 }
+// Connected-but-empty: "No alarms" + the onboarding QR (shown on every empty
+// state so the watch always points to the companion app).
 function emptyScreen(d) {
   return '<div class="content" style="width:' + d.W + 'px;height:' + d.H + 'px;">'
-    + '<div class="title" style="width:' + d.W + 'px;">Alarms</div>'
-    + '<div class="empty" style="width:' + d.W + 'px;height:' + (d.H - 150) + 'px;">'
-    + '<div class="empty-title">No alarms</div><div class="empty-hint">Add one on phone</div></div></div>';
+    + '<div class="empty" style="width:' + d.W + 'px;height:' + d.emptyH + 'px;">'
+    + '<div class="empty-title" style="width:' + d.titleW + 'px;">No alarms</div>'
+    + '<div class="empty-hint" style="width:' + d.titleW + 'px;">Add alarms on the phone</div>'
+    + '<div class="onb-qr qr-ph">QR<br>(native)</div>'
+    + '<div class="onb-scan" style="width:' + d.titleW + 'px;">Scan to get the phone app</div>'
+    + '</div></div>';
+}
+// Never connected: stronger "set up" copy + the AppGallery companion QR. This
+// is the state the AppGallery reviewer first lands on — the QR makes the watch
+// self-explanatory instead of a dead end.
+function onboardingScreen(d) {
+  return '<div class="content" style="width:' + d.W + 'px;height:' + d.H + 'px;">'
+    + '<div class="empty" style="width:' + d.W + 'px;height:' + d.emptyH + 'px;">'
+    + '<div class="empty-title" style="width:' + d.titleW + 'px;">Set up GT Wake</div>'
+    + '<div class="empty-hint" style="width:' + d.titleW + 'px;">Install GT Wake on your phone to add alarms</div>'
+    + '<div class="onb-qr qr-ph">QR<br>(native)</div>'
+    + '<div class="onb-scan" style="width:' + d.titleW + 'px;">Scan to get the phone app</div>'
+    + '</div></div>';
+}
+// First-launch privacy consent (rule 7.5). Agree persists + proceeds; Decline
+// exits. QR opens the full policy on the phone (no webview on the watch).
+function privacyScreen(d) {
+  return '<div class="privacy-content" style="width:' + d.W + 'px;height:' + d.H + 'px;">'
+    + '<div class="privacy-title" style="width:' + d.titleW + 'px;">Privacy</div>'
+    + '<div class="privacy-body" style="width:' + d.titleW + 'px;">No accounts, no ads, no tracking. Your alarms stay on your devices and sync only to your paired watch.</div>'
+    + '<div class="privacy-qr qr-ph">QR<br>(native)</div>'
+    + '<div class="privacy-scan" style="width:' + d.titleW + 'px;">Scan for the full policy</div>'
+    + '<div class="privacy-actions" style="width:' + d.titleW + 'px;">'
+    + '<div class="privacy-btn-decline">Decline</div>'
+    + '<div class="privacy-btn-agree">Agree</div>'
+    + '</div></div>';
 }
 function ringScreen(d) {
   // Pink ring (circular arc) is round-only — hidden on rectangular screens.
@@ -194,7 +242,9 @@ for (var i = 0; i < PROFILES.length; i++) {
   var d = dims(p.W, p.H, p.shape);
   out += '<div class="profile-group"><h2>' + p.name + '</h2>'
     + '<div class="profile-sub">' + p.sub + '</div><div class="grid">'
-    + frame('Empty', d, emptyScreen(d))
+    + frame('Privacy', d, privacyScreen(d))
+    + frame('Onboarding (never connected)', d, onboardingScreen(d))
+    + frame('Empty (connected)', d, emptyScreen(d))
     + frame('List', d, listScreen(d))
     + frame('Ring', d, ringScreen(d))
     + '</div></div>';

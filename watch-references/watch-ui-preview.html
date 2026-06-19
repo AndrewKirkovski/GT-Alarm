@@ -217,22 +217,103 @@
     align-items: center;
     justify-content: center;
     width: 466px;
-    height: 280px;
+    height: 380px;
   }
   .empty-title {
+    width: 420px;
     color: #F1F5F9;
-    font-size: 48px;
-    height: 60px;
-    line-height: 60px;
-    margin-bottom: 8px;
+    font-size: 42px;
+    margin-bottom: 6px;
     text-align: center;
   }
   .empty-hint {
+    width: 400px;
     color: #AEB8CC;
-    font-size: 33px;
-    height: 42px;
-    line-height: 42px;
+    font-size: 26px;
+    margin-bottom: 12px;
     text-align: center;
+  }
+  /* Onboarding QR (companion AppGallery listing) + scan hint — shown on the
+     empty state (both never-connected and connected-but-empty). */
+  .onb-qr { width: 154px; height: 154px; margin-bottom: 8px; }
+  /* The watch uses a NATIVE <qrcode value="url"> component (ArkUI.Lite) that
+     renders on-device — a browser mockup can't render it, so these placeholders
+     stand in at the same size to verify layout intent, not pixel-truth. */
+  .qr-ph { background:#fff; color:#000; border:1px solid #aaa; box-sizing:border-box;
+           display:flex; align-items:center; justify-content:center; text-align:center;
+           font-size:13px; font-weight:700; line-height:1.2; }
+  .onb-scan {
+    width: 400px;
+    color: #C4CEE0;
+    font-size: 22px;
+    text-align: center;
+  }
+
+  /* ---------------- Privacy consent screen ---------------- */
+  .privacy-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 466px;
+    height: 466px;
+    background-color: #0F0F23;
+    position: relative;
+    z-index: 2;
+  }
+  .privacy-title {
+    width: 420px;
+    color: #FFFFFF;
+    font-size: 32px;
+    margin-bottom: 6px;
+    text-align: center;
+  }
+  .privacy-body {
+    width: 420px;
+    color: #AEB8CC;
+    font-size: 22px;
+    line-height: 26px;
+    margin-bottom: 8px;
+    text-align: center;
+  }
+  .privacy-qr { width: 120px; height: 120px; margin-bottom: 6px; }
+  .privacy-scan {
+    width: 420px;
+    color: #C4CEE0;
+    font-size: 20px;
+    margin-bottom: 12px;
+    text-align: center;
+  }
+  .privacy-actions {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 420px;
+    height: 58px;
+  }
+  .privacy-btn-decline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 144px;
+    height: 58px;
+    margin-right: 12px;
+    border-radius: 29px;
+    background-color: rgba(255, 255, 255, 0.12);
+    color: #AEB8CC;
+    font-size: 26px;
+  }
+  .privacy-btn-agree {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 144px;
+    height: 58px;
+    border-radius: 29px;
+    background-color: #3B82F6;
+    color: #FFFFFF;
+    font-size: 26px;
   }
   .diag-line {
     width: 380px;
@@ -415,19 +496,62 @@
 <div class="row">
   <!-- ============================================================== -->
   <div class="panel">
-    <div class="panel-label">Index — no alarms</div>
+    <div class="panel-label">Privacy consent (first launch)</div>
     <div class="watch">
       <div class="container">
-        <div class="content">
-          <div class="title">GT Alarm · 0.1.0</div>
-          <div class="diag-line">rx:ok@0s raw:0 in:0 -@-</div>
-          <div class="diag-line">st:0 on:0 Not synced yet b:single-page/05-18</div>
-          <div class="empty">
-            <div class="empty-title">No alarms</div>
-            <div class="empty-hint">Add one on phone</div>
+        <div class="privacy-content">
+          <div class="privacy-title">Privacy</div>
+          <div class="privacy-body">No accounts, no ads, no tracking. Your alarms stay on your devices and sync only to your paired watch.</div>
+          <div class="privacy-qr qr-ph">QR<br>(native)</div>
+          <div class="privacy-scan">Scan for the full policy</div>
+          <div class="privacy-actions">
+            <div class="privacy-btn-decline">Decline</div>
+            <div class="privacy-btn-agree">Agree</div>
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <div class="panel">
+    <div class="panel-label">Index — never connected (onboarding QR)</div>
+    <div class="watch">
+      <div class="container">
+        <div class="content">
+          <div class="empty" style="height:466px;">
+            <div class="empty-title">Set up GT Wake</div>
+            <div class="empty-hint">Install GT Wake on your phone to add alarms</div>
+            <div class="onb-qr qr-ph">QR<br>(native)</div>
+            <div class="onb-scan">Scan to get the phone app</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <div class="panel">
+    <div class="panel-label">Index — empty, connected (no alarms + QR)</div>
+    <div class="watch">
+      <div class="container">
+        <div class="content">
+          <div class="empty" style="height:466px;">
+            <div class="empty-title">No alarms</div>
+            <div class="empty-hint">Add alarms on the phone</div>
+            <div class="onb-qr qr-ph">QR<br>(native)</div>
+            <div class="onb-scan">Scan to get the phone app</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <div class="panel">
+    <div class="panel-label">First paint — not ready (dark splash, anti-flicker gate)</div>
+    <div class="watch">
+      <div class="container"></div>
     </div>
   </div>
 

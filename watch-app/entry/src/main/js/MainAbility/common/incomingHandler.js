@@ -22,6 +22,7 @@ import Logger from './logger.js';
 import AlarmHash from './alarmHash.js';
 import WearBridge from './wearBridge.js';
 import Screen from './screen.js';
+import ConnectionStore from './connectionStore.js';
 
 // Wake-reason tracking. When the phone wakes the watch app via Wear
 // Engine auto-launch for a sync push, the first state-mutation envelope
@@ -148,6 +149,26 @@ function noteIncomingEnvelope() {
 // the index page.
 function bumpLastSync() {
     AlarmStore.setLastSyncEpoch(Date.now());
+}
+
+// Records that the watch has connected to the phone companion (drives the
+// onboarding "install the companion" screen vs. a plain empty list). ANY
+// well-formed inbound envelope proves the phone is present — sync_check is
+// typically the first one on connect. Guarded so we touch storage at most
+// once per process, except to UPGRADE the recorded companion version if a
+// `phoneAppVersion` field appears (a future phone build will add it; absent
+// today → ConnectionStore defaults to LEGACY_VERSION '1.0.0').
+var _connRecorded = false;
+function noteConnection(msg) {
+    var ver = (msg && typeof msg.phoneAppVersion === 'string' && msg.phoneAppVersion.length > 0)
+        ? msg.phoneAppVersion : null;
+    if (_connRecorded && ver === null) return;
+    _connRecorded = true;
+    try {
+        ConnectionStore.recordConnection(ver, function () {});
+    } catch (e) {
+        Logger.err('incoming.noteConnection', e);
+    }
 }
 
 function rejectMalformed(msg) {
@@ -343,6 +364,13 @@ export default {
         onBgCleared = fn;
     },
     handle: function (msg) {
+        // Any recognized-shape envelope means the phone companion is
+        // present — record the connection (+ companion version if carried)
+        // so the onboarding screen can distinguish never-connected from a
+        // connected-but-empty watch.
+        if (msg && typeof msg.type === 'string') {
+            noteConnection(msg);
+        }
         // Meta-protocol envelopes (no alarmId / no updatedAtEpoch) MUST
         // bypass rejectMalformed, which requires both. sync_check is a
         // phone-originated request asking us to reply with our current

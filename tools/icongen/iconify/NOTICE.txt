@@ -1,0 +1,32 @@
+Vendored non-Tabler icon sources used by icongen (manifest.json `src` field).
+All MIT licensed — usable without attribution in the app UI; license text retained here.
+
+- ion-hourglass-outline.svg   from Ionicons  (ion:hourglass-outline)
+  Ionicons — MIT License — Copyright (c) Ionic (https://ionic.io)
+  https://github.com/ionic-team/ionicons
+
+- famicons-sync-outline.svg   from Famicons  (famicons:sync-outline)
+  Famicons — MIT License — Copyright (c) Family (an Ionicons fork)
+  https://github.com/familyjs/famicons
+
+Fetched white-colored via the Iconify API (https://api.iconify.design/<set>/<icon>.svg?color=%23ffffff).
+
+The MIT License:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

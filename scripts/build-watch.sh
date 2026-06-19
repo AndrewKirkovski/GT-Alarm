@@ -41,8 +41,27 @@ export DEVECO_SDK_HOME="C:/Program Files/Huawei/DevEco Studio/sdk"
 export NODE_HOME="C:/Program Files/Huawei/DevEco Studio/tools/node"
 export MSYS_NO_PATHCONV=1   # keep /sdcard/... literal under Git Bash
 
-echo "==> Building watch HAP (buildMode=$MODE)"
+# ALWAYS full clean build. A fast incremental build can leave the HAP wrapper
+# signed against a stale bin, which the watch's bundle manager rejects at
+# install time with "Installation failed: 10, internal error" (verified
+# 2026-06-18). Cleaning guarantees the LiteJS bin and the HAP are compiled +
+# signed together. Worth the extra ~15 s for a sideloadable artifact.
+echo "==> Cleaning (forcing full recompile)"
 cd "$WATCH_DIR"
+"$HVIGOR" clean --no-daemon 2>/dev/null || true
+rm -rf "$WATCH_DIR/entry/build" "$WATCH_DIR/entry/.preview" "$WATCH_DIR/.hvigor/cache" 2>/dev/null || true
+# A Windows file lock can make `rm -rf` silently fail (rm exits 0 even when it
+# could not delete a locked file), leaving a stale entry/build. assembleHap then
+# does an incremental no-op and ships a STALE HAP (hit 2026-06-19). Retry once,
+# then FAIL LOUD rather than hand back stale bits.
+if [ -d "$WATCH_DIR/entry/build" ]; then sleep 1; rm -rf "$WATCH_DIR/entry/build" 2>/dev/null || true; fi
+if [ -d "$WATCH_DIR/entry/build" ]; then
+  echo "ERROR: entry/build survived the clean (file lock?) — refusing to ship a stale HAP." >&2
+  echo "       Close DevEco Studio / kill any lingering hvigor or java, then retry." >&2
+  exit 1
+fi
+
+echo "==> Building watch HAP (buildMode=$MODE)"
 "$HVIGOR" assembleHap --mode module -p product=default -p "buildMode=$MODE" --no-daemon
 
 if [ ! -f "$HAP_OUT" ]; then
