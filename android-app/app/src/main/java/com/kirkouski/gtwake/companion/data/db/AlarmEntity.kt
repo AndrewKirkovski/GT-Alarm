@@ -38,6 +38,9 @@ data class AlarmEntity(
     // Schema v9: vibration pattern (enum name), audio crescendo seconds,
     // consecutive-snooze cap + counter, and skip-next-occurrence epoch.
     val vibrationPatternName: String = VibrationPattern.DEFAULT.name,
+    // Schema v10: per-device vibration enables (1.0.6).
+    val phoneVibrationEnabled: Boolean = true,
+    val watchVibrationEnabled: Boolean = true,
     val volumeRampSeconds: Int = 0,
     val maxSnoozeCount: Int = Alarm.MAX_SNOOZE_COUNT_UNLIMITED,
     val consecutiveSnoozeCount: Int = 0,

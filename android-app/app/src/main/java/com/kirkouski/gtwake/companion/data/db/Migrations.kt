@@ -3,6 +3,7 @@ package com.kirkouski.gtwake.companion.data.db
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.kirkouski.gtwake.companion.domain.Alarm
+import com.kirkouski.gtwake.companion.domain.VibrationPattern
 
 // Adds updatedAtEpoch column for cross-device LWW conflict resolution.
 // Existing rows default to 0; the next mutation in AlarmRepository will
@@ -49,5 +50,23 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
 val MIGRATION_4_5 = object : Migration(4, 5) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE alarms ADD COLUMN snoozedUntilEpoch INTEGER DEFAULT NULL")
+    }
+}
+
+// Schema v10 (1.0.6): per-device vibration enables. The two new columns default
+// to 1 (enabled). Alarms that were "no vibration" under the legacy scheme
+// (vibrationPattern == OFF) migrate to BOTH enables off + a real default pattern,
+// so re-enabling vibration later shows a usable pattern. NOTE: versions 5→9 used
+// destructive fallback pre-release; from v10 on there are live installs, so this
+// is a real ALTER that preserves user data.
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE alarms ADD COLUMN phoneVibrationEnabled INTEGER NOT NULL DEFAULT 1")
+        db.execSQL("ALTER TABLE alarms ADD COLUMN watchVibrationEnabled INTEGER NOT NULL DEFAULT 1")
+        db.execSQL(
+            "UPDATE alarms SET phoneVibrationEnabled = 0, watchVibrationEnabled = 0, " +
+                "vibrationPatternName = '" + VibrationPattern.DEFAULT.name + "' " +
+                "WHERE vibrationPatternName = 'OFF'",
+        )
     }
 }

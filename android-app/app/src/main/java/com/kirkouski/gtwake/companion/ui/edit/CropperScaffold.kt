@@ -278,13 +278,23 @@ internal fun CropperScaffold(
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(modifier = Modifier.size(8.dp))
-                    Text(stringResource(R.string.watch_bg_picker_pick))
+                    Text(
+                        text = stringResource(R.string.watch_bg_picker_pick),
+                        maxLines = 1,
+                        softWrap = false,
+                    )
                 }
                 GtAccentButton(
                     onClick = {
-                        val bmp = sourceBitmap ?: return@GtAccentButton
+                        val bmp = sourceBitmap
                         val captured = viewportState
-                        if (saving || captured.widthPx <= 0f || captured.heightPx <= 0f) {
+                        val viewportInvalid = captured.widthPx <= 0f || captured.heightPx <= 0f
+                        if (bmp == null || saving || viewportInvalid) {
+                            android.util.Log.w(
+                                tag,
+                                "cropper Save no-op: bmp=${bmp != null} saving=$saving " +
+                                    "vp=${captured.widthPx}x${captured.heightPx}",
+                            )
                             return@GtAccentButton
                         }
                         saving = true
@@ -294,7 +304,11 @@ internal fun CropperScaffold(
                                 onSave(bmp, captured, userScale, offsetX, offsetY)
                             }
                             saving = false
-                            if (out != null) onSaved(Uri.fromFile(out).toString())
+                            android.util.Log.i(tag, "cropper Save onSave returned=${out?.name ?: "null"}")
+                            if (out != null) {
+                                onSaved(Uri.fromFile(out).toString())
+                                android.util.Log.i(tag, "cropper Save onSaved dispatched")
+                            }
                         }
                     },
                     enabled = sourceBitmap != null && !saving &&

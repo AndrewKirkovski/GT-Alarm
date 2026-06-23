@@ -58,6 +58,7 @@ class SettingsStore @Inject constructor(
             defaultRelativeRingtoneName = prefs[KEY_DEFAULT_REL_NAME],
             defaultPhoneBackgroundUri = prefs[KEY_DEFAULT_PHONE_BG_URI],
             defaultWatchBackgroundUri = prefs[KEY_DEFAULT_WATCH_BG_URI],
+            lastUploadedWatchBgHash = prefs[KEY_LAST_WATCH_BG_HASH],
             watchScreenWidth = prefs[KEY_WATCH_SCREEN_W] ?: 0,
             watchScreenHeight = prefs[KEY_WATCH_SCREEN_H] ?: 0,
             watchScreenShape = prefs[KEY_WATCH_SCREEN_SHAPE] ?: "",
@@ -96,6 +97,19 @@ class SettingsStore @Inject constructor(
     suspend fun setDefaultWatchBackgroundUri(uri: String?) {
         dataStore.edit { prefs ->
             if (uri == null) prefs.remove(KEY_DEFAULT_WATCH_BG_URI) else prefs[KEY_DEFAULT_WATCH_BG_URI] = uri
+        }
+    }
+
+    /**
+     * Persist the content hash of the most recently UPLOADED default watch
+     * background (`bgd_<hash>.bin` — see [AlarmRepository.uploadDefaultWatchBackground]).
+     * The watch echoes its own held marker in the `watch_screen` reply; the
+     * phone re-uploads when it differs (auto-restore after watch reset, and
+     * never-send-mismatch). null clears it (default bg cleared / source gone).
+     */
+    suspend fun setLastUploadedWatchBgHash(hash: String?) {
+        dataStore.edit { prefs ->
+            if (hash == null) prefs.remove(KEY_LAST_WATCH_BG_HASH) else prefs[KEY_LAST_WATCH_BG_HASH] = hash
         }
     }
 
@@ -186,6 +200,10 @@ class SettingsStore @Inject constructor(
         // per-alarm watch-bg field was removed in db v8; when this is null
         // the watch falls back to its own default ring UI.
         private val KEY_DEFAULT_WATCH_BG_URI = stringPreferencesKey("default_watch_bg_uri")
+        // Content hash of the last default watch bg the phone uploaded
+        // (`bgd_<hash>.bin`). Compared against the watch's reported marker in
+        // the watch_screen reply to drive auto-restore + no-mismatch re-upload.
+        private val KEY_LAST_WATCH_BG_HASH = stringPreferencesKey("last_uploaded_watch_bg_hash")
         // Connected watch's reported screen (from the watch_screen envelope).
         // 0/0/"" = no report yet → callers default to GT6 466 round.
         private val KEY_WATCH_SCREEN_W = intPreferencesKey("watch_screen_w")
@@ -212,6 +230,8 @@ data class SettingsState(
     val defaultRelativeRingtoneName: String? = null,
     val defaultPhoneBackgroundUri: String? = null,
     val defaultWatchBackgroundUri: String? = null,
+    // Content hash of the last default watch bg the phone uploaded; null = none.
+    val lastUploadedWatchBgHash: String? = null,
     // Connected watch's reported screen; 0/0/"" = unknown (no report yet).
     val watchScreenWidth: Int = 0,
     val watchScreenHeight: Int = 0,

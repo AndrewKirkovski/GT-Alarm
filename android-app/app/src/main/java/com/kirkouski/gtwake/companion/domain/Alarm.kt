@@ -49,6 +49,13 @@ data class Alarm(
     val backgroundImageUri: String? = null,
     // Per-alarm wrist character + audio crescendo + snooze-count cap (Tier 1+2).
     val vibrationPattern: VibrationPattern = VibrationPattern.DEFAULT,
+    // Per-device vibration enables (1.0.6) — independent of `vibrationPattern`
+    // (now pattern-only). The phone honors phoneVibrationEnabled; the watch
+    // honors watchVibrationEnabled. "Silent" on a device = sound off + that
+    // device's vibration off. phoneVibrationEnabled is phone-only (off the wire
+    // and off the LWW hash); watchVibrationEnabled syncs to the watch.
+    val phoneVibrationEnabled: Boolean = true,
+    val watchVibrationEnabled: Boolean = true,
     val volumeRampSeconds: Int = 0,
     val maxSnoozeCount: Int = MAX_SNOOZE_COUNT_UNLIMITED,
     val consecutiveSnoozeCount: Int = 0,

@@ -3,6 +3,10 @@
 .cache/
 .kotlin/
 
+# Collected release artifacts (scripts/collect-release.sh copies the signed
+# APK/AAB/.app here with version-stamped names). Binaries — never committed.
+/dist/
+
 # Local scratch + regeneratable icon previews (the *.svg sources ARE tracked;
 # the *.generated.png are produced from them by gen-app-icons.py).
 /tmp/

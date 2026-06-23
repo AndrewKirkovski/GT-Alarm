@@ -17,7 +17,9 @@
     <string name="field_audio">Гук</string>
     <string name="field_audio_default">Сістэмны</string>
     <string name="field_audio_pick">Выбраць…</string>
-    <string name="field_vibration_only">Толькі вібрацыя</string>
+    <string name="field_sound">Гук</string>
+    <string name="field_phone_vibration">Вібрацыя тэлефона</string>
+    <string name="field_watch_vibration">Вібрацыя гадзінніка</string>
     <string name="field_snooze_minutes">Працягласць адкладвання</string>
     <string name="field_snooze_minutes_value">%1$d хв</string>
     <string name="delete">Выдаліць</string>

@@ -333,6 +333,7 @@ class AlarmRingService : Service() {
             pattern = alarm.vibrationPattern,
             volumeRampSeconds = alarm.volumeRampSeconds,
             forceBundledFallback = !isUserUnlocked,
+            phoneVibrationEnabled = alarm.phoneVibrationEnabled,
         )
 
         // CANONICAL Huawei Wear Engine compliance path: ensure AlarmActivity

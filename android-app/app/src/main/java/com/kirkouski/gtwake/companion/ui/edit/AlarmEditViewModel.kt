@@ -7,6 +7,7 @@ import com.kirkouski.gtwake.companion.data.SettingsState
 import com.kirkouski.gtwake.companion.data.SettingsStore
 import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.domain.DaysOfWeek
+import com.kirkouski.gtwake.companion.domain.VibrationPattern
 import com.kirkouski.gtwake.companion.ring.EditingAlarmRegistry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.NonCancellable
@@ -32,6 +33,8 @@ data class AlarmEditUiState(
     val audioUri: String? = null,
     val audioName: String? = null,
     val isVibrationOnly: Boolean = false,
+    val phoneVibrationEnabled: Boolean = true,
+    val watchVibrationEnabled: Boolean = true,
     val backgroundImageUri: String? = null,
     val snoozeMinutes: Int = Alarm.DEFAULT_SNOOZE_MINUTES,
     val mode: AlarmMode = AlarmMode.ABSOLUTE,
@@ -133,6 +136,29 @@ class AlarmEditViewModel @Inject constructor(
     }
 
     fun toggleVibrationOnly() = mutate { it.copy(isVibrationOnly = !it.isVibrationOnly) }
+
+    // 1.0.6: independent per-device vibration switches. Enabling either while the
+    // (legacy) pattern is OFF coerces it to a real default so the pattern picker
+    // shows a selection.
+    fun togglePhoneVibration() = mutate {
+        val on = !it.phoneVibrationEnabled
+        val pattern = if (on && it.vibrationPattern == VibrationPattern.OFF) {
+            VibrationPattern.DEFAULT
+        } else {
+            it.vibrationPattern
+        }
+        it.copy(phoneVibrationEnabled = on, vibrationPattern = pattern)
+    }
+
+    fun toggleWatchVibration() = mutate {
+        val on = !it.watchVibrationEnabled
+        val pattern = if (on && it.vibrationPattern == VibrationPattern.OFF) {
+            VibrationPattern.DEFAULT
+        } else {
+            it.vibrationPattern
+        }
+        it.copy(watchVibrationEnabled = on, vibrationPattern = pattern)
+    }
 
     fun updateSnoozeMinutes(minutes: Int) = mutate {
         // SNOOZE_DISABLED (0) is a sentinel meaning "snooze is off"; anything
@@ -297,6 +323,8 @@ class AlarmEditViewModel @Inject constructor(
             selfDestruct = selfDestruct,
             backgroundImageUri = s.backgroundImageUri,
             vibrationPattern = s.vibrationPattern,
+            phoneVibrationEnabled = s.phoneVibrationEnabled,
+            watchVibrationEnabled = s.watchVibrationEnabled,
             volumeRampSeconds = s.volumeRampSeconds.coerceIn(0, Alarm.MAX_VOLUME_RAMP_SECONDS),
             maxSnoozeCount = when {
                 s.maxSnoozeCount <= Alarm.MAX_SNOOZE_COUNT_UNLIMITED -> Alarm.MAX_SNOOZE_COUNT_UNLIMITED
@@ -315,6 +343,8 @@ class AlarmEditViewModel @Inject constructor(
         audioUri = alarm.audioUri,
         audioName = alarm.audioName,
         isVibrationOnly = alarm.isVibrationOnly,
+        phoneVibrationEnabled = alarm.phoneVibrationEnabled,
+        watchVibrationEnabled = alarm.watchVibrationEnabled,
         backgroundImageUri = alarm.backgroundImageUri,
         snoozeMinutes = alarm.snoozeMinutes,
         mode = if (alarm.isRelative) AlarmMode.RELATIVE else AlarmMode.ABSOLUTE,

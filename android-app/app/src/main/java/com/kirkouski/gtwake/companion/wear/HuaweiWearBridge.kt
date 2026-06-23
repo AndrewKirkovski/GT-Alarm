@@ -7,6 +7,9 @@ import com.huawei.wearengine.HiWear
 import com.huawei.wearengine.auth.AuthCallback
 import com.huawei.wearengine.auth.Permission
 import com.huawei.wearengine.device.Device
+import com.huawei.wearengine.monitor.MonitorClient
+import com.huawei.wearengine.monitor.MonitorItem
+import com.huawei.wearengine.monitor.MonitorListener
 import com.huawei.wearengine.p2p.Message
 import com.huawei.wearengine.p2p.P2pClient
 import com.huawei.wearengine.p2p.PingCallback
@@ -80,8 +83,29 @@ class HuaweiWearBridge @Inject constructor(
     private val _pairedDeviceInfo = MutableStateFlow<PairedDeviceInfo?>(null)
     override val pairedDeviceInfo: StateFlow<PairedDeviceInfo?> = _pairedDeviceInfo.asStateFlow()
 
+    // Connection-status monitor (event-driven, no polling). Obtained lazily so
+    // non-HMS devices never touch it. The listener is light: each change event
+    // just re-runs the authoritative getBondedDevices() query, because the
+    // monitor payload's int mapping is undocumented (verified by decompiling the
+    // pinned AAR). Registered for the UI's lifetime only — never a bg service.
+    private val monitorClient: MonitorClient by lazy { HiWear.getMonitorClient(context) }
+
+    @Volatile
+    private var connectionMonitor: MonitorListener? = null
+
+    // Per-connection bg-delivery guard (see WearBridgeService.markBgDelivered).
+    // Reset to null on any disconnect so a fresh connection re-delivers once.
+    @Volatile
+    private var deliveredBgHash: String? = null
+
     @Volatile
     private var incomingHandler: IncomingMessageHandler? = null
+
+    // F4 default-watch-bg reconciler. Registered by GtAlarmApp (the bridge
+    // can't hold AlarmRepository — that would be a DI cycle). Invoked from
+    // persistWatchScreen with the marker the watch reported in watch_screen.bg.
+    @Volatile
+    private var watchBgReconciler: (suspend (String) -> Unit)? = null
 
     @Volatile
     private var attachJob: Job? = null
@@ -110,6 +134,15 @@ class HuaweiWearBridge @Inject constructor(
     @Volatile
     private var screenRequestInFlightUntilMs: Long = 0L
 
+    // Set on a fresh (re)connect so the NEXT screen handshake bypasses the
+    // model gate once. Without it, screen_request only fires when the bonded
+    // model changes, so the F4 bg reconcile (which rides the watch_screen
+    // reply) never re-runs after a watch reset that kept the same model — the
+    // image would stay lost. A reconnect always re-resolves pairedDevice, so
+    // that's our "watch may have been reset" signal.
+    @Volatile
+    private var forceScreenRefresh: Boolean = false
+
     private val p2pClient: P2pClient by lazy {
         HiWear.getP2pClient(context)
             .setPeerPkgName(PEER_PKG_NAME)
@@ -125,6 +158,23 @@ class HuaweiWearBridge @Inject constructor(
     private val pendingHashRequest =
         java.util.concurrent.atomic.AtomicReference<CompletableDeferred<String>?>(null)
     private val pendingHashMutex = Mutex()
+
+    // Pending bg-file → `bg_received` app-level ack. The watch's file handler
+    // sends `bg_received` with the hash AFTER it actually stores the file, which
+    // is the only proof the JS layer processed it (207 only means the Wear
+    // Engine layer accepted delivery — the watch app may have terminated mid-
+    // send). uploadDefaultWatchBackground retries until this resolves.
+    private val pendingBgAck =
+        java.util.concurrent.atomic.AtomicReference<Pair<String, CompletableDeferred<Unit>>?>(null)
+
+    // App-level ack for the file-based full-state replace (the alarm list sent as
+    // a FILE when it exceeds the text-message ceiling — see pushFileReplace). The
+    // watch sends `alarms_received` with the file's hash AFTER it parses + stores
+    // the list, which is the only proof the JS layer applied it (207 only means
+    // Wear Engine accepted delivery; the thin-client watch may terminate mid-send
+    // before its receiver activated). pushFileReplace retries until this resolves.
+    private val pendingAlarmsAck =
+        java.util.concurrent.atomic.AtomicReference<Pair<String, CompletableDeferred<Unit>>?>(null)
 
     // Pending alarm_fired → alarm_ringing round-trip. AlarmRingService
     // calls sendAlarmFiredAwaiting BEFORE starting phone audio; the watch
@@ -251,6 +301,36 @@ class HuaweiWearBridge @Inject constructor(
             // entry and exit; never reaches the LWW handler.
             if (json.optString("type") == "watch_log_batch") {
                 expandWatchLogBatch(json)
+                return@launch
+            }
+            // App-level bg-file ack — the watch confirms its file handler stored
+            // the image. Resolve the matching upload's pending wait so it stops
+            // retrying. Meta envelope (no alarmId) — handled raw before parse.
+            if (json.optString("type") == "bg_received") {
+                val ackHash = json.optString("hash")
+                val pending = pendingBgAck.get()
+                if (pending != null && pending.first == ackHash && !pending.second.isCompleted) {
+                    pendingBgAck.compareAndSet(pending, null)
+                    pending.second.complete(Unit)
+                    Log.i(TAG, "bg_received ack hash=$ackHash — watch confirmed")
+                } else {
+                    Log.d(TAG, "bg_received ack hash=$ackHash (no matching pending)")
+                }
+                return@launch
+            }
+            // App-level alarm-list-file ack — the watch confirms it parsed + stored
+            // the file-delivered full replace. Resolve the matching pushFileReplace
+            // wait so it stops retrying. Meta envelope (no alarmId) — handled raw.
+            if (json.optString("type") == "alarms_received") {
+                val ackHash = json.optString("hash")
+                val pending = pendingAlarmsAck.get()
+                if (pending != null && pending.first == ackHash && !pending.second.isCompleted) {
+                    pendingAlarmsAck.compareAndSet(pending, null)
+                    pending.second.complete(Unit)
+                    Log.i(TAG, "alarms_received ack hash=$ackHash — watch confirmed")
+                } else {
+                    Log.d(TAG, "alarms_received ack hash=$ackHash (no matching pending)")
+                }
                 return@launch
             }
             val parsed = WearJsonCodec.parseIncoming(json)
@@ -530,64 +610,99 @@ class HuaweiWearBridge @Inject constructor(
     //      the file name (incl. extension), so the watch's <image src>
     //      sees the right format. Per memory:wear_engine_lite_facts
     //      §setdesc-fix, setDescription takes a String.
-    @Suppress("ReturnCount", "TooGenericExceptionCaught")
-    // reason: ReturnCount — 5 returns reflect 5 distinct early-out states
-    //   (file missing, file empty, no device, peer not running, send result),
-    //   each with its own diagnostic log. A result-variable rewrite would
-    //   need a sentinel value and double-deep nesting for no readability win.
-    // reason: TooGenericExceptionCaught — the Wear Engine sendOnce throws
-    //   RemoteException / IllegalStateException / SecurityException under
-    //   the RuntimeException umbrella across vendor-skin variants; catching
-    //   narrower would let real failures unwind into the AppScope and lose
-    //   the invalidateAndMarkError() side-effect.
+    // reason: ReturnCount — early-out on missing/empty file, no paired device,
+    // and the success return inside the retry loop are each a distinct outcome.
+    // (The sendOnce try/catch now lives in sendBgFileAndAwaitAck, which carries
+    // its own TooGenericExceptionCaught suppression.)
+    @Suppress("ReturnCount")
     override suspend fun uploadDefaultWatchBackground(bgFile: java.io.File): Boolean {
-        if (!bgFile.exists()) {
-            Log.w(TAG, "uploadDefaultWatchBackground: file missing at ${bgFile.absolutePath}")
+        if (!bgFile.exists() || bgFile.length() == 0L) {
+            Log.w(TAG, "uploadDefaultWatchBackground: file missing/empty at ${bgFile.absolutePath}")
             return false
         }
-        if (bgFile.length() == 0L) {
-            Log.w(TAG, "uploadDefaultWatchBackground: file empty")
-            return false
+        // Hash for the app-level ack match — the file is named bgd_<hash>.<ext>.
+        val hash = bgFile.name.removePrefix("bgd_").substringBeforeLast(".")
+        // Retry until the watch's JS file handler ACKs (bg_received). 207 only
+        // means the Wear Engine layer accepted it; this thin-client watch
+        // terminates after each sync and its receiver takes ~2 s to go live, so
+        // a single send routinely lands on a dead/not-yet-ready app. Each retry
+        // re-launches (force-wake) AND re-arms the watch's drain timer, keeping
+        // it alive until a send lands and it confirms.
+        var attempt = 0
+        while (attempt < BG_UPLOAD_MAX_ATTEMPTS) {
+            attempt++
+            val device = ensurePairedDevice() ?: return false
+            if (ensurePeerAppRunning(device, force = true)) {
+                if (sendBgFileAndAwaitAck(device, bgFile, hash, attempt)) return true
+            } else {
+                Log.w(TAG, "uploadDefaultWatchBackground: peer not running (attempt=$attempt)")
+            }
         }
-        val device = ensurePairedDevice() ?: return false
-        // force=true: bypass the "app running" cache and do a real
-        // wake-and-poll-to-202. A settings-time background change usually
-        // happens while the watch app is asleep; a stale cache hit would
-        // let the file send into the void (delivered to nothing), which is
-        // why the image only landed after a home-screen forceSync — that
-        // path hard-wakes the same way.
-        if (!ensurePeerAppRunning(device, force = true)) {
-            Log.w(TAG, "uploadDefaultWatchBackground: peer not running")
-            return false
-        }
-        val msg = Message.Builder()
-            .setPayload(bgFile)
-            .setDescription(bgFile.name)
-            .build()
-        val ok = try {
+        Log.w(TAG, "uploadDefaultWatchBackground failed: no ack after $BG_UPLOAD_MAX_ATTEMPTS attempts")
+        return false
+    }
+
+    // reason: TooGenericExceptionCaught — sendOnce surfaces every transport
+    // failure as WearEngineException (RuntimeException); a narrower catch would
+    // miss real 206/binder errors.
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun sendBgFileAndAwaitAck(
+        device: Device,
+        bgFile: java.io.File,
+        hash: String,
+        attempt: Int,
+    ): Boolean {
+        val ackDeferred = CompletableDeferred<Unit>()
+        val pair = hash to ackDeferred
+        pendingBgAck.set(pair)
+        val msg = Message.Builder().setPayload(bgFile).setDescription(bgFile.name).build()
+        val sent = try {
             sendOnce(device, msg)
         } catch (e: RuntimeException) {
-            Log.w(TAG, "uploadDefaultWatchBackground threw: ${e.message}", e)
+            Log.w(TAG, "uploadDefaultWatchBackground threw (attempt=$attempt): ${e.message}")
             invalidateAndMarkError()
             false
         }
-        if (ok) {
-            Log.i(TAG, "uploadDefaultWatchBackground delivered ${bgFile.name} (${bgFile.length()}B)")
-        } else {
-            Log.w(TAG, "uploadDefaultWatchBackground NOT delivered")
+        if (!sent) {
             invalidateAndMarkError()
+            pendingBgAck.compareAndSet(pair, null)
+            return false
         }
-        return ok
+        Log.i(TAG, "uploadDefaultWatchBackground sent ${bgFile.name} attempt=$attempt — awaiting ack")
+        val acked = withTimeoutOrNull(BG_ACK_TIMEOUT_MS) { ackDeferred.await() } != null
+        pendingBgAck.compareAndSet(pair, null)
+        if (acked) {
+            Log.i(TAG, "uploadDefaultWatchBackground confirmed ${bgFile.name} after $attempt attempt(s)")
+        } else {
+            Log.w(TAG, "uploadDefaultWatchBackground no ack (attempt=$attempt) — retrying")
+        }
+        return acked
     }
 
     override fun sendDefaultWatchBackgroundCleared() {
         val now = System.currentTimeMillis()
         if (!validateStamp("sendDefaultWatchBackgroundCleared", now)) return
-        sendJson(JSONObject().apply {
+        val envelope = JSONObject().apply {
             put("type", "watch_default_bg_cleared")
             put("updatedAtEpoch", now)
-        })
+        }
+        // Do NOT force-wake. Cold-waking the watch with only this envelope (no
+        // sync_replace/sync_done) strands it on the 'sync' screen. Send
+        // best-effort to an already-running watch; if it's asleep, the
+        // reconcile-on-next-connect (watch awake during forceSync) propagates
+        // the clear. retryOnError still covers a transient transport error.
+        scope.launch { performSend(envelope, retryOnError = true) }
+        // The watch no longer holds our image — allow a re-deliver if the user
+        // re-picks the same one.
+        deliveredBgHash = null
     }
+
+    override fun markBgDelivered(hash: String) {
+        deliveredBgHash = hash
+    }
+
+    override fun bgAlreadyDeliveredThisConnection(hash: String): Boolean =
+        deliveredBgHash == hash
 
     override fun sendSettingsChanged(use24Hour: Boolean?, firstDayOfWeek: Int?) {
         val now = System.currentTimeMillis()
@@ -618,6 +733,95 @@ class HuaweiWearBridge @Inject constructor(
         } else {
             attachJob = null
             scope.launch { detachReceiver() }
+        }
+    }
+
+    override fun setWatchBgReconciler(reconciler: (suspend (reportedMarker: String) -> Unit)?) {
+        watchBgReconciler = reconciler
+    }
+
+    override fun refreshWatchConnection() {
+        scope.launch { seedConnectionStatus() }
+    }
+
+    override fun startConnectionMonitor() {
+        scope.launch {
+            seedConnectionStatus()
+            registerConnectionMonitor()
+        }
+    }
+
+    override fun stopConnectionMonitor() {
+        val listener = connectionMonitor ?: return
+        connectionMonitor = null
+        scope.launch { awaitTask("unregisterConnectionMonitor") { monitorClient.unregister(listener) } }
+    }
+
+    // Authoritative, low-traffic connection read that seeds/refreshes statusFlow.
+    // getBondedDevices() queries Huawei Health's pairing service ON THE PHONE —
+    // NOT a P2P round-trip to the watch — so it costs zero watch traffic and
+    // never pings. This is the single signal every status UI reads.
+    // Single chokepoint for status changes so EVERY transition is logged with a
+    // reason. This is how we diagnose the watch-bg "block vanished mid-save"
+    // class of bug: a transient CONNECTING/ERROR from a background send used to
+    // hide the conditionally-rendered block.
+    private fun setStatus(next: WatchSyncStatus, reason: String) {
+        val prev = _statusFlow.value
+        if (prev != next) {
+            Log.i(TAG, "status $prev -> $next ($reason)")
+            _statusFlow.value = next
+        }
+    }
+
+    private suspend fun seedConnectionStatus() {
+        if (!ensurePermissionGranted()) {
+            setStatus(WatchSyncStatus.NOT_CONNECTED, "seed:no-permission")
+            return
+        }
+        val devices = awaitTask("getBondedDevices(status)") {
+            HiWear.getDeviceClient(context).bondedDevices
+        }.orEmpty()
+        val connected = devices.firstOrNull { it.isConnected }
+        if (connected != null) {
+            setStatus(WatchSyncStatus.CONNECTED, "seed:bonded-connected")
+        } else {
+            // Disconnected — allow the bg to re-deliver once on reconnect.
+            deliveredBgHash = null
+            setStatus(WatchSyncStatus.NOT_CONNECTED, "seed:no-connected-device")
+        }
+        if (connected != null) {
+            _pairedDeviceInfo.value = PairedDeviceInfo(
+                displayName = normalizeDeviceLabel(connected.name, connected.model),
+                connected = true,
+            )
+        }
+    }
+
+    // reason: TooGenericExceptionCaught — getMonitorClient()/register() can throw
+    // WearEngineException (RuntimeException) / IllegalStateException on HMS
+    // hiccups; a leak would unwind the launch coroutine. The monitor is
+    // best-effort (the seed already set a correct status), so log and move on.
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun registerConnectionMonitor() {
+        if (connectionMonitor != null || !ensurePermissionGranted()) return
+        val device = awaitTask("getBondedDevices(monitor)") {
+            HiWear.getDeviceClient(context).bondedDevices
+        }.orEmpty().firstOrNull() ?: return
+        try {
+            // Don't trust the change payload (its int mapping is undocumented);
+            // use the event only as a trigger to re-run the local query.
+            val listener = MonitorListener { _, _, _ -> scope.launch { seedConnectionStatus() } }
+            connectionMonitor = listener
+            // Best-effort: awaitTask logs+swallows a register failure. If it
+            // doesn't take, the onStart seed still kept status correct, and the
+            // next onStop→onStart cycle re-registers.
+            awaitTask("registerConnectionMonitor") {
+                monitorClient.register(device, MonitorItem.MONITOR_ITEM_CONNECTION, listener)
+            }
+            Log.i(TAG, "connection monitor register attempted")
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "connection monitor setup threw: ${e.message}", e)
+            connectionMonitor = null
         }
     }
 
@@ -860,19 +1064,21 @@ class HuaweiWearBridge @Inject constructor(
             // hot — drop the "peer is running" confirmation so the next
             // send re-polls instead of trusting a stale cache hit.
             lastConfirmedRunningAtMs = 0L
-            _statusFlow.value = WatchSyncStatus.ERROR
+            setStatus(WatchSyncStatus.ERROR, "invalidate:206-or-send-throw")
+            // Connection broke — allow the bg to re-deliver once on reconnect.
+            deliveredBgHash = null
         }
     }
 
     private suspend fun ensurePairedDevice(): Device? = connectionMutex.withLock {
         pairedDevice?.let {
-            _statusFlow.value = WatchSyncStatus.CONNECTED
+            setStatus(WatchSyncStatus.CONNECTED, "ensurePaired:cached")
             return@withLock it
         }
         val candidate = if (!ensurePermissionGranted()) {
             null
         } else {
-            _statusFlow.value = WatchSyncStatus.CONNECTING
+            setStatus(WatchSyncStatus.CONNECTING, "ensurePaired:resolving")
             val devices = awaitTask("getBondedDevices") {
                 HiWear.getDeviceClient(context).bondedDevices
             }.orEmpty()
@@ -885,13 +1091,10 @@ class HuaweiWearBridge @Inject constructor(
             }
             devices.firstOrNull { it.isConnected } ?: devices.firstOrNull()
         }
-        _statusFlow.value = if (candidate == null) {
-            WatchSyncStatus.NOT_CONNECTED
-        } else if (candidate.isConnected) {
-            WatchSyncStatus.CONNECTED
-        } else {
-            WatchSyncStatus.NOT_CONNECTED
-        }
+        setStatus(
+            if (candidate?.isConnected == true) WatchSyncStatus.CONNECTED else WatchSyncStatus.NOT_CONNECTED,
+            "ensurePaired:resolved candidate=${candidate != null} connected=${candidate?.isConnected}",
+        )
         _pairedDeviceInfo.value = candidate?.let {
             PairedDeviceInfo(
                 displayName = normalizeDeviceLabel(it.name, it.model),
@@ -899,6 +1102,11 @@ class HuaweiWearBridge @Inject constructor(
             )
         }
         pairedDevice = candidate
+        // Fresh (re)connect: this branch only runs when pairedDevice was null
+        // (steady state returns early above). Flag the next screen handshake to
+        // bypass the model gate so the F4 bg reconcile re-runs even if the watch
+        // was reset without a model change.
+        if (candidate?.isConnected == true) forceScreenRefresh = true
         candidate
     }
 
@@ -989,6 +1197,9 @@ class HuaweiWearBridge @Inject constructor(
         // without the field fall back to the default phone pattern on
         // their side (PULSE) — correct degradation.
         put("vibrationPattern", alarm.vibrationPattern.name)
+        // watchVibrationEnabled (1.0.6): whether the WATCH buzzes for this alarm.
+        // Old watch builds without the field default to vibrating — correct degradation.
+        put("watchVibrationEnabled", alarm.watchVibrationEnabled)
         // maxSnoozeCount: 0 = unlimited. Old watch builds default to
         // unlimited (current behavior) — correct degradation.
         put("maxSnoozeCount", alarm.maxSnoozeCount)
@@ -1035,6 +1246,7 @@ class HuaweiWearBridge @Inject constructor(
         if (ringHints != null) {
             put("vibrationPattern", ringHints.vibrationPatternName)
             put("snoozeAllowed", ringHints.snoozeAllowed)
+            put("watchVibrationEnabled", ringHints.watchVibrationEnabled)
         }
     }
 
@@ -1144,21 +1356,29 @@ class HuaweiWearBridge @Inject constructor(
 
     /**
      * Push the phone's full alarm list to the watch as ONE authoritative
-     * `sync_replace` envelope. Unlike the legacy per-alarm `alarm_added`
-     * burst, this PRUNES watch-only rows (the watch replaces its store
-     * wholesale), so the hash converges. Falls back to the additive
-     * burst only if the serialized payload would exceed the 4 KiB cap.
+     * `sync_replace`. Unlike the legacy per-alarm `alarm_added` burst, this
+     * PRUNES watch-only rows (the watch replaces its store wholesale), so the
+     * hash converges. Small lists go as a TEXT message; lists over the
+     * text-message ceiling ([SYNC_REPLACE_MAX_BYTES]) go as a FILE transfer
+     * ([pushFileReplace]) which has no ~1 KB limit. The additive burst is only a
+     * last-ditch fallback if the file path itself fails (it cannot prune).
      */
     private suspend fun pushFullReplace(alarms: List<Alarm>): ForceSyncResult {
         val envelope = buildSyncReplaceEnvelope(alarms)
         val sizeBytes = envelope.toString().toByteArray(Charsets.UTF_8).size
         if (sizeBytes > SYNC_REPLACE_MAX_BYTES) {
-            Log.w(
+            Log.i(
                 TAG,
-                "forceSync: sync_replace ${sizeBytes}B over ${SYNC_REPLACE_MAX_BYTES}B cap " +
-                    "— falling back to additive alarm_added push (cannot prune)",
+                "forceSync: sync_replace ${sizeBytes}B over ${SYNC_REPLACE_MAX_BYTES}B text cap " +
+                    "— sending as file transfer (n=${alarms.size})",
             )
-            return pushAdditive(alarms)
+            val fileResult = pushFileReplace(alarms)
+            return if (fileResult is ForceSyncResult.Ok) {
+                fileResult
+            } else {
+                Log.w(TAG, "forceSync: file replace failed ($fileResult) — additive fallback")
+                pushAdditive(alarms)
+            }
         }
         val delivered = performSend(envelope, retryOnError = true)
         Log.i(TAG, "forceSync done sync_replace ${sizeBytes}B delivered=$delivered n=${alarms.size}")
@@ -1167,6 +1387,87 @@ class HuaweiWearBridge @Inject constructor(
         } else {
             ForceSyncResult.Error("Watch comm failed (sync_replace not delivered)")
         }
+    }
+
+    /**
+     * Send the full-state replace as a Wear Engine FILE transfer (no ~1 KB text-
+     * message limit). Mirrors the background-image upload: write the same
+     * `sync_replace` JSON to a temp file `alarms_<hash>.json`, send it, and retry
+     * until the watch's JS handler ACKs (`alarms_received`) — 207 only means the
+     * transport accepted it, and the thin-client watch may terminate before its
+     * receiver activates. The watch replaces its store wholesale + tombstones the
+     * dropped ids, so this still prunes. The temp file is removed on every exit.
+     */
+    private suspend fun pushFileReplace(alarms: List<Alarm>): ForceSyncResult {
+        val hash = AlarmHash.compute(alarms)
+        val file = writeAlarmsSyncFile(buildSyncReplaceEnvelope(alarms).toString(), hash)
+            ?: return ForceSyncResult.Error("Failed to stage alarm-sync file")
+        return try {
+            var attempt = 0
+            var result: ForceSyncResult = ForceSyncResult.Error("Watch comm failed (alarms file not acked)")
+            while (attempt < BG_UPLOAD_MAX_ATTEMPTS && result !is ForceSyncResult.Ok) {
+                attempt++
+                val device = ensurePairedDevice()
+                if (device != null && ensurePeerAppRunning(device, force = true)) {
+                    if (sendAlarmsFileAndAwaitAck(device, file, hash, alarms.size, attempt)) {
+                        result = ForceSyncResult.Ok(alarms.size)
+                    }
+                } else {
+                    Log.w(TAG, "pushFileReplace: peer not running (attempt=$attempt)")
+                }
+            }
+            Log.i(TAG, "pushFileReplace done result=$result n=${alarms.size}")
+            result
+        } finally {
+            runCatching { file.delete() }
+        }
+    }
+
+    // reason: TooGenericExceptionCaught — sendOnce surfaces every transport
+    // failure as WearEngineException (RuntimeException); a narrower catch would
+    // miss real 206/binder errors. Mirrors sendBgFileAndAwaitAck.
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun sendAlarmsFileAndAwaitAck(
+        device: Device,
+        file: java.io.File,
+        hash: String,
+        n: Int,
+        attempt: Int,
+    ): Boolean {
+        val ackDeferred = CompletableDeferred<Unit>()
+        val pair = hash to ackDeferred
+        pendingAlarmsAck.set(pair)
+        val msg = Message.Builder().setPayload(file).setDescription(file.name).build()
+        val sent = try {
+            sendOnce(device, msg)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "pushFileReplace send threw (attempt=$attempt): ${e.message}")
+            invalidateAndMarkError()
+            false
+        }
+        if (!sent) {
+            invalidateAndMarkError()
+            pendingAlarmsAck.compareAndSet(pair, null)
+            return false
+        }
+        Log.i(TAG, "pushFileReplace sent ${file.name} n=$n attempt=$attempt — awaiting ack")
+        val acked = withTimeoutOrNull(BG_ACK_TIMEOUT_MS) { ackDeferred.await() } != null
+        pendingAlarmsAck.compareAndSet(pair, null)
+        if (acked) {
+            Log.i(TAG, "pushFileReplace confirmed n=$n after $attempt attempt(s)")
+        } else {
+            Log.w(TAG, "pushFileReplace no ack (attempt=$attempt) — retrying")
+        }
+        return acked
+    }
+
+    // Stage the sync_replace JSON to a private cache file named with the list's
+    // AlarmHash, so the watch can echo that hash back as the app-level ack.
+    private fun writeAlarmsSyncFile(json: String, hash: String): java.io.File? = try {
+        java.io.File(context.cacheDir, "alarms_$hash.json").apply { writeText(json, Charsets.UTF_8) }
+    } catch (e: java.io.IOException) {
+        Log.w(TAG, "writeAlarmsSyncFile failed: ${e.message}")
+        null
     }
 
     /**
@@ -1237,11 +1538,16 @@ class HuaweiWearBridge @Inject constructor(
         val model = _pairedDeviceInfo.value?.displayName.orEmpty()
         if (model.isBlank()) return
         val cached = settingsStore.snapshot()
-        if (model == cached.watchScreenModel && cached.watchScreenWidth > 0) return
+        // Normally skip once we've measured THIS model. A fresh-reconnect refresh
+        // re-asks anyway so the watch_screen reply (with its bg marker) drives the
+        // F4 reconcile after a watch reset that kept the same model.
+        val refresh = forceScreenRefresh
+        if (!refresh && model == cached.watchScreenModel && cached.watchScreenWidth > 0) return
         val now = System.currentTimeMillis()
         if (now < screenRequestInFlightUntilMs) return
         screenRequestInFlightUntilMs = now + SCREEN_REQUEST_DEBOUNCE_MS
-        Log.i(TAG, "screen_request (model='$model' cached='${cached.watchScreenModel}')")
+        forceScreenRefresh = false
+        Log.i(TAG, "screen_request (model='$model' cached='${cached.watchScreenModel}' refresh=$refresh)")
         performSend(JSONObject().apply { put("type", "screen_request") }, retryOnError = false)
     }
 
@@ -1251,13 +1557,34 @@ class HuaweiWearBridge @Inject constructor(
     // key would never satisfy the gate, re-requesting forever. The next
     // forceSync (with a resolved model) re-asks and persists correctly.
     private suspend fun persistWatchScreen(msg: IncomingMessage.WatchScreen) {
+        // F4 bg reconcile is independent of the screen-model gate — run it
+        // whether or not we can key the screen dims. The marker tells us if
+        // the watch holds the same default bg the phone last uploaded.
+        reconcileWatchBgMarker(msg.bgMarker)
         val model = _pairedDeviceInfo.value?.displayName.orEmpty()
         if (model.isBlank()) {
             Log.w(TAG, "watch_screen ${msg.width}x${msg.height} dropped — no bonded model to key on")
             return
         }
-        Log.i(TAG, "watch_screen ${msg.width}x${msg.height} ${msg.shape} model='$model'")
+        Log.i(TAG, "watch_screen ${msg.width}x${msg.height} ${msg.shape} bg='${msg.bgMarker}' model='$model'")
         settingsStore.setWatchScreen(msg.width, msg.height, msg.shape, model)
+    }
+
+    // reason: TooGenericExceptionCaught — the reconciler closure runs
+    // repository code (encode + file I/O + Wear Engine send) that can surface
+    // RuntimeException/IOException across OEM codecs; a leak here would unwind
+    // into the receiver's coroutine and drop the rest of the watch_screen
+    // handling. Reconcile is best-effort; log and move on.
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun reconcileWatchBgMarker(marker: String) {
+        val reconciler = watchBgReconciler ?: return
+        try {
+            reconciler(marker)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "reconcileWatchBgMarker threw: ${e.message}", e)
+        } catch (e: java.io.IOException) {
+            Log.w(TAG, "reconcileWatchBgMarker I/O: ${e.message}", e)
+        }
     }
 
     // reason: ForbiddenVoid suppressed because Task<Void> is the Huawei SDK
@@ -1419,10 +1746,24 @@ class HuaweiWearBridge @Inject constructor(
         // window re-asks (matches the fire-and-forget fallback).
         const val SCREEN_REQUEST_DEBOUNCE_MS = 5_000L
 
-        // Hard cap for the single sync_replace payload (UTF-8 bytes),
-        // matching the 4 KiB control-message cap in sync-architecture.md
-        // §2.1. A realistic ≤12-alarm list is well under 2 KiB; over the
-        // cap, forceSync falls back to the additive alarm_added burst.
-        const val SYNC_REPLACE_MAX_BYTES = 4096
+        // Bg-file upload: retry until the watch's JS handler ACKs (bg_received).
+        // The thin-client watch terminates after each sync and its receiver
+        // takes ~2 s to go live, so a send routinely lands on a dead/not-ready
+        // app. Each attempt re-launches + keeps the watch alive; the timeout is
+        // long enough for the receiver to activate, short enough to retry while
+        // the watch is still in its post-launch drain window.
+        const val BG_ACK_TIMEOUT_MS = 4_000L
+        const val BG_UPLOAD_MAX_ATTEMPTS = 6
+
+        // Ceiling (UTF-8 bytes) for sending the full-state replace as a P2P
+        // TEXT message. Empirically the Wear Engine text-message limit on this
+        // Lite-Wearable pairing is ~1 KB: a 3-alarm/817 B replace round-trips,
+        // a 4-alarm/1068 B one is accepted by the transport (207) but truncated
+        // before the watch's JSON.parse — the watch silently keeps its prior
+        // state and the hashes never converge (the >3-alarm sync bug). 768 B is
+        // a conservative cutoff below the largest proven-good size (817 B). Over
+        // the cap, the replace is sent as a FILE transfer (pushFileReplace) which
+        // has no such limit. The old 4096 value sat ~4× above the real ceiling.
+        const val SYNC_REPLACE_MAX_BYTES = 768
     }
 }

@@ -17,7 +17,9 @@
     <string name="field_audio">Dźwięk</string>
     <string name="field_audio_default">Systemowy</string>
     <string name="field_audio_pick">Wybierz…</string>
-    <string name="field_vibration_only">Tylko wibracja</string>
+    <string name="field_sound">Dźwięk</string>
+    <string name="field_phone_vibration">Wibracja telefonu</string>
+    <string name="field_watch_vibration">Wibracja zegarka</string>
     <string name="field_snooze_minutes">Czas drzemki</string>
     <string name="field_snooze_minutes_value">%1$d min</string>
     <string name="delete">Usuń</string>

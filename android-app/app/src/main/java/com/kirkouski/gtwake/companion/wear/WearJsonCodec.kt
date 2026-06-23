@@ -110,12 +110,17 @@ internal object WearJsonCodec {
             return null
         }
         val shape = if (json.optString("shape", "") == "rect") "rect" else "circle"
+        // F4: the watch reports the content hash of the default bg it currently
+        // holds (`bg`); absent/empty = no bg / received file missing. Default ""
+        // so older watch builds without the field reconcile as "no marker".
+        val bgMarker = json.optString("bg", "")
         return IncomingMessage.WatchScreen(
             alarmId = 0L,
             updatedAtEpoch = json.optLong("updatedAtEpoch", System.currentTimeMillis()),
             width = width,
             height = height,
             shape = shape,
+            bgMarker = bgMarker,
         )
     }
 
@@ -243,6 +248,10 @@ internal object WearJsonCodec {
                     null
                 },
             ),
+            // 1.0.6: per-watch vibration enable (default true for old peers).
+            // phoneVibrationEnabled is phone-only and not on the wire → keeps its
+            // Alarm() default here.
+            watchVibrationEnabled = j.optBoolean("watchVibrationEnabled", true),
             volumeRampSeconds = j.optInt("volumeRampSeconds", 0)
                 .coerceIn(0, Alarm.MAX_VOLUME_RAMP_SECONDS),
             maxSnoozeCount = j.optInt("maxSnoozeCount", Alarm.MAX_SNOOZE_COUNT_UNLIMITED).let {

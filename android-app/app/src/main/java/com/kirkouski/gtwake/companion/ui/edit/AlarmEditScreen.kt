@@ -290,9 +290,12 @@ fun AlarmEditScreen(
                     )
                     HorizontalDivider(thickness = 0.5.dp, color = divider)
 
-                    // Vibration-only gates audio; keep the two controls adjacent.
-                    VibrationOnlyRow(
-                        checked = state.isVibrationOnly,
+                    // Sound (phone) — on/off; reveals the tone picker when on.
+                    // "Silent" is the emergent state of all three switches off.
+                    ToggleRow(
+                        iconRes = R.drawable.ic_music_note,
+                        labelRes = R.string.field_sound,
+                        checked = !state.isVibrationOnly,
                         onToggle = vm::toggleVibrationOnly,
                     )
                     HorizontalDivider(thickness = 0.5.dp, color = divider)
@@ -354,12 +357,32 @@ fun AlarmEditScreen(
                     }
                     HorizontalDivider(thickness = 0.5.dp, color = divider)
 
-                    // Vibration pattern
-                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                        VibrationPatternRow(
-                            value = state.vibrationPattern,
-                            onChange = vm::updateVibrationPattern,
-                        )
+                    // Phone vibration on/off
+                    ToggleRow(
+                        iconRes = R.drawable.ic_vibration,
+                        labelRes = R.string.field_phone_vibration,
+                        checked = state.phoneVibrationEnabled,
+                        onToggle = vm::togglePhoneVibration,
+                    )
+                    HorizontalDivider(thickness = 0.5.dp, color = divider)
+                    // Watch vibration on/off
+                    ToggleRow(
+                        iconRes = R.drawable.ic_watch,
+                        labelRes = R.string.field_watch_vibration,
+                        checked = state.watchVibrationEnabled,
+                        onToggle = vm::toggleWatchVibration,
+                    )
+
+                    // Vibration pattern (shared by phone + watch) — shown only
+                    // when at least one device vibrates.
+                    if (state.phoneVibrationEnabled || state.watchVibrationEnabled) {
+                        HorizontalDivider(thickness = 0.5.dp, color = divider)
+                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                            VibrationPatternRow(
+                                value = state.vibrationPattern,
+                                onChange = vm::updateVibrationPattern,
+                            )
+                        }
                     }
 
                     // Volume ramp (hidden when vibration-only)
@@ -625,7 +648,12 @@ private fun LabelUnderlineField(value: String, onValueChange: (String) -> Unit) 
 }
 
 @Composable
-private fun VibrationOnlyRow(checked: Boolean, onToggle: () -> Unit) {
+private fun ToggleRow(
+    iconRes: Int,
+    labelRes: Int,
+    checked: Boolean,
+    onToggle: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -633,13 +661,13 @@ private fun VibrationOnlyRow(checked: Boolean, onToggle: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            painter = painterResource(R.drawable.ic_vibration),
+            painter = painterResource(iconRes),
             contentDescription = null,
             tint = Color.Unspecified,
             modifier = Modifier.padding(end = 12.dp).size(24.dp),
         )
         Text(
-            text = stringResource(R.string.field_vibration_only),
+            text = stringResource(labelRes),
             modifier = Modifier.weight(1f),
         )
         Switch(
@@ -913,7 +941,11 @@ private fun VibrationPatternRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.horizontalScroll(rememberScrollState()),
         ) {
-            com.kirkouski.gtwake.companion.domain.VibrationPattern.entries.forEach { pattern ->
+            // OFF is retired in 1.0.6 (vibration on/off is now a per-device switch);
+            // the picker only offers real patterns.
+            com.kirkouski.gtwake.companion.domain.VibrationPattern.entries
+                .filter { it != com.kirkouski.gtwake.companion.domain.VibrationPattern.OFF }
+                .forEach { pattern ->
                 PatternChip(
                     label = stringResource(patternLabelRes(pattern)),
                     selected = pattern == value,

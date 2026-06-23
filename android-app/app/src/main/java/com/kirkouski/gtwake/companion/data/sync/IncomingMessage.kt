@@ -103,11 +103,18 @@ sealed class IncomingMessage {
     // watch's report time — used only for logging, not LWW. Handled before
     // the LWW epoch gate in IncomingMessageHandler. `shape` is "circle" |
     // "rect" (mirrors getInfo screenShape + watch screen.js).
+    // [bgMarker] (F4) = the content hash of the default background the watch
+    // currently holds, parsed from the `bg` field. Empty string means the
+    // watch has no bg / its received file is missing. The phone reconciles
+    // this against its last-uploaded hash: re-upload on mismatch (auto-restore
+    // after watch reset + never-send-mismatch), or send a clear when the phone
+    // has no default bg but the watch reports one.
     data class WatchScreen(
         override val alarmId: Long,
         override val updatedAtEpoch: Long,
         val width: Int,
         val height: Int,
         val shape: String,
+        val bgMarker: String,
     ) : IncomingMessage()
 }

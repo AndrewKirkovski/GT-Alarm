@@ -42,11 +42,13 @@
     <string name="watch_bg_picker_help" tools:ignore="MissingTranslation">Pinch to zoom, drag to position. The circle previews how it will look on your watch.</string>
     <string name="phone_bg_picker_title" tools:ignore="MissingTranslation">Crop phone background</string>
     <string name="phone_bg_picker_help" tools:ignore="MissingTranslation">Pinch to zoom, drag to position. The preview shows the real alarm UI on top.</string>
-    <string name="watch_bg_picker_pick" tools:ignore="MissingTranslation">Choose image</string>
-    <string name="watch_bg_picker_empty" tools:ignore="MissingTranslation">Tap "Choose image" to start</string>
+    <string name="watch_bg_picker_pick" tools:ignore="MissingTranslation">Change</string>
+    <string name="watch_bg_picker_empty" tools:ignore="MissingTranslation">Tap "Change" to choose an image</string>
     <string name="action_play_preview" tools:ignore="MissingTranslation">Play preview</string>
     <string name="action_stop_preview" tools:ignore="MissingTranslation">Stop preview</string>
-    <string name="field_vibration_only">Vibration only</string>
+    <string name="field_sound" tools:ignore="MissingTranslation">Sound</string>
+    <string name="field_phone_vibration" tools:ignore="MissingTranslation">Phone vibration</string>
+    <string name="field_watch_vibration" tools:ignore="MissingTranslation">Watch vibration</string>
     <string name="field_snooze_minutes">Snooze duration</string>
     <string name="field_snooze_minutes_value">%1$d min</string>
     <string name="field_snooze_off_value">Off</string>
@@ -165,7 +167,8 @@
     <string tools:ignore="MissingTranslation" name="settings_section_default_backgrounds">Default background images</string>
     <string tools:ignore="MissingTranslation" name="settings_default_backgrounds_intro">Used when an alarm doesn\'t have its own image. The phone image renders behind the lockscreen alarm; the watch image is cropped to the watch face.</string>
     <string tools:ignore="MissingTranslation" name="settings_default_phone_background">Phone alarm background</string>
-    <string tools:ignore="MissingTranslation" name="settings_default_watch_background">Watch alarm background</string>
+    <string tools:ignore="MissingTranslation" name="settings_default_watch_background">Watch background</string>
+    <string tools:ignore="MissingTranslation" name="field_watch_background_change">Change</string>
     <string tools:ignore="MissingTranslation" name="settings_default_background_none">Not set</string>
     <string tools:ignore="MissingTranslation" name="settings_default_background_set">Set</string>
     <string tools:ignore="MissingTranslation" name="settings_default_background_clear">Clear default background</string>

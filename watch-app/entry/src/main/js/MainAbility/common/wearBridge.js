@@ -421,14 +421,51 @@ export default {
     // real screen. Phone-initiated only — the watch never pushes this
     // unprompted. Fire-and-forget: if it's lost the phone re-asks on its next
     // sync (gated on the bonded model, so a known watch isn't re-pinged).
-    sendWatchScreen: function (width, height, shape) {
+    //
+    // F4: `bg` carries the content hash of the default background this watch
+    // currently holds (parsed from the received file name `bgd_<hash>.bin`),
+    // or '' when there's no bg / the received file is missing. The phone
+    // reconciles it against its last-uploaded hash to auto-restore a lost
+    // image and to never re-send a stale/mismatching one. Defaults to '' so
+    // callers that don't pass it stay wire-compatible.
+    sendWatchScreen: function (width, height, shape, bg) {
         sendJson({
             type: 'watch_screen',
             width: width,
             height: height,
             shape: shape,
+            bg: (typeof bg === 'string') ? bg : '',
             updatedAtEpoch: Date.now(),
         });
+    },
+
+    // Confirms to the phone that THIS watch's file handler actually STORED the
+    // received default-bg file (hash parsed from `bgd_<hash>.<ext>`). The phone
+    // awaits this `bg_received` ack and re-sends the file until it arrives — a
+    // 207 only means the Wear Engine layer accepted delivery, NOT that this
+    // (often just-launched / about-to-terminate) app processed it. Retry the
+    // small ack so a single drop doesn't trigger a full file re-upload.
+    sendBgReceived: function (hash) {
+        sendJsonWithRetry({
+            type: 'bg_received',
+            hash: '' + hash,
+            updatedAtEpoch: Date.now(),
+        }, 3, 1);
+    },
+
+    // Confirms to the phone that THIS watch parsed + stored a file-delivered
+    // full-state replace (the alarm list, sent as a FILE when it exceeds the
+    // ~1 KB text-message ceiling — see HuaweiWearBridge.pushFileReplace). The
+    // phone awaits this `alarms_received` ack (hash echoed from `alarms_<hash>.
+    // json`) and re-sends until it arrives; a 207 only means Wear Engine accepted
+    // delivery, NOT that this (often just-launched / about-to-terminate) app
+    // applied it. Retry the small ack so a single drop doesn't re-send the file.
+    sendAlarmsReceived: function (hash) {
+        sendJsonWithRetry({
+            type: 'alarms_received',
+            hash: '' + hash,
+            updatedAtEpoch: Date.now(),
+        }, 3, 1);
     },
 
     // Confirms to the phone that the watch's ring page is up and

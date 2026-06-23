@@ -75,7 +75,10 @@ function canonicalize(alarms) {
             pattern + '|' +
             maxSnooze + '|' +
             volRamp + '|' +
-            strOrEmpty(a.skipNextEpoch) +
+            strOrEmpty(a.skipNextEpoch) + '|' +
+            // 1.0.6: per-watch vibration enable. Default true (matches the phone
+            // Alarm default) so old alarms without the field hash as '1'.
+            (a.watchVibrationEnabled !== false ? '1' : '0') +
             '\n';
     }
     return out;

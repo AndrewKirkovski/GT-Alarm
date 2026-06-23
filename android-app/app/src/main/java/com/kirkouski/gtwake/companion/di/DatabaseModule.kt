@@ -10,6 +10,7 @@ import com.kirkouski.gtwake.companion.data.db.MIGRATION_1_2
 import com.kirkouski.gtwake.companion.data.db.MIGRATION_2_3
 import com.kirkouski.gtwake.companion.data.db.MIGRATION_3_4
 import com.kirkouski.gtwake.companion.data.db.MIGRATION_4_5
+import com.kirkouski.gtwake.companion.data.db.MIGRATION_9_10
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -26,7 +27,9 @@ object DatabaseModule {
     fun provideDatabase(@ApplicationContext context: Context): AlarmDatabase {
         val builder: RoomDatabase.Builder<AlarmDatabase> =
             Room.databaseBuilder(context, AlarmDatabase::class.java, "gt_alarm.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(
+                    MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_9_10,
+                )
         if (BuildConfig.DEBUG) {
             // Pre-release: v5 → v6 added Alarm.backgroundImageUri; v6 → v7
             // added Alarm.watchBackgroundImageUri; v7 → v8 dropped that

@@ -132,8 +132,25 @@ JSON over P2P. Every message is a single line, single object, no nesting.
 // watch → phone: reply to screen_request. `shape` = "circle" | "rect"
 // (mirrors @system.device.getInfo screenShape). Phone persists this keyed on
 // the bonded watch model and only re-requests when that model changes.
+//
+// `bg` (F4 default-watch-bg handshake) = the content hash of the default
+// background image the watch currently holds, parsed out of the received Wear
+// Engine file name `bgd_<hash>.bin` and persisted on the watch under
+// @system.storage `bg_hash`. `bg` is "" when the watch has no default bg OR its
+// received file is missing (verified via @system.file on launch). The phone
+// reconciles `bg` against its persisted `lastUploadedWatchBgHash`:
+//   • phone HAS a default bg AND (bg=="" OR bg != lastUploadedWatchBgHash)
+//       → re-upload the CURRENT bg (auto-restore after watch reset/reinstall;
+//         never send a stale/mismatching image — always re-encode from source).
+//   • phone has NO default bg AND bg != ""
+//       → send `watch_default_bg_cleared` (watch holds an image the phone
+//         no longer has).
+// No new message type is added — the handshake rides the existing
+// screen_request / watch_screen exchange. Older watch builds omit `bg`; the
+// phone defaults it to "" (treated as a mismatch → one re-upload, then stable).
 { "type": "watch_screen", "width": <number>, "height": <number>,
-  "shape": "circle" | "rect", "updatedAtEpoch": <number> }
+  "shape": "circle" | "rect", "bg": "<8-hex hash>" | "",
+  "updatedAtEpoch": <number> }
 ```
 
 `sync_check` / `sync_hash` implement the force-sync precheck (§6). Phone sends `sync_check`, watch replies `sync_hash` with the result of `AlarmHash.compute(localAlarms)`. If the phone's local hash matches, it skips the per-alarm `alarm_added` push and surfaces `ForceSyncResult.AlreadyInSync`. Hash format is locked to 8 lowercase hex chars; receivers reject anything else.
@@ -148,9 +165,9 @@ JSON over P2P. Every message is a single line, single object, no nesting.
 
 ### 2.1 Payload-size budget
 
-**Constraint status:** open until measured on real GT 6 hardware. A Chinese-language / LiteWearable-specific research pass did not find a Huawei-published maximum byte size for `@system.wearengine` P2P message payloads. Huawei's public Wear Engine samples demonstrate both custom messages and file transfer, but they do not state a max payload size or the LiteWearable rejection/error behavior for oversized messages. Treat the transport as a small control-message pipe until proven otherwise.
+**Constraint status (MEASURED on real GT 6 Pro, 2026-06-23):** the Wear Engine P2P **text-message** ceiling is **~1 KiB**. A 3-alarm `sync_replace` of **817 B round-trips intact**; a 4-alarm one of **1068 B is accepted by the transport (returns 207 "delivered") but is truncated before the watch's `JSON.parse`** — the watch silently drops it and keeps its prior state, so the hashes never converge (this was the ">3 alarms only 3 sync" bug). No Huawei doc states the exact limit; the observed good/bad boundary is `[817 B, 1068 B)`. **File transfers are NOT subject to this** (the background image crosses as a file at tens of KiB). So the rule is: small control payloads go as text; anything that can exceed the text ceiling goes as a **file transfer**.
 
-**Project rule:** every JSON control payload MUST stay comfortably small. Target ≤ 1 KiB, hard cap 4 KiB UTF-8 encoded. Current expected sizes:
+**Project rule:** every JSON **text** control payload MUST stay under the text ceiling — hard cap [`SYNC_REPLACE_MAX_BYTES`] **= 768 B** (conservatively below the 817 B proven-good size). Payloads that scale (the full alarm list) are sent as a **file** above that cap. Current expected sizes:
 
 | message | expected UTF-8 size |
 | --- | ---: |
@@ -161,9 +178,10 @@ JSON over P2P. Every message is a single line, single object, no nesting.
 | `sync_done` | < 64 B |
 | `alarm_added` / `alarm_updated` with audio URI | < 1 KiB |
 | `watch_log_batch` (≤ 8 lines) | < 1 KiB |
-| `sync_replace` (full list, ~12 alarms) | < 2 KiB — guarded against the 4 KiB cap |
+| `sync_replace` as TEXT (≤ ~2 alarms) | < 768 B |
+| `sync_replace` as FILE (`alarms_<hash>.json`, any count) | not message-size-bound |
 
-`sync_replace` is the only payload that scales with alarm count. `HuaweiWearBridge.forceSync` checks the serialized UTF-8 length against the 4 KiB hard cap before sending; if it would exceed, it falls back to the legacy per-alarm `alarm_added` burst (which cannot prune, but stays within budget). For a realistic ≤ 12-alarm list this never triggers.
+`sync_replace` is the only payload that scales with alarm count. `HuaweiWearBridge.pushFullReplace` checks the serialized UTF-8 length against `SYNC_REPLACE_MAX_BYTES` (768 B): under it, the replace is sent as a **text message** (fast); over it, `pushFileReplace` writes the same `sync_replace` JSON to a temp file `alarms_<hash>.json` and sends it as a **Wear Engine file transfer** with the same app-level ack + retry as the background image (`pendingAlarmsAck` / watch `alarms_received`). The watch's `fileHandler` branches on the `alarms_` name, reads the file, and runs the same `applyReplace` path (validate + `replaceAll` + tombstone pruned), so the file path **still prunes** watch-only rows. The legacy per-alarm `alarm_added` burst remains only as a last-ditch fallback if the file transfer itself fails (it cannot prune). A realistic ≤ 3-alarm list already exceeds 768 B, so the file path is the normal route for multi-alarm watches; the historical 4 KiB text cap sat ~4× above the real ~1 KiB ceiling and is why >3 alarms silently failed to sync.
 
 ### 2.2 Per-alarm fields in the `alarm` payload
 
@@ -186,6 +204,7 @@ The `alarm` envelope (sent with `alarm_added` / `alarm_updated`) carries:
 | `volumeRampSeconds` | number | no (default `0`) | clamped to 0–60; `0` = no ramp |
 | `maxSnoozeCount` | number | no (default `0`) | `0` = unlimited; otherwise clamped to 1–20 |
 | `skipNextEpoch` | number\|absent | no | only present when the user has swiped-to-skip-next on a recurring alarm; `<= 0` coerces to absent on receive |
+| `watchVibrationEnabled` | boolean | no (default `true`) | **1.0.6:** whether the WATCH buzzes for this alarm — independent of `vibrationPattern` (now pattern-only; the phone editor retired the `OFF` choice in favor of per-device on/off switches). Also inlined into the `alarm_fired` hint so a cold-paired watch honors "silent on watch". The phone-side `phoneVibrationEnabled` is **not** on the wire (phone-only). |
 
 The alarm **label is phone-only** — it is never serialized into the `alarm`
 payload, never stored on the watch, and never part of `AlarmHash`. The label
@@ -206,7 +225,7 @@ The receive-side parser on the phone (`WearJsonCodec`) clamps `snoozeMinutes` wi
 Implementation requirements before real P2P is enabled:
 - Never send ringtone/audio bytes over P2P. `audioUri` is a phone-local identifier only; the watch must not dereference it. If the watch needs an audible cue, it uses a bundled watch-side tone/vibration.
 - Log outbound payload byte length in `HuaweiWearBridge` and watch-side `wearBridge.js`.
-- Add a hardware spike after AGConnect approval that sends 1 KiB, 2 KiB, 4 KiB, 8 KiB, 16 KiB, 32 KiB, and 64 KiB messages to the LiteWearable app and records success, failure code, truncation, latency, and receiver behavior. Do not raise the 4 KiB cap without that measurement.
+- **Partially measured (2026-06-23):** the text-message ceiling is ~1 KiB (817 B good, 1068 B truncated — see §2.1 constraint status). The cap is now 768 B and oversized replaces use a file transfer, so raising the *text* cap is no longer needed. A finer sweep (700/800/900/1000/1100 B throwaway messages) could pin the exact boundary, but the file path makes it non-blocking.
 
 **Alarm-id consistency:** the phone's Room PK (`Long`) and the watch's `AlarmStore` numeric id MUST refer to the same alarm. The phone is the sole id allocator (it owns scheduling, see §3); the watch only ever receives ids generated by the phone.
 
@@ -228,12 +247,26 @@ The per-alarm `watchBackgroundImageUri` field was removed in db v8 (Phase 5a). T
 
 | direction | kind | name / type | payload |
 | --- | --- | --- | --- |
-| phone → watch | P2P file (Wear Engine `Builder.setPayload(File)` + `.setDescription("bg_default.bin")`) | `bg_default.bin` | watch-rendered PNG (466 × 466, circular crop); cached on phone at `watch_bg_-1.bin` |
-| phone → watch | JSON envelope (`type: "watch_default_bg_cleared"`) | `watch_default_bg_cleared` | `{ "type": "watch_default_bg_cleared", "stamp": <epoch> }` — instructs the watch to delete its cached `bg_default.bin` |
+| phone → watch | P2P file (Wear Engine `Builder.setPayload(File)` + `.setDescription("bgd_<hash>.bin")`) | `bgd_<hash>.bin` | watch-rendered image; cached on phone at `bgd_<hash>.<ext>` (copied from the active `WatchBgTestEncoder` output) |
+| phone → watch | JSON envelope (`type: "watch_default_bg_cleared"`) | `watch_default_bg_cleared` | `{ "type": "watch_default_bg_cleared", "stamp": <epoch> }` — instructs the watch to delete its cached default bg |
 
-**Phone side** (`HuaweiWearBridge.uploadDefaultWatchBackground` + `sendDefaultWatchBackgroundCleared`): fires on `SettingsStore.defaultWatchBackgroundUri` change, gated by the watch-sync state machine (uses the same wake-and-send protocol as alarm envelopes per §2.3). The `-1L` sentinel `AlarmRepository.DEFAULT_WATCH_BG_ID` distinguishes the default-bg cache file from per-alarm ones in the phone's `WatchBackgroundCache`.
+**Hash-in-filename convention (F4).** The phone names the transferred file
+`bgd_<hash>.<ext>` where `<hash>` is the first 8 hex chars (4 bytes) of the
+SHA-256 of the encoded file bytes (`AlarmRepository.watchBgContentHash`). The
+hash rides in the Wear Engine file **name** (the bridge sends `bgFile.name` via
+`Message.Builder().setDescription(...)`). The watch parses the hash out of the
+received file name (`pages/index/index.js parseBgHash`), persists it under
+@system.storage `bg_hash`, and reports it back in the `watch_screen.bg` field.
+The phone persists the last value it uploaded as
+`SettingsStore.lastUploadedWatchBgHash` and reconciles on each `watch_screen`
+reply (see §2 `watch_screen`). The re-uploaded image is **always re-encoded
+from the current source PNG** (`watch_bg_-1.png`), never a stale cached `.bin`,
+so a watch that lost its image gets the image matching the phone's current
+selection.
 
-**Watch side (status — KNOWN GAP, deferred to Phase 0b watch rewrite):** the current `watch-app/entry/src/main/js/MainAbility/common/wearBridge.js` **ignores all incoming file messages** (`if (data.isFileType) { Logger.i('... (ignored)'); return; }`) and `incomingHandler.js` has no case for `watch_default_bg_cleared`. The phone-side scaffolding is complete and on-wire-format-stable; the watch handlers will land with the Phase 0b LiteWearable rewrite that's already replacing `watch-app/` wholesale. Until then, the default-watch-bg feature is **phone-side-only** — the file is uploaded but never rendered on the watch, and the clear envelope is silently dropped.
+**Phone side** (`HuaweiWearBridge.uploadDefaultWatchBackground` + `sendDefaultWatchBackgroundCleared` + `HuaweiWearBridge.persistWatchScreen` → `AlarmRepository.reconcileWatchBackground` via the `setWatchBgReconciler` callback): the upload fires on `SettingsStore.defaultWatchBackgroundUri` change AND on a `watch_screen` reconcile, gated by the watch-sync state machine (uses the same wake-and-send protocol as alarm envelopes per §2.3). The `-1L` sentinel `AlarmRepository.DEFAULT_WATCH_BG_ID` distinguishes the default-bg cache file from per-alarm ones. The reconciler is wired as a callback (not direct injection) because the bridge does not hold `AlarmRepository` — that would be a DI cycle.
+
+**Watch side (status — implemented):** `wearBridge.js onReceiveMessage` routes inbound file messages to a page-set `fileHandler(data.name)`; `pages/index/index.js` persists the on-watch path under @system.storage `bg_path` and the parsed hash under `bg_hash`, and on launch verifies the path with `@system.file` before restoring (a missing file clears both markers so the phone re-sends). `incomingHandler.js` handles `watch_default_bg_cleared` (drops the bg + both markers) and threads the held `bg_hash` into the `watch_screen` reply (`respondScreenRequest`). The phone reconciles that marker per §2 / F4 above.
 
 The wire shapes are pinned so they don't churn when the watch rewrite catches up; the phone code stays in place.
 
@@ -468,19 +501,22 @@ watch:  { "type": "sync_hash", "hash": "<8-hex>" }   ──►  phone
 phone:  alarms = repository.getAll()    // re-snapshot AFTER response (TOCTOU)
 phone:  localHash = AlarmHash.compute(alarms)
 phone:  if remoteHash == localHash → { sync_done } → ForceSyncResult.AlreadyInSync(n)
-phone:  else → { sync_replace, alarms:[...] } → { sync_done } → ForceSyncResult.Ok(n)
+phone:  else if textBytes ≤ 768 → { sync_replace, alarms:[...] } (TEXT) → { sync_done } → Ok(n)
+phone:  else → file alarms_<hash>.json (FILE transfer) → await { alarms_received, hash } → { sync_done } → Ok(n)
 ```
 
 The phone re-fetches its own alarm list **after** receiving the watch's response so the local hash reflects the latest DB state, not a snapshot taken before the ~2s round-trip. This closes the TOCTOU race where the user adds an alarm mid-sync and `remoteHash` accidentally matches a stale `localHash`.
 
-**On hash mismatch the phone sends ONE `sync_replace`, not a per-alarm `alarm_added` burst.** The earlier additive push could only ADD rows — it never removed watch-only rows the phone had since deleted, so the watch's set monotonically grew and the hash never converged (observed: 12 alarms on the watch vs 1 on the phone). `sync_replace` makes the watch's `AlarmStore` byte-for-byte equal the phone snapshot, so the next `sync_check` provably matches. The phone always sends `sync_done` last (both the matched and replaced paths) so the watch terminates immediately instead of lingering on the drain timer.
+**On hash mismatch the phone sends ONE full-state replace, not a per-alarm `alarm_added` burst.** The earlier additive push could only ADD rows — it never removed watch-only rows the phone had since deleted, so the watch's set monotonically grew and the hash never converged (observed: 12 alarms on the watch vs 1 on the phone). The replace makes the watch's `AlarmStore` byte-for-byte equal the phone snapshot, so the next `sync_check` provably matches.
+
+**Text vs file (the >3-alarm fix, 2026-06-23).** A `sync_replace` text message above the ~1 KiB Wear Engine text-message ceiling is silently truncated before the watch's `JSON.parse` (transport still returns 207), so a ≥4-alarm replace never landed and the watch stayed at 3 — the phone re-pushed forever (see §2.1). So `pushFullReplace` sends the replace as **text only when ≤ `SYNC_REPLACE_MAX_BYTES` (768 B)**; otherwise `pushFileReplace` stages the identical `sync_replace` JSON to `alarms_<hash>.json` and sends it as a **file transfer** with app-level ack (`alarms_received`, hash echoed from the filename) + retry — the same proven pattern as the background-image upload. The watch's `fileHandler` branches on the `alarms_` name → `applyReplaceFromFile` (validate + `replaceAll` + tombstone pruned) → acks **after** the store write commits. The phone always sends `sync_done` last so the watch terminates immediately instead of lingering on the drain timer.
 
 **Hash algorithm** — `AlarmHash.kt` on phone, `alarmHash.js` on watch. Byte-equivalent implementations:
 
 1. Sort alarms by `id` ascending.
 2. For each alarm, render a single canonical line:
    ```
-   id|hour|minute|daysOfWeek|enabled|audioUri|isVibrationOnly|snoozeMinutes|updatedAtEpoch|relativeMinutes|selfDestruct|vibrationPattern|maxSnoozeCount|volumeRampSeconds|skipNextEpoch\n
+   id|hour|minute|daysOfWeek|enabled|audioUri|isVibrationOnly|snoozeMinutes|updatedAtEpoch|relativeMinutes|selfDestruct|vibrationPattern|maxSnoozeCount|volumeRampSeconds|skipNextEpoch|watchVibrationEnabled\n
    ```
    - Booleans: `1` / `0`.
    - Null `audioUri`, null `relativeMinutes`, and null `skipNextEpoch`: empty string between the pipes.

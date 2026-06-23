@@ -64,7 +64,10 @@ object AlarmHash {
                 .append(a.vibrationPattern.name).append('|')
                 .append(a.maxSnoozeCount).append('|')
                 .append(a.volumeRampSeconds).append('|')
-                .append(a.skipNextEpoch?.toString().orEmpty())
+                .append(a.skipNextEpoch?.toString().orEmpty()).append('|')
+                // 1.0.6: per-watch vibration enable. watch-relevant → in the hash.
+                // (phoneVibrationEnabled is phone-only → intentionally excluded.)
+                .append(if (a.watchVibrationEnabled) '1' else '0')
                 .append('\n')
         }
         return sb.toString()

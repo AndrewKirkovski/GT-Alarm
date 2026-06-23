@@ -17,7 +17,9 @@
     <string name="field_audio">Звук</string>
     <string name="field_audio_default">Системный по умолчанию</string>
     <string name="field_audio_pick">Выбрать…</string>
-    <string name="field_vibration_only">Только вибрация</string>
+    <string name="field_sound">Звук</string>
+    <string name="field_phone_vibration">Вибрация телефона</string>
+    <string name="field_watch_vibration">Вибрация часов</string>
     <string name="field_snooze_minutes">Длительность откладывания</string>
     <string name="field_snooze_minutes_value">%1$d мин</string>
     <string name="delete">Удалить</string>

@@ -17,8 +17,33 @@ import kotlinx.coroutines.flow.StateFlow
 // pre-unlock variant has no live receiver.
 @Suppress("TooManyFunctions")
 interface WearBridgeService {
-    /** UI-observable connection-state stream. */
+    /** UI-observable connection-state stream. Single source of truth for every
+     *  watch-status surface (alarm-list sync card + Settings watch-bg block).
+     *  Kept authoritative by [refreshWatchConnection] (one-shot seed) plus
+     *  [startConnectionMonitor] (event-driven). */
     val statusFlow: StateFlow<WatchSyncStatus>
+
+    /**
+     * One-shot, low-traffic refresh of [statusFlow] from the LOCAL bonded-device
+     * list (`DeviceClient.getBondedDevices().isConnected`). This is a query to
+     * the phone's Huawei Health pairing service — NOT a P2P round-trip to the
+     * watch, so it costs no watch traffic and never pings. Call when a
+     * status-showing screen opens.
+     */
+    fun refreshWatchConnection()
+
+    /**
+     * Seed [statusFlow] once, then register a Wear Engine connection-status
+     * monitor (event-driven, no polling) so the status live-updates while the
+     * app's UI is alive. Idempotent. NOT a background service — pair with
+     * [stopConnectionMonitor] on the UI's stop so nothing runs once the app is
+     * gone. The monitor's payload value is undocumented, so each change event
+     * simply re-runs [refreshWatchConnection]'s authoritative local query.
+     */
+    fun startConnectionMonitor()
+
+    /** Unregister the connection-status monitor (call from the UI's onStop). */
+    fun stopConnectionMonitor()
 
     /**
      * Resolved bonded device (`null` until [forceSync] or a successful send
@@ -100,6 +125,19 @@ interface WearBridgeService {
     fun sendDefaultWatchBackgroundCleared()
 
     /**
+     * Per-connection bg-delivery guard. The bridge owns the connection
+     * lifecycle, so it records the bg hash last delivered (207) to the watch
+     * and clears it on any disconnect. The reconcile uses
+     * [bgAlreadyDeliveredThisConnection] to avoid re-sending the same image
+     * every sync — this thin-client watch reports `bg=''` even when it holds
+     * the image, so its report can't be trusted to gate re-uploads.
+     */
+    fun markBgDelivered(hash: String)
+
+    /** True if [hash] was already delivered (207) to the watch this connection. */
+    fun bgAlreadyDeliveredThisConnection(hash: String): Boolean
+
+    /**
      * Push the user's display preferences to the watch. One-way: phone is
      * the only place these are edited; watch is a thin display surface.
      *
@@ -116,6 +154,19 @@ interface WearBridgeService {
 
     /** Receive-side seam. Pass `null` to detach. */
     fun setIncomingHandler(handler: IncomingMessageHandler?)
+
+    /**
+     * Register the default-watch-background reconciler (F4). Invoked by the
+     * bridge when a `watch_screen` reply arrives, with the marker the watch
+     * reported (`watch_screen.bg`, empty = none). The repository compares it
+     * against its last-uploaded hash and re-uploads / clears as needed.
+     *
+     * Wired this way (callback, not direct injection) because the bridge does
+     * NOT hold [com.kirkouski.gtwake.companion.data.AlarmRepository] — and the
+     * repository holds the bridge — so a direct dependency would be circular.
+     * Pass `null` to detach.
+     */
+    fun setWatchBgReconciler(reconciler: (suspend (reportedMarker: String) -> Unit)?)
 
     /**
      * Renders the Wear Engine auth dialog via Huawei Health. Activity context

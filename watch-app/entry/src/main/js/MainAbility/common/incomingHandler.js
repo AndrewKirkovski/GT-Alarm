@@ -42,6 +42,12 @@ import ConnectionStore from './connectionStore.js';
 // has its own auto-close path on dismiss/snooze; this tracker is only
 // for sync wakes.
 var WAKE_SYNC_GRACE_MS = 2500;
+// F4: @system.storage key holding the content hash of the default background
+// this watch currently holds (parsed from the received file name
+// `bgd_<hash>.bin`). MUST match BG_HASH_KEY in pages/index/index.js — the two
+// bundles share @system.storage but each defines its own copy of the key
+// string. Reported back to the phone in the watch_screen reply (`bg` field).
+var BG_HASH_KEY = 'bg_hash';
 // Drain fallback. Bumped 1500 → 3000 (2026-05-17): with the additive
 // alarm_added burst replaced by a single sync_replace message, the
 // data push lands ~2 s after sync_check; 1500 ms could fire the drain
@@ -169,6 +175,30 @@ function noteConnection(msg) {
     } catch (e) {
         Logger.err('incoming.noteConnection', e);
     }
+}
+
+// F4: reply to a phone screen_request, threading the watch's current default-
+// bg hash into the watch_screen envelope so the phone can reconcile (auto-
+// restore a lost image / never send a stale one). Reads BG_HASH_KEY from
+// @system.storage; an empty/missing value reports '' (no bg). Module-level (not
+// a nested named fn inside handle()) — nested named declarations break the
+// ACELite JS snapshot (install error 10).
+function respondScreenRequest() {
+    Screen.load(function (m) {
+        storage.get({
+            key: BG_HASH_KEY,
+            default: '',
+            success: function (v) {
+                var bg = (typeof v === 'string') ? v : '';
+                Logger.i('incoming.screen_request reply ' + m.W + 'x' + m.H + ' ' + m.shape + ' bg=' + bg);
+                WearBridge.sendWatchScreen(m.W, m.H, m.shape, bg);
+            },
+            fail: function () {
+                Logger.i('incoming.screen_request reply ' + m.W + 'x' + m.H + ' ' + m.shape + ' bg=<none>');
+                WearBridge.sendWatchScreen(m.W, m.H, m.shape, '');
+            },
+        });
+    });
 }
 
 function rejectMalformed(msg) {
@@ -301,10 +331,11 @@ function tombstonePruned(ids, stamp, idx) {
 // per-row LWW — the watch's AlarmStore is replaced wholesale so rows the
 // phone deleted (which an additive alarm_added push can never remove)
 // are pruned. Every dropped id is tombstoned first.
-function applyReplace(msg) {
-    var incoming = msg.alarms;
+function applyReplace(msg, done) {
+    var incoming = msg && msg.alarms;
     if (!incoming || incoming.length === undefined) {
         Logger.w('incoming.sync_replace missing alarms array');
+        if (done) done(false);
         return;
     }
     var valid = [];
@@ -334,12 +365,23 @@ function applyReplace(msg) {
                 ' dropped=' + dropped + ' pruned=' + prunedIds.length);
             bumpLastSync();
             tombstonePruned(prunedIds, stamp, 0);
+            // done fires AFTER the store write commits (replaceAll success) so a
+            // file-delivered replace acks only once persisted — same ordering
+            // guarantee as the bg file ack. The text-message path passes no done.
+            if (done) done(true);
         });
     });
 }
 
 export default {
     markAppStart: markAppStart,
+    // Apply a full-state replace parsed from a FILE-delivered envelope (used when
+    // the phone sends the list as a file because it exceeds the text-message
+    // ceiling). Same path as the text sync_replace, but with a completion
+    // callback so the page can ACK only after the store write commits.
+    applyReplaceFromFile: function (msg, done) {
+        applyReplace(msg, done);
+    },
     setOnAlarmFiredNavigator: function (fn) {
         onAlarmFired = fn;
     },
@@ -390,10 +432,9 @@ export default {
         // (no alarmId), so it bypasses rejectMalformed.
         if (msg && msg.type === 'screen_request') {
             noteIncomingEnvelope();
-            Screen.load(function (m) {
-                Logger.i('incoming.screen_request reply ' + m.W + 'x' + m.H + ' ' + m.shape);
-                WearBridge.sendWatchScreen(m.W, m.H, m.shape);
-            });
+            // F4: thread the watch's current bg hash into the reply so the
+            // phone can auto-restore a lost image / avoid re-sending a stale one.
+            respondScreenRequest();
             return;
         }
         // settings_changed: phone is the sole editor of display prefs;
@@ -474,6 +515,7 @@ export default {
                 onAlarmFired(msg.alarmId, {
                     vibrationPattern: msg.vibrationPattern,
                     snoozeAllowed: msg.snoozeAllowed,
+                    watchVibrationEnabled: msg.watchVibrationEnabled,
                 });
             }
         } else if (type === 'alarm_dismissed' || type === 'alarm_snoozed') {

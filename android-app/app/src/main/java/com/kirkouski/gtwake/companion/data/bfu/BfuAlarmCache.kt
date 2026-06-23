@@ -233,6 +233,8 @@ class BfuAlarmCache @Inject constructor(
         put("relativeMinutes", a.relativeMinutes ?: JSONObject.NULL)
         put("selfDestruct", a.selfDestruct)
         put("vibrationPattern", a.vibrationPattern.name)
+        put("phoneVibrationEnabled", a.phoneVibrationEnabled)
+        put("watchVibrationEnabled", a.watchVibrationEnabled)
         put("volumeRampSeconds", a.volumeRampSeconds)
         put("maxSnoozeCount", a.maxSnoozeCount)
         put("consecutiveSnoozeCount", a.consecutiveSnoozeCount)
@@ -257,6 +259,8 @@ class BfuAlarmCache @Inject constructor(
                 null
             },
         ),
+        phoneVibrationEnabled = o.optBoolean("phoneVibrationEnabled", true),
+        watchVibrationEnabled = o.optBoolean("watchVibrationEnabled", true),
         volumeRampSeconds = o.optInt("volumeRampSeconds", 0),
         maxSnoozeCount = o.optInt("maxSnoozeCount", Alarm.MAX_SNOOZE_COUNT_UNLIMITED),
         consecutiveSnoozeCount = o.optInt("consecutiveSnoozeCount", 0),
@@ -270,6 +274,13 @@ class BfuAlarmCache @Inject constructor(
         // v2 caches are dropped on first read post-upgrade — a single
         // missed alarm at upgrade time is acceptable per the
         // no_migration_until_release policy.
-        const val SCHEMA_VERSION = 3
+        // v4 (1.0.6): added phoneVibrationEnabled / watchVibrationEnabled.
+        // Bumped (not relying on the optBoolean default) BECAUSE the Room v9→10
+        // migration sets legacy vibrationPattern==OFF alarms to BOTH enables
+        // false — but a stale v3 cache lacks those keys and parseAlarm() would
+        // default them to true, silently un-silencing a migrated alarm if it
+        // fires pre-unlock before the boot reconcile rebuilds the cache. The
+        // version bump drops the stale cache so it's rebuilt from migrated rows.
+        const val SCHEMA_VERSION = 4
     }
 }

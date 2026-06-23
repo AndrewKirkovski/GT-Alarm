@@ -66,6 +66,13 @@ class AlarmRepository @Inject constructor(
     // mutation calls scheduleWatchSync(); the debounce coalesces a burst
     // of edits into a single watch wake.
     private val watchSyncMutex = Mutex()
+    // Serializes the watch-bg reconcile/upload path (F4). The bridge dispatches
+    // every inbound message on its own coroutine, so two watch_screen replies
+    // can run reconcileWatchBackground concurrently; without this a second
+    // reconcile reads the pre-upload lastUploadedWatchBgHash and re-sends the
+    // same image. Distinct from watchSyncMutex so an alarm force-sync and a bg
+    // reconcile never block each other.
+    private val watchBgMutex = Mutex()
     private var pendingSyncJob: Job? = null
 
     fun observeAlarms(): Flow<List<Alarm>> =
@@ -203,21 +210,130 @@ class AlarmRepository @Inject constructor(
      * clearance envelope instead.
      */
     fun uploadDefaultWatchBackground() {
+        // Same lock as the F4 reconcile path so a Settings-save upload and a
+        // watch_screen-driven reconcile can't double-send the same bytes.
+        Log.i(TAG, "uploadDefaultWatchBackground() requested")
         appScope.launch {
-            val srcPng = java.io.File(appContext.cacheDir, "watch_bg_${DEFAULT_WATCH_BG_ID}.png")
-            if (!srcPng.exists()) {
-                Log.i(TAG, "uploadDefaultWatchBackground — source png missing, sending cleared envelope")
-                wearBridge.sendDefaultWatchBackgroundCleared()
-                return@launch
+            Log.i(TAG, "uploadDefaultWatchBackground acquiring watchBgMutex")
+            watchBgMutex.withLock {
+                Log.i(TAG, "uploadDefaultWatchBackground lock acquired — uploading")
+                uploadDefaultWatchBackgroundNow()
             }
-            val bgFile = com.kirkouski.gtwake.companion.wear.WatchBgTestEncoder.prepare(srcPng, appContext.cacheDir)
-            if (bgFile == null) {
-                Log.w(TAG, "uploadDefaultWatchBackground — test encode failed, skipping")
-                return@launch
-            }
-            val ok = wearBridge.uploadDefaultWatchBackground(bgFile)
-            Log.i(TAG, "uploadDefaultWatchBackground ok=$ok file=${bgFile.name} size=${bgFile.length()}")
         }
+    }
+
+    /**
+     * Re-encode the CURRENT default-watch-bg source, name the `.bin`/raster
+     * after a stable content hash (`bgd_<hash>.<ext>`), persist that hash as
+     * [SettingsStore.lastUploadedWatchBgHash], and upload. Returns the hash on
+     * success, or null when there is no source / encode failed. Suspending so
+     * the [WearBridgeService] reconciler can drive it from a `watch_screen`
+     * reply (F4 auto-restore) as well as the Settings-save path.
+     *
+     * The re-upload is always derived from the live source PNG — never a stale
+     * cached `.bin` — so a watch that lost its image (reset/reinstall) gets the
+     * image that matches the phone's current selection.
+     */
+    private suspend fun uploadDefaultWatchBackgroundNow(): String? {
+        val srcPng = java.io.File(appContext.cacheDir, "watch_bg_${DEFAULT_WATCH_BG_ID}.png")
+        if (!srcPng.exists()) {
+            Log.i(TAG, "uploadDefaultWatchBackground — source png missing, sending cleared envelope")
+            wearBridge.sendDefaultWatchBackgroundCleared()
+            settingsStore.setLastUploadedWatchBgHash(null)
+            return null
+        }
+        val encoded = com.kirkouski.gtwake.companion.wear.WatchBgTestEncoder.prepare(srcPng, appContext.cacheDir)
+        if (encoded == null) {
+            Log.w(TAG, "uploadDefaultWatchBackground — test encode failed, skipping")
+            return null
+        }
+        val hash = watchBgContentHash(encoded)
+        // Carry the hash in the Wear Engine file NAME (the bridge sends
+        // bgFile.name as the message description). The watch parses it out and
+        // reports it back in watch_screen.bg so the phone can tell whether the
+        // watch already holds THIS image.
+        val ext = encoded.extension.ifEmpty { "bin" }
+        val bgFile = java.io.File(appContext.cacheDir, "bgd_$hash.$ext")
+        encoded.copyTo(bgFile, overwrite = true)
+        // Prune stale bgd_<otherhash>.* so the cache doesn't accumulate one file
+        // per wallpaper change — only the current-hash artifact is ever needed.
+        appContext.cacheDir
+            .listFiles { f -> f.name.startsWith("bgd_") && f.name != bgFile.name }
+            ?.forEach { it.delete() }
+        val ok = wearBridge.uploadDefaultWatchBackground(bgFile)
+        Log.i(TAG, "uploadDefaultWatchBackground ok=$ok file=${bgFile.name} size=${bgFile.length()} hash=$hash")
+        if (ok) {
+            settingsStore.setLastUploadedWatchBgHash(hash)
+            // Record on the bridge (which owns connection lifecycle) that THIS
+            // image was delivered (207) this connection, so the reconcile won't
+            // re-send the same bytes on every sync.
+            wearBridge.markBgDelivered(hash)
+        }
+        return if (ok) hash else null
+    }
+
+    /**
+     * Reconcile the watch's reported default-bg marker (from `watch_screen.bg`)
+     * against the phone's current default-watch-bg state. Registered on the
+     * [WearBridgeService] by [GtAlarmApp]; invoked from the bridge when a
+     * `watch_screen` reply lands (the bridge holds no AlarmRepository, so this
+     * callback wiring keeps DI acyclic).
+     *
+     * - phone HAS a default bg AND (`reportedMarker` empty OR != last uploaded)
+     *   → re-upload the CURRENT bg (auto-restore + never-send-mismatch).
+     * - phone has NO default bg AND `reportedMarker` non-empty
+     *   → tell the watch to clear (it's holding an image we no longer have).
+     */
+    suspend fun reconcileWatchBackground(reportedMarker: String) = watchBgMutex.withLock {
+        // Re-read the snapshot INSIDE the lock so a serialized second reconcile
+        // sees the hash the first one just persisted (and skips a duplicate send).
+        val settings = settingsStore.snapshot()
+        val hasBg = settings.defaultWatchBackgroundUri != null
+        if (hasBg) {
+            val lastHash = settings.lastUploadedWatchBgHash
+            if (lastHash != null && wearBridge.bgAlreadyDeliveredThisConnection(lastHash)) {
+                // The watch already sent its bg_received ACK for this exact image
+                // this connection — that is RELIABLE proof it stored the file.
+                // The watch_screen `bg` report is NOT reliable (it often stays ''
+                // across the watch's terminate/relaunch even after persisting),
+                // so trust the ack and skip the redundant re-upload. The guard
+                // resets on disconnect, so a genuine reset still restores once.
+                Log.d(TAG, "reconcileWatchBackground already acked $lastHash this connection — skip")
+            } else if (reportedMarker != lastHash) {
+                // Re-upload when the watch hasn't confirmed the current hash —
+                // covers a dropped first upload and a reset/reconnect.
+                Log.i(
+                    TAG,
+                    "reconcileWatchBackground re-upload (reported='$reportedMarker' last='$lastHash')",
+                )
+                uploadDefaultWatchBackgroundNow()
+            } else {
+                Log.d(TAG, "reconcileWatchBackground in sync (hash=$reportedMarker)")
+            }
+        } else if (reportedMarker.isNotEmpty()) {
+            Log.i(TAG, "reconcileWatchBackground clear (watch holds '$reportedMarker', phone has none)")
+            wearBridge.sendDefaultWatchBackgroundCleared()
+            settingsStore.setLastUploadedWatchBgHash(null)
+        }
+    }
+
+    /**
+     * Stable short content hash of the encoded bg file: first 8 hex chars of
+     * its SHA-256. Used as the wire marker carried in the file name so both
+     * sides can detect "watch holds a different image than the phone sent".
+     */
+    private fun watchBgContentHash(file: java.io.File): String {
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        val digest = md.digest(file.readBytes())
+        val sb = StringBuilder(WATCH_BG_HASH_LEN)
+        var i = 0
+        while (i < WATCH_BG_HASH_BYTES) {
+            val v = digest[i].toInt() and 0xFF
+            sb.append(HEX_CHARS[v shr 4])
+            sb.append(HEX_CHARS[v and 0xF])
+            i++
+        }
+        return sb.toString()
     }
 
     /**
@@ -238,8 +354,17 @@ class AlarmRepository @Inject constructor(
                 com.kirkouski.gtwake.companion.wear.WatchBgTestEncoder.outputFile(cache),
             )
             val deleted = artifacts.count { it.exists() && it.delete() }
-            Log.i(TAG, "clearDefaultWatchBackground deleted=$deleted/${artifacts.size}, sending cleared envelope")
+            // Also drop every bgd_<hash>.* upload artifact so nothing can
+            // resurrect the image (the KDoc's "every derived artifact" promise).
+            val bgdDeleted = cache.listFiles { f -> f.name.startsWith("bgd_") }
+                ?.count { it.delete() } ?: 0
+            Log.i(
+                TAG,
+                "clearDefaultWatchBackground deleted=$deleted/${artifacts.size} bgd=$bgdDeleted, " +
+                    "sending cleared envelope",
+            )
             wearBridge.sendDefaultWatchBackgroundCleared()
+            settingsStore.setLastUploadedWatchBgHash(null)
         }
     }
 
@@ -637,5 +762,16 @@ class AlarmRepository @Inject constructor(
         // WatchBackgroundPickerDialog. Room ids are auto-generated positive
         // longs, so -1 can never collide with a real alarm.
         const val DEFAULT_WATCH_BG_ID = -1L
+
+        // Watch-bg content-hash marker: first 8 hex chars (4 bytes) of the
+        // encoded file's SHA-256. Short enough to ride in the Wear Engine
+        // file name + the watch_screen reply, stable across re-encodes of
+        // the same source.
+        const val WATCH_BG_HASH_BYTES = 4
+        const val WATCH_BG_HASH_LEN = WATCH_BG_HASH_BYTES * 2
+        val HEX_CHARS = charArrayOf(
+            '0', '1', '2', '3', '4', '5', '6', '7',
+            '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+        )
     }
 }

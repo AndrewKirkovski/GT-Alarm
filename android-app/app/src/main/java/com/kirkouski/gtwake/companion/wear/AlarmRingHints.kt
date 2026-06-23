@@ -22,11 +22,15 @@ import com.kirkouski.gtwake.companion.domain.Alarm
 data class AlarmRingHints(
     val vibrationPatternName: String,
     val snoozeAllowed: Boolean,
+    // 1.0.6: whether the WATCH should vibrate for this alarm. Inlined so a
+    // cold-paired watch honors "silent on watch" at fire time without sync.
+    val watchVibrationEnabled: Boolean,
 ) {
     companion object {
         fun from(alarm: Alarm): AlarmRingHints = AlarmRingHints(
             vibrationPatternName = alarm.vibrationPattern.name,
             snoozeAllowed = alarm.isSnoozeEnabled,
+            watchVibrationEnabled = alarm.watchVibrationEnabled,
         )
     }
 }

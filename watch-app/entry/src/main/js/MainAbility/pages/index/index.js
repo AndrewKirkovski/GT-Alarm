@@ -18,7 +18,7 @@ import ConnectionStore from '../../common/connectionStore.js';
 
 // Bump per hardware-test build so the on-screen tag confirms the new
 // HAP actually replaced the old one.
-var BUILD_TAG = 'v1.0.5';
+var BUILD_TAG = 'syncfix-crownaudio-ondemand';
 
 // Startup sequence (deterministic): get size → set responsive dims → show
 // splash (bg + centred hourglass) → load the rest (i18n/privacy/connection/
@@ -46,6 +46,13 @@ var TAP_HINT_MS = 2600;
 // it without waiting for another upload. Path is ~36 B, well under the
 // 128 B storage cap.
 var BG_PATH_KEY = 'bg_path';
+// F4: @system.storage key holding the content hash of the default background
+// this watch currently holds, parsed out of the received file name
+// `bgd_<hash>.bin`. Reported back to the phone in the watch_screen reply so it
+// can auto-restore a lost image / never re-send a stale one. MUST match
+// BG_HASH_KEY in common/incomingHandler.js (separate bundles, shared storage).
+// ~8 chars, well under the 128 B storage cap.
+var BG_HASH_KEY = 'bg_hash';
 // Sentinel stored in BG_PATH_KEY when the phone clears the default background.
 // Writing '' did NOT persist on the watch runtime (empty values don't stick),
 // so the cleared state must be a real non-empty string the restore ignores.
@@ -113,6 +120,11 @@ var CROWN_MID_INDEX = 40;
 var CROWN_GAP_MS = 250;
 var CROWN_DOUBLE_MS = 550;
 var CROWN_SETTLE_MS = 150;
+// Safety net: if a wake-by-sync lands us on the 'sync' screen but no sync_done
+// ever arrives (e.g. a bare bg-clear / settings envelope woke us), never strand
+// the UI — terminate after this fallback. A real forceSync round-trip ends in
+// sync_done well under this.
+var SYNC_FALLBACK_MS = 8000;
 
 function fireTerminate(tag) {
     Logger.i('term ' + tag);
@@ -147,8 +159,44 @@ function cancelTerminate() {
     _terminateScheduled = false;
 }
 
+// THROWAWAY 1.0.6 F3 audio-probe helper — module-level (snapshot-safe), remove with the probe.
+function _probeKeys(o) {
+    try { return Object.keys(o).join(','); } catch (e) { return '?'; }
+}
+
 function pad2(n) {
     return (n < 10 ? '0' : '') + n;
+}
+
+// F4: parse the content hash out of a received bg file path/name shaped like
+// `.../bgd_<hash>.bin` (the phone names the Wear Engine file after the hash).
+// Returns the hash string, or '' when the name doesn't match the convention
+// (older phone build / unexpected name) — '' tells the phone "I hold a bg but
+// don't know its marker", which it treats as a mismatch and re-uploads.
+// Module-level (snapshot-safe), plain ES5 string ops only.
+function parseBgHash(path) {
+    if (typeof path !== 'string' || path.length === 0) return '';
+    var slash = path.lastIndexOf('/');
+    var name = (slash >= 0) ? path.substring(slash + 1) : path;
+    var prefix = 'bgd_';
+    if (name.substring(0, prefix.length) !== prefix) return '';
+    var rest = name.substring(prefix.length);
+    var dot = rest.indexOf('.');
+    var hash = (dot >= 0) ? rest.substring(0, dot) : rest;
+    return hash;
+}
+
+// Hash echoed back to the phone as the alarms_received ack — parsed from a
+// file-delivered full replace named `alarms_<hash>.json`. Mirrors parseBgHash.
+function parseAlarmsHash(path) {
+    if (typeof path !== 'string' || path.length === 0) return '';
+    var slash = path.lastIndexOf('/');
+    var name = (slash >= 0) ? path.substring(slash + 1) : path;
+    var prefix = 'alarms_';
+    if (name.substring(0, prefix.length) !== prefix) return '';
+    var rest = name.substring(prefix.length);
+    var dot = rest.indexOf('.');
+    return (dot >= 0) ? rest.substring(0, dot) : rest;
 }
 
 // firstDayOfWeek: java.util.Calendar 1=SUN..7=SAT, or null = Monday-first.
@@ -369,6 +417,7 @@ export default {
         // Falls back to PULSE when the alarm isn't in the store yet (thin-
         // client envelope without prior sync).
         ringVibrationPattern: 'PULSE',
+        ringWatchVibrationEnabled: true,
 
         // --- responsive layout (computed in onInit from @system.device) ---
         // Defaults = GT 6 Pro (466x466 round). applyScreen() recomputes these
@@ -436,6 +485,7 @@ export default {
         _refreshTimer: null,
         _vibrateTimer: null,
         _tapHintTimer: null,
+        _syncTimer: null,
         _use24Hour: null,
         _dayOrder: DEFAULT_DAY_ORDER,
         _crownGestureCount: 0,
@@ -483,13 +533,31 @@ export default {
             success: function (v) {
                 Logger.i('index.bgPath get=[' + v + ']');
                 if (v && v !== BG_CLEARED) {
-                    self.bgSrc = '' + v;
-                    self.hasBg = true;
-                    self.updateScrim();
-                    Logger.i('index.bgPath restored=' + v);
+                    // F4: the persisted path could point at a file that no
+                    // longer exists (watch reset/reinstall wiped the sandbox
+                    // but a stale path lingered, or the file was never
+                    // delivered). Verify with @system.file BEFORE restoring; if
+                    // it's gone, clear both markers so the next watch_screen
+                    // reply reports bg='' and the phone re-uploads the image.
+                    self.verifyBgFile('' + v);
                 }
             },
             fail: function () {},
+        });
+        // DIAGNOSTIC (temporary): read BG_HASH_KEY at cold start to find why
+        // watch_screen reports bg=''. If a fresh cold session reads '' for a
+        // hash a PRIOR session logged as 'persisted', @system.storage is NOT
+        // durably flushing before this thin client terminates. If it reads the
+        // hash, the '' is purely the handshake-before-file ordering.
+        storage.get({
+            key: BG_HASH_KEY,
+            default: '',
+            success: function (h) {
+                Logger.i('index.coldstart bgHash=[' + h + ']');
+            },
+            fail: function (d, c) {
+                Logger.i('index.coldstart bgHash FAIL c=' + c);
+            },
         });
         // i18n + privacy + connection + alarms all load in startLoadRest(),
         // which applyScreen() kicks off AFTER size is known and the splash has
@@ -508,6 +576,100 @@ export default {
             }
         });
         Logger.i('index.onInit build=' + BUILD_TAG);
+
+        // === AUDIO PROBE — THROWAWAY 1.0.6 feature-3 research; REMOVE after the
+        // verdict is logged. Probes whether ANY Lite Wearable audio/recorder module
+        // is reachable at runtime. typeof-guarded so we never READ an undeclared
+        // identifier (ACELite throws ReferenceError on that). Results relay to the
+        // phone via the WatchLog batch (tag AUDIOPROBE). ===
+        var _probeNames = ['system.audio', 'system.media', 'system.sound',
+            'system.recorder', 'system.audiorecorder', 'audio', 'media', 'multimedia'];
+        var _hasRN = (typeof requireNative !== 'undefined');
+        var _hasRM = (typeof requireModule !== 'undefined');
+        Logger.i('AUDIOPROBE loaders requireNative=' + _hasRN + ' requireModule=' + _hasRM);
+        for (var _pi = 0; _pi < _probeNames.length; _pi++) {
+            var _pn = _probeNames[_pi];
+            var _pg, _pt;
+            if (_hasRN) {
+                try {
+                    _pg = requireNative(_pn);
+                    _pt = (_pg === null || _pg === undefined) ? ('' + _pg) : (typeof _pg) + '[' + _probeKeys(_pg) + ']';
+                    Logger.i('AUDIOPROBE rn "' + _pn + '" => ' + _pt);
+                } catch (_pe1) { Logger.i('AUDIOPROBE rn "' + _pn + '" ERR ' + _pe1); }
+            }
+            if (_hasRM) {
+                try {
+                    _pg = requireModule(_pn);
+                    _pt = (_pg === null || _pg === undefined) ? ('' + _pg) : (typeof _pg) + '[' + _probeKeys(_pg) + ']';
+                    Logger.i('AUDIOPROBE rm "' + _pn + '" => ' + _pt);
+                } catch (_pe2) { Logger.i('AUDIOPROBE rm "' + _pn + '" ERR ' + _pe2); }
+            }
+        }
+        // === AUDIO PLAYBACK PROBE (throwaway): actually try to PLAY bundled
+        // audio via requireNative('system.audio'). WAV=440Hz, MP3=880Hz so we
+        // can tell BY EAR which (if any) plays. The FA `system.audio` API is
+        // undocumented; try the standard @system.* options-object shape and log
+        // the callbacks + getPlayState so we learn the real signature. ===
+        // Correct FA `@system.audio` usage (per Huawei Watch GT FA docs): assign
+        // event handlers, set src + volume, call play() with NO args. getPlayState
+        // is async (callback). The bundled-resource src scheme is the unknown, so
+        // CASCADE through candidate URIs — advance on onerror OR a foreground
+        // timeout (covers a silent no-op) — and stop on the first onplay.
+        var _ap = null;
+        try { _ap = (typeof requireNative !== 'undefined') ? requireNative('system.audio') : null; } catch (_ape) { _ap = null; }
+        if (_ap) {
+            Logger.i('AUDIOPLAY keys=[' + _probeKeys(_ap) + ']');
+            var _schemes = [
+                '/common/probe.wav', './common/probe.wav', 'common/probe.wav',
+                '/common/probe.mp3', './common/probe.mp3', 'common/probe.mp3',
+            ];
+            var _si = 0;
+            var _hit = false;
+            var _advTimer = null;
+            var _clearAdv = function () { if (_advTimer) { try { clearTimeout(_advTimer); } catch (ec) {} _advTimer = null; } };
+            var _logSt = function (tag) {
+                try {
+                    _ap.getPlayState({
+                        success: function (s) { Logger.i('AUDIOPLAY ' + tag + ' state=' + (s ? s.state : '?') + ' src=[' + (s ? s.src : '') + '] vol=' + (s ? s.volume : '?') + ' muted=' + (s ? s.muted : '?')); },
+                        fail: function (d, c) { Logger.i('AUDIOPLAY ' + tag + ' state.fail c=' + c); },
+                    });
+                } catch (eg) {}
+            };
+            var _next = function () {
+                if (_hit) { return; }
+                _clearAdv();
+                if (_si >= _schemes.length) { Logger.i('AUDIOPLAY all schemes exhausted - no playback'); return; }
+                var idx = _si; var uri = _schemes[_si]; _si++;
+                try { _ap.stop(); } catch (es) {}
+                try { _ap.src = uri; } catch (ess) { Logger.i('AUDIOPLAY t' + idx + ' src-set THREW ' + ess); }
+                Logger.i('AUDIOPLAY t' + idx + ' src<-' + uri + ' readback=[' + _ap.src + ']');
+                try { _ap.play(); Logger.i('AUDIOPLAY t' + idx + ' play() ok'); } catch (ep) { Logger.i('AUDIOPLAY t' + idx + ' play THREW ' + ep); }
+                _logSt('t' + idx);
+                try { _advTimer = setTimeout(function () { if (!_hit) { Logger.i('AUDIOPLAY t' + idx + ' timeout(no onplay/onerror) -> next'); _next(); } }, 1000); } catch (et) {}
+            };
+            _ap.onerror = function () {
+                var em = '?'; try { em = '' + _ap.errorType; } catch (ee) {}
+                Logger.i('AUDIOPLAY EVT onerror errorType=' + em + ' -> next');
+                _clearAdv(); _next();
+            };
+            _ap.onplay = function () { _hit = true; _clearAdv(); Logger.i('AUDIOPLAY EVT onplay <<< PLAYING src=[' + _ap.src + ']'); };
+            _ap.onloadeddata = function () { Logger.i('AUDIOPLAY EVT onloadeddata dur=' + _ap.duration); };
+            _ap.onended = function () { Logger.i('AUDIOPLAY EVT onended'); };
+            _ap.onstop = function () { Logger.i('AUDIOPLAY EVT onstop'); };
+            _ap.ondurationchange = function () { Logger.i('AUDIOPLAY EVT ondurationchange dur=' + _ap.duration); };
+            try { _ap.volume = 1.0; } catch (ev) {}
+            try { _ap.muted = false; } catch (em2) {}
+            // ON-DEMAND now (was auto-on-init). Auto-running play() on launch left
+            // the audio session active, which routes the digital crown to VOLUME
+            // instead of scrolling the alarm <list> — the crown-scroll regression.
+            // Store the cascade; onRowTap fires it (tap any alarm row to probe).
+            // Resets _si/_hit so each tap re-runs the full scheme cascade.
+            self._triggerAudio = function () { _si = 0; _hit = false; _next(); };
+            Logger.i('AUDIOPLAY armed (tap a row to probe) keys=[' + _probeKeys(_ap) + ']');
+        } else {
+            Logger.i('AUDIOPLAY system.audio unavailable');
+        }
+        // === END AUDIO PROBE ===
 
         // Responsive layout: query the real screen size + shape and recompute
         // every screen-dependent dimension. getInfo is async (callback-only on
@@ -551,6 +713,14 @@ export default {
                 success: function () { Logger.i('bgCleared set ok'); },
                 fail: function (d, c) { Logger.i('bgCleared set FAIL c=' + c + ' d=' + d); },
             });
+            // F4: also drop the hash marker so the next watch_screen reply
+            // reports bg='' (we no longer hold a default bg).
+            storage.set({
+                key: BG_HASH_KEY,
+                value: '',
+                success: function () {},
+                fail: function () {},
+            });
             self.bgSrc = '';
             self.hasBg = false;
             self.updateScrim();
@@ -572,9 +742,24 @@ export default {
                 self.showSplash = false;
                 self.updateScrim();
                 Logger.i('index.screen=sync (wake-by-sync)');
+                // Never strand on 'sync': if no sync_done follows (a bare
+                // bg-clear/settings envelope woke us), terminate after the
+                // fallback. Cleared by sync_done / onHide.
+                if (self._syncTimer !== null) { clearTimeout(self._syncTimer); }
+                self._syncTimer = setTimeout(function () {
+                    self._syncTimer = null;
+                    if (self.screen === 'sync') {
+                        Logger.i('index.sync fallback -> terminate (no sync_done)');
+                        fireTerminate('sync_fallback');
+                    }
+                }, SYNC_FALLBACK_MS);
             }
         });
         IncomingHandler.setOnSyncDone(function () {
+            if (self._syncTimer !== null) {
+                clearTimeout(self._syncTimer);
+                self._syncTimer = null;
+            }
             // Only self-close when this instance was woken PURELY to sync
             // (screen=='sync', set by onSyncWake). If the user already had
             // the app open (screen=='list') or an alarm is ringing
@@ -813,16 +998,56 @@ export default {
         // decode, no copy — and surface the path on-screen so a failed
         // render is still self-diagnosing.
         WearBridge.setFileHandler(function (path) {
-            Logger.i('index.bgFile path=' + path);
-            self.bgSrc = '' + path;
+            var p = '' + path;
+            // Full-state alarm replace delivered as a FILE — the phone sends the
+            // list this way when it exceeds the ~1 KB P2P text-message ceiling
+            // (see HuaweiWearBridge.pushFileReplace). Parse + apply via the same
+            // sync_replace path, then ack so the phone stops retrying.
+            if (p.indexOf('alarms_') !== -1) {
+                self.applyAlarmsFile(p);
+                return;
+            }
+            Logger.i('index.bgFile path=' + p);
+            self.bgSrc = p;
             self.hasBg = true;
-            // Persist the path so a relaunch restores it (the file itself
-            // already survives in the sandbox).
+            var hash = parseBgHash(p);
+            // CHAIN the two persistent writes, then ACK only AFTER they commit.
+            // @system.storage.set is async; the thin client often terminates
+            // (sync_done) right after, so firing the ack/terminate before the
+            // writes land left BG_PATH_KEY/BG_HASH_KEY empty — the watch held
+            // the file but forgot its path (no restore on the next open) and
+            // reported bg='' (spurious re-uploads). Acking inside the success
+            // chain guarantees: when the phone sees bg_received, the watch has
+            // PERSISTED both the path (restores + renders on open) and the hash
+            // (next watch_screen reports it, so no re-upload).
+            var ackOnce = function () {
+                try {
+                    WearBridge.sendBgReceived(hash);
+                } catch (e) {
+                    Logger.err('index.bgFile ack', e);
+                }
+            };
             storage.set({
                 key: BG_PATH_KEY,
                 value: '' + path,
-                success: function () {},
-                fail: function () {},
+                success: function () {
+                    storage.set({
+                        key: BG_HASH_KEY,
+                        value: hash,
+                        success: function () {
+                            Logger.i('index.bgFile persisted hash=' + hash);
+                            ackOnce();
+                        },
+                        fail: function (d, c) {
+                            Logger.i('index.bgFile hash persist FAIL c=' + c);
+                            ackOnce();
+                        },
+                    });
+                },
+                fail: function (d, c) {
+                    Logger.i('index.bgFile path persist FAIL c=' + c);
+                    ackOnce();
+                },
             });
             // The 2 s poll (refresh) surfaces bgSrc into the bg-box gate
             // — no reliance on if=/async reactivity here.
@@ -855,6 +1080,10 @@ export default {
         if (this._refreshTimer !== null) {
             clearInterval(this._refreshTimer);
             this._refreshTimer = null;
+        }
+        if (this._syncTimer !== null) {
+            clearTimeout(this._syncTimer);
+            this._syncTimer = null;
         }
         this.stopVibrate();
         this._disarmCrownGesture();
@@ -924,6 +1153,109 @@ export default {
             // even if if=/async reactivity is not.
             self.hasBg = !!self.bgSrc;
             self.updateScrim();
+        });
+    },
+
+    // F4: restore a persisted bg file on cold start. The watch is a thin client
+    // that TERMINATES after each sync, so this runs on EVERY relaunch. CRUCIAL:
+    // we must NOT wipe the hash markers when file.access fails. The stored hash
+    // (BG_HASH_KEY) is the watch's reliable record of "what the phone gave us";
+    // @system.storage and the received file live in the SAME app sandbox, so a
+    // genuine reset wipes BOTH (BG_PATH_KEY would already be '' and we never get
+    // here). A file.access failure with the markers still present is therefore
+    // either a Lite probe quirk or a volatile received path — and wiping the
+    // hash on it is exactly what desynced the watch from the phone and caused
+    // the re-upload loop on every cold relaunch. So: on success render the file;
+    // on failure keep the markers (report the hash, no re-upload) and just fall
+    // back to the default gradient visually. Only the phone's explicit
+    // watch_default_bg_cleared (onBgCleared) ever clears the markers.
+    // Apply a full-state replace delivered as a FILE (large alarm list over the
+    // ~1 KB text-message ceiling). Read the staged `alarms_<hash>.json`, parse,
+    // run the same sync_replace apply path (validate + replaceAll + tombstone
+    // pruned — replaceAll's fireChange re-renders the list), then ACK
+    // (alarms_received) ONLY after the store write commits, and delete the
+    // transient file. Mirrors the bg ack-after-persist ordering.
+    applyAlarmsFile: function (path) {
+        var p = '' + path;
+        var hash = parseAlarmsHash(p);
+        Logger.i('index.alarmsFile path=' + p + ' hash=' + hash);
+        file.readText({
+            uri: p,
+            success: function (data) {
+                var text = (data && typeof data.text === 'string') ? data.text : '';
+                var parsed = null;
+                try {
+                    parsed = JSON.parse(text);
+                } catch (e) {
+                    Logger.err('index.alarmsFile JSON.parse', e);
+                    return;
+                }
+                IncomingHandler.applyReplaceFromFile(parsed, function () {
+                    Logger.i('index.alarmsFile applied — ack hash=' + hash);
+                    try {
+                        WearBridge.sendAlarmsReceived(hash);
+                    } catch (e2) {
+                        Logger.err('index.alarmsFile ack', e2);
+                    }
+                    // Transient sync file — delete so the sandbox doesn't accrue
+                    // stale alarms_*.json (unlike the bg image, it isn't shown).
+                    file.delete({ uri: p, success: function () {}, fail: function () {} });
+                });
+            },
+            fail: function (data, code) {
+                Logger.i('index.alarmsFile read FAIL code=' + code);
+            },
+        });
+    },
+
+    verifyBgFile: function (path) {
+        var self = this;
+        try {
+            file.access({
+                uri: path,
+                success: function () {
+                    self.bgSrc = path;
+                    self.hasBg = true;
+                    self.updateScrim();
+                    Logger.i('index.bgPath restored=' + path);
+                },
+                fail: function (data, code) {
+                    // Keep the hash — do NOT clearBgMarkers (that caused the loop).
+                    Logger.i('index.bgPath access-fail code=' + code +
+                        ' — keeping hash, showing default (no re-upload)');
+                },
+            });
+        } catch (e) {
+            Logger.err('index.verifyBgFile', e);
+            // Same: a probe error must not wipe the hash.
+        }
+    },
+
+    // F4: drop the on-watch bg path + hash so a relaunch won't restore a stale
+    // file and the next watch_screen reply reports bg='' (phone re-uploads).
+    // Uses storage.delete + a sentinel for the path (empty values don't persist
+    // on this runtime — same reason BG_CLEARED is non-empty), and stores '' for
+    // the hash, which is fine: '' means "no marker" both as absent and as set.
+    clearBgMarkers: function () {
+        this.bgSrc = '';
+        this.hasBg = false;
+        this.updateScrim();
+        storage.delete({
+            key: BG_PATH_KEY,
+            success: function () {},
+            fail: function () {},
+        });
+        storage.set({
+            key: BG_PATH_KEY,
+            value: BG_CLEARED,
+            success: function () {},
+            fail: function () {},
+        });
+        storage.set({
+            key: BG_HASH_KEY,
+            value: '',
+            success: function () {},
+            fail: function () {},
         });
     },
 
@@ -1043,6 +1375,11 @@ export default {
     onRowTap: function (id) {
         var self = this;
         this._userEngaged = true;
+        // Throwaway F3 audio probe — fire on a row tap (was auto-on-init, which
+        // hijacked the crown). No-op if onInit didn't arm it / system.audio absent.
+        if (this._triggerAudio) {
+            try { this._triggerAudio(); } catch (ae) { Logger.err('index.triggerAudio', ae); }
+        }
         this.tapHint = this.editOnPhoneToast;
         this.tapHintShown = true;
         if (this._tapHintTimer !== null) {
@@ -1068,6 +1405,7 @@ export default {
         // for old phone builds that didn't ship the hints.
         this.ringSnoozeEnabled = true;
         this.ringVibrationPattern = 'PULSE';
+        this.ringWatchVibrationEnabled = true;
         cancelTerminate();
         this.screen = 'ring';
         // Ring gates on `sized` only — it shows the instant dims are known
@@ -1084,11 +1422,16 @@ export default {
         var hintPattern = (ringHints && ringHints.vibrationPattern) || null;
         var hintSnoozeAllowed = (ringHints && (typeof ringHints.snoozeAllowed === 'boolean'))
             ? ringHints.snoozeAllowed : null;
+        var hintWatchVib = (ringHints && (typeof ringHints.watchVibrationEnabled === 'boolean'))
+            ? ringHints.watchVibrationEnabled : null;
         if (hintPattern && VIBRATION_PATTERNS[hintPattern]) {
             this.ringVibrationPattern = hintPattern;
         }
         if (hintSnoozeAllowed !== null) {
             this.ringSnoozeEnabled = hintSnoozeAllowed;
+        }
+        if (hintWatchVib !== null) {
+            this.ringWatchVibrationEnabled = hintWatchVib;
         }
         Logger.i('index.enterRing hints pattern=' + hintPattern +
             ' snoozeAllowed=' + hintSnoozeAllowed +
@@ -1109,8 +1452,26 @@ export default {
                             self.ringVibrationPattern = p;
                         }
                     }
+                    if (hintWatchVib === null) {
+                        // default true when the field is absent (old alarm)
+                        self.ringWatchVibrationEnabled = (items[i].watchVibrationEnabled !== false);
+                    }
                     Logger.i('index.enterRing store-fallback snoozeEnabled=' +
-                        self.ringSnoozeEnabled + ' pattern=' + self.ringVibrationPattern);
+                        self.ringSnoozeEnabled + ' pattern=' + self.ringVibrationPattern +
+                        ' watchVib=' + self.ringWatchVibrationEnabled);
+                    // 1.0.6: enterRing already armed vibration SYNCHRONOUSLY with the
+                    // default-true flag (startVibrate at the end of enterRing). This
+                    // async fallback runs AFTER that, so when the alarm_fired envelope
+                    // carried no watch-vib hint we must RE-APPLY the resolved decision —
+                    // otherwise a "silent on watch" alarm fired without a hint keeps
+                    // buzzing on the default true. startVibrate() begins with
+                    // stopVibrate() and honors the disabled flag, so this both stops a
+                    // now-disabled alarm and re-arms the correct pattern. Guard on the
+                    // ring still being up so we never re-arm after dismiss/snooze.
+                    if ((hintWatchVib === null || !hintPattern) &&
+                        self.screen === 'ring' && !self.ended) {
+                        self.startVibrate();
+                    }
                     return;
                 }
             }
@@ -1142,6 +1503,11 @@ export default {
 
     startVibrate: function () {
         this.stopVibrate();
+        // 1.0.6: "silent on watch" — skip the buzz entirely for this alarm.
+        if (!this.ringWatchVibrationEnabled) {
+            Logger.i('startVibrate skip — watch vibration disabled');
+            return;
+        }
         var pattern = VIBRATION_PATTERNS[this.ringVibrationPattern] || VIBRATION_PATTERNS.PULSE;
         // OFF preset → no vibration at all.
         if (!pattern || pattern.length === 0) {

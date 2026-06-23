@@ -30,14 +30,18 @@ class AlarmAudioPlayer(private val context: Context) {
         pattern: VibrationPattern = VibrationPattern.DEFAULT,
         volumeRampSeconds: Int = 0,
         forceBundledFallback: Boolean = false,
+        phoneVibrationEnabled: Boolean = true,
     ) {
         Log.i(
             TAG,
             "start vibrateOnly=$vibrateOnly userUri=${uri != null} " +
                 "pattern=${pattern.name} rampSec=$volumeRampSeconds " +
-                "forceBundledFallback=$forceBundledFallback",
+                "forceBundledFallback=$forceBundledFallback phoneVib=$phoneVibrationEnabled",
         )
-        startVibration(pattern)
+        // 1.0.6: sound (vibrateOnly) and phone vibration are independent switches.
+        // Vibrate only when the phone-vibration switch is on; skip audio when
+        // sound is off (vibrateOnly). Both off ⇒ fully silent (UI only).
+        if (phoneVibrationEnabled) startVibration(pattern)
         if (vibrateOnly) return
         if (forceBundledFallback) {
             playBundledFallback(volumeRampSeconds)

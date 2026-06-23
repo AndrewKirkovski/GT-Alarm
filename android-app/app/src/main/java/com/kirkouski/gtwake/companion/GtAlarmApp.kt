@@ -6,12 +6,14 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.PowerManager
 import android.util.Log
+import com.kirkouski.gtwake.companion.data.AlarmRepository
 import com.kirkouski.gtwake.companion.data.sync.IncomingMessageHandler
 import com.kirkouski.gtwake.companion.ring.AlarmNotifications
 import com.kirkouski.gtwake.companion.scheduler.AlarmScheduler
 import com.kirkouski.gtwake.companion.wear.WearBridgeService
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
+import javax.inject.Provider
 
 @HiltAndroidApp
 class GtAlarmApp : Application() {
@@ -19,6 +21,11 @@ class GtAlarmApp : Application() {
     @Inject lateinit var wearBridge: WearBridgeService
     @Inject lateinit var incomingHandler: IncomingMessageHandler
     @Inject lateinit var scheduler: AlarmScheduler
+
+    // Provider, not direct inject: AlarmRepository depends on WearBridgeService,
+    // so eagerly creating it here is fine, but a Provider keeps the F4
+    // reconciler-registration the single touch point + matches the lazy intent.
+    @Inject lateinit var alarmRepository: Provider<AlarmRepository>
 
     override fun onCreate() {
         super.onCreate()
@@ -32,6 +39,13 @@ class GtAlarmApp : Application() {
         // exercises the same binder via sendAlarmFired. If on a real GT 6
         // the watch rings without unlock, wire the receiver here too; if
         // not, drop the preArmWatch pre-unlock branch as dead code.
+        // F4: register the default-watch-bg reconciler so a `watch_screen`
+        // reply can drive re-upload (auto-restore after watch reset) / clear.
+        // The bridge can't hold AlarmRepository (DI cycle), so it calls back.
+        val repo = alarmRepository
+        wearBridge.setWatchBgReconciler { reportedMarker ->
+            repo.get().reconcileWatchBackground(reportedMarker)
+        }
         val um = getSystemService(android.os.UserManager::class.java)
         if (um?.isUserUnlocked == true) {
             wearBridge.setIncomingHandler(incomingHandler)

@@ -25,6 +25,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -73,6 +74,7 @@ import com.kirkouski.gtwake.companion.ui.edit.PhoneBackgroundPickerDialog
 import com.kirkouski.gtwake.companion.ui.edit.RingScreenPreview
 import com.kirkouski.gtwake.companion.ui.edit.WatchBackgroundPickerDialog
 import com.kirkouski.gtwake.companion.wear.WatchCropProfile
+import com.kirkouski.gtwake.companion.wear.WatchSyncStatus
 import com.kirkouski.gtwake.companion.wear.WatchScreenProfiles
 import com.kirkouski.gtwake.companion.ui.edit.rememberAudioPicker
 import com.kirkouski.gtwake.companion.ui.edit.rememberAudioPreview
@@ -89,6 +91,13 @@ fun SettingsScreen(
     vm: SettingsViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    // Global, monitor-maintained status read instantly from the bridge StateFlow
+    // (no per-screen request, no NOT_CONNECTED-initial flicker). Treat a watch as
+    // "present" unless it's definitively NOT_CONNECTED — the transient CONNECTING
+    // (resolving the device) and ERROR (a 206 send hiccup) states must NOT hide
+    // the block, or a background send during a crop would yank it.
+    val watchStatus by vm.watchStatus.collectAsStateWithLifecycle()
+    val watchConnected = watchStatus != WatchSyncStatus.NOT_CONNECTED
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -152,7 +161,7 @@ fun SettingsScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        BackgroundSection(state = state, vm = vm)
+                        BackgroundSection(state = state, vm = vm, watchConnected = watchConnected)
                     }
                 }
             }
@@ -176,7 +185,23 @@ private fun SettingsSectionHeader(title: String) {
 }
 
 @Composable
-private fun BackgroundSection(state: SettingsState, vm: SettingsViewModel) {
+private fun BackgroundSection(state: SettingsState, vm: SettingsViewModel, watchConnected: Boolean) {
+    // The picker dialog + its open-state live HERE, OUTSIDE the conditional
+    // watch-bg block below. CRITICAL: if the dialog lived inside `if
+    // (watchConnected)` and the status flickered during the multi-second crop
+    // encode, the block (and the cropper's coroutine scope) would be removed
+    // from composition and the save would be CANCELLED after writing the crop
+    // files but before onSaved fired — so the upload never ran. Keeping the
+    // dialog here means an open crop survives any status change.
+    var showWatchPicker by remember { mutableStateOf(false) }
+    var watchReloadToken by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
+    val savedMessage = stringResource(R.string.settings_watch_background_saved)
+    val watchProfile = WatchScreenProfiles.resolve(
+        state.watchScreenWidth,
+        state.watchScreenHeight,
+        state.watchScreenShape,
+    )
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
             text = stringResource(R.string.settings_default_backgrounds_intro),
@@ -188,17 +213,32 @@ private fun BackgroundSection(state: SettingsState, vm: SettingsViewModel) {
             onPicked = { uri -> vm.setDefaultPhoneBackground(uri) },
             onClear = { vm.setDefaultPhoneBackground(null) },
         )
-        WatchBackgroundRow(
-            currentUri = state.defaultWatchBackgroundUri,
-            onPicked = { uri -> vm.setDefaultWatchBackground(uri) },
-            onClear = { vm.setDefaultWatchBackground(null) },
-            // Size + shape the cropper to the connected watch (reported via
-            // the phone-initiated watch_screen fetch); GT6 round when unknown.
-            watchProfile = WatchScreenProfiles.resolve(
-                state.watchScreenWidth,
-                state.watchScreenHeight,
-                state.watchScreenShape,
-            ),
+        // Conditional: the preview + controls show only when a watch is
+        // connected. The status is read from the global monitor-maintained
+        // StateFlow (instant, current) so it no longer flickers hidden→shown.
+        if (watchConnected) {
+            WatchBackgroundRow(
+                currentUri = state.defaultWatchBackgroundUri,
+                onChange = { showWatchPicker = true },
+                onClear = { vm.setDefaultWatchBackground(null) },
+                watchProfile = watchProfile,
+                reloadToken = watchReloadToken,
+            )
+        }
+    }
+    // Dialog is OUTSIDE the conditional — an open crop is never yanked mid-save.
+    if (showWatchPicker) {
+        WatchBackgroundPickerDialog(
+            alarmId = DEFAULT_WATCH_BG_ID,
+            initialUri = state.defaultWatchBackgroundUri,
+            onDismiss = { showWatchPicker = false },
+            onSaved = { uri ->
+                showWatchPicker = false
+                watchReloadToken++
+                vm.setDefaultWatchBackground(uri)
+                Toast.makeText(context, savedMessage, Toast.LENGTH_LONG).show()
+            },
+            profile = watchProfile,
         )
     }
 }
@@ -217,6 +257,7 @@ private fun WatchFacePreview(
     backgroundUri: String?,
     profile: WatchCropProfile,
     reloadKey: Any? = null,
+    onPickEmpty: (() -> Unit)? = null,
 ) {
     val bm = rememberBackgroundBitmap(backgroundUri, reloadKey).value
     // Shape + frame follow the connected watch (matching the cropper): circle
@@ -227,8 +268,21 @@ private fun WatchFacePreview(
     val maxSide = 140.dp
     val frameWidth = if (aspect >= 1f) maxSide else maxSide * aspect
     val frameHeight = if (aspect >= 1f) maxSide / aspect else maxSide
+    // When empty, the whole frame is a tap target that opens the picker
+    // (matches the cropper's EmptyCropFrame affordance). "Empty" = no URI set —
+    // NOT "bitmap not decoded yet": rememberBackgroundBitmap is async, so a set
+    // image is bm==null during decode (and permanently if the file is broken).
+    // Gating on the URI keeps a loading/broken set-image from becoming a
+    // pick-me tap target while the header already shows "Set" + Clear.
+    val isEmpty = backgroundUri == null
+    val tappableEmpty = isEmpty && onPickEmpty != null
     Box(
-        modifier = Modifier.size(width = frameWidth, height = frameHeight),
+        modifier = Modifier
+            .size(width = frameWidth, height = frameHeight)
+            .then(
+                if (tappableEmpty) Modifier.clip(shape).clickable { onPickEmpty() }
+                else Modifier,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         if (bm != null) {
@@ -238,7 +292,19 @@ private fun WatchFacePreview(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize().clip(shape),
             )
+        } else if (isEmpty) {
+            // No custom bg set → show ONLY the default gradient the watch shows
+            // when it has no image (watch common/default-bg.png). The watch shows
+            // NO icon over its background, so neither does this preview. The frame
+            // is still tappable (outer Box clickable) to open the picker.
+            Image(
+                painter = painterResource(R.drawable.watch_default_bg),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().clip(shape),
+            )
         } else {
+            // URI set but the bitmap is still decoding (transient) → neutral fill.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -261,68 +327,90 @@ private fun WatchFacePreview(
 @Composable
 private fun WatchBackgroundRow(
     currentUri: String?,
-    onPicked: (String) -> Unit,
+    onChange: () -> Unit,
     onClear: () -> Unit,
     watchProfile: WatchCropProfile,
+    reloadToken: Int,
 ) {
-    var showPicker by remember { mutableStateOf(false) }
-    // Bumped on every save so the preview re-decodes: the watch-bg picker
-    // rewrites a fixed path, so a re-crop changes neither the URI string
-    // nor anything else the thumbnail keys on.
-    var reloadToken by remember { mutableIntStateOf(0) }
-    val context = LocalContext.current
-    val savedMessage = stringResource(R.string.settings_watch_background_saved)
-    if (showPicker) {
-        WatchBackgroundPickerDialog(
-            alarmId = DEFAULT_WATCH_BG_ID,
-            initialUri = currentUri,
-            onDismiss = { showPicker = false },
-            onSaved = { uri ->
-                showPicker = false
-                reloadToken++
-                onPicked(uri)
-                Toast.makeText(context, savedMessage, Toast.LENGTH_LONG).show()
-            },
-            profile = watchProfile,
-        )
-    }
+    // NOTE: the picker dialog + open-state are owned by the CALLER
+    // (BackgroundSection), OUTSIDE the conditional block, so an in-progress crop
+    // save survives a connection-status flicker. This row only renders the
+    // header + preview and reports taps via onChange.
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.settings_default_watch_background),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = stringResource(
-                        if (currentUri == null) R.string.settings_default_background_none
-                        else R.string.settings_default_background_set,
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (currentUri != null) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (currentUri != null) {
-                IconButton(onClick = onClear) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_close),
-                        contentDescription = stringResource(R.string.settings_default_background_clear),
-                        tint = Color.Unspecified,
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-            }
-            GtAccentButton(onClick = { showPicker = true }) {
-                Text(stringResource(R.string.field_background_image_pick))
-            }
-        }
+        WatchBackgroundRowHeader(
+            currentUri = currentUri,
+            onClear = onClear,
+            onChange = onChange,
+        )
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            WatchFacePreview(backgroundUri = currentUri, profile = watchProfile, reloadKey = reloadToken)
+            WatchFacePreview(
+                backgroundUri = currentUri,
+                profile = watchProfile,
+                reloadKey = reloadToken,
+                onPickEmpty = onChange,
+            )
         }
     }
 }
+
+// Title + current-state caption + clear/change controls for WatchBackgroundRow.
+// Extracted so WatchBackgroundRow stays under the detekt LongMethod ceiling
+// after the F4(c) connected-preview branch was added.
+@Composable
+private fun WatchBackgroundRowHeader(
+    currentUri: String?,
+    onClear: () -> Unit,
+    onChange: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.settings_default_watch_background),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = stringResource(
+                    if (currentUri == null) R.string.settings_default_background_none
+                    else R.string.settings_default_background_set,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (currentUri != null) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (currentUri != null) {
+            IconButton(onClick = onClear) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_close),
+                    contentDescription = stringResource(R.string.settings_default_background_clear),
+                    tint = Color.Unspecified,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+        }
+        GtAccentButton(onClick = onChange) {
+            Icon(
+                painter = painterResource(R.drawable.ic_image),
+                contentDescription = null,
+                // onPrimary so the glyph reads as crisp white next to the white
+                // label — the ic_image asset is a muted purple-grey, which on the
+                // filled accent button (Color.Unspecified) looks like a dim smudge.
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            // Single-line: icon + label must stay on ONE line (the whole point of
+            // the "Change" relabel was to stop the old "Choose…" 2-line wrap).
+            Text(
+                text = stringResource(R.string.field_watch_background_change),
+                maxLines = 1,
+                softWrap = false,
+            )
+        }
+    }
+}
+
 
 @Composable
 private fun BackgroundRow(
@@ -430,7 +518,11 @@ private fun BackgroundRowLayout(
                 }
             }
             GtAccentButton(onClick = onPick) {
-                Text(stringResource(R.string.field_background_image_pick))
+                Text(
+                    text = stringResource(R.string.field_background_image_pick),
+                    maxLines = 1,
+                    softWrap = false,
+                )
             }
         }
         if (showRingPreview) {

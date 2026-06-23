@@ -207,6 +207,17 @@ class MainActivity : ComponentActivity() {
         wearBridge.setIncomingHandler(incomingHandler)
         // Foreground-driven phone→watch reconcile (watch can't wake the phone).
         alarmRepository.scheduleWatchSync()
+        // Seed watch-connection status (one-shot local query) + start the
+        // event-driven monitor for the UI's lifetime. Tied to onStart/onStop so
+        // it's never a background service. Drives statusFlow for every UI.
+        wearBridge.startConnectionMonitor()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Stop the connection monitor when the UI leaves the foreground — no
+        // standing background service.
+        wearBridge.stopConnectionMonitor()
     }
 
     private fun requestNotificationPermission() {
