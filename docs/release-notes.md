@@ -5,6 +5,7 @@ the integer release codes are **per-app** and increment by 1 each release.
 
 | versionName | phone code | watch code | tag | date |
 |---|---|---|---|---|
+| 1.0.6 | 6 | 1000006 | `v1.0.6` | 2026-06-24 |
 | 1.0.5 | 5 | 1000005 | `v1.0.5` | 2026-06-19 |
 | 1.0.2 | 4 | 1000003 | `v1.0.2` | 2026-06-11 |
 | 1.0.1 | 3 | 1000002 | `v1.0.1` | 2026-06-11 |
@@ -14,6 +15,45 @@ Apps:
 - **Watch** — `com.kirkouski.gtwatch.watch` (HarmonyOS Lite Wearable, AppGallery only), `version.code` in `watch-app/entry/src/main/config.json`.
 
 ---
+
+## 1.0.6 — 2026-06-24
+phone `versionCode 6` · watch `code 1000006` · tag `v1.0.6`
+
+Cross-device sync reliability + per-device controls, watch crown scrolling, and a full localization pass.
+
+**Sync — fixes the ">3 alarms won't sync" bug**
+- **More than 3 alarms now sync to the watch.** The full alarm list was sent as a single Wear Engine
+  P2P **text message**, which has a ~1 KB ceiling on the GT 6: a 4-alarm list (~1068 B) was accepted by
+  the transport but **truncated before the watch could parse it**, so the watch silently kept its old
+  3-alarm list and the phone re-pushed forever. The full-state replace now goes as a **file transfer**
+  (`alarms_<hash>.json`) above 768 B, with an app-level ack + retry — the same proven path as the watch
+  background image. Device-verified: 4 alarms converge on the first attempt. *(See `sync-architecture.md`
+  §2.1/§5.7.)*
+- **Hardening (release review):** the watch re-arms its terminate timer on an inbound file so a slow /
+  large transfer isn't killed mid-receive; it acks only after the store write commits; corrupt transfers
+  are dropped + re-fetched.
+
+**Watch**
+- **The digital crown scrolls the alarm list again.** A 2-second poll was rebuilding and reassigning the
+  list every tick, re-rendering it and discarding the crown focus; the list is now only reassigned when
+  its content actually changes, and crown focus is re-asserted after render.
+- Watch-side audio playback (an experiment) was **removed** — `@system.audio` exists on the GT 6 but its
+  `src` setter is a no-op, so playback isn't achievable; the watch uses **vibration** for alarm feedback.
+
+**Per-alarm controls**
+- **Independent phone + watch vibration switches** per alarm (replaces the single "vibration off" pattern
+  choice) — silence the wrist without silencing the phone, or vice versa. Existing "no-vibration" alarms
+  migrate to both-off with a usable default pattern. DB migration v9→v10 (covered by a new test).
+
+**Localization**
+- **Completed translations** for Belarusian, Polish, Russian, Ukrainian, and Simplified Chinese (≈80–90
+  previously-English strings each), and added **Russian / Ukrainian / Belarusian** locales to the watch
+  app (watch now ships all 6 languages).
+
+**Release engineering**
+- A DB **destructive-migration fallback for the never-shipped interim v5–v8 schemas** (release builds had
+  none, so a stray interim DB could crash on launch); v9 keeps its real, data-preserving migration.
+- Removed a junk `bash.exe.stackdump`; `*.stackdump` now gitignored.
 
 ## 1.0.5 — 2026-06-19
 phone `versionCode 5` · watch `code 1000005` · tag `v1.0.5`

@@ -94,4 +94,126 @@
     <string name="privacy_consent_read_policy">Відкрити політику конфіденційності</string>
     <string name="privacy_consent_agree">Прийняти та продовжити</string>
     <string name="privacy_consent_disagree">Відхилити</string>
+
+    <!-- Missed-reminder channel + notifications (relative-alarm self-destruct). -->
+    <string name="notif_channel_missed_name">Пропущені нагадування</string>
+    <string name="notif_channel_missed_desc">Відносні будильники, які не спрацювали, поки пристрій був вимкнений</string>
+    <string name="missed_notification_title">Нагадування пропущено</string>
+    <string name="missed_notification_text_labeled">«%1$s» пропущено, поки пристрій був вимкнений.</string>
+    <string name="missed_notification_text_unlabeled">Нагадування «через N хв» пропущено, поки пристрій був вимкнений.</string>
+
+    <!-- Audio + background image fields. -->
+    <string name="field_audio_app_default">За замовчуванням</string>
+    <string name="field_audio_unknown">Невідома мелодія</string>
+    <string name="field_background_image">Фонове зображення</string>
+    <string name="field_background_image_pick">Вибрати…</string>
+    <string name="field_background_image_clear">Очистити фонове зображення</string>
+    <string name="field_background_image_default">За замовчуванням</string>
+
+    <!-- Background picker dialogs. -->
+    <string name="watch_bg_picker_title">Обрізати фон годинника</string>
+    <string name="watch_bg_picker_help">Зведіть пальці, щоб масштабувати, перетягуйте, щоб розмістити. Коло показує, який вигляд матиме фон на вашому годиннику.</string>
+    <string name="phone_bg_picker_title">Обрізати фон телефону</string>
+    <string name="phone_bg_picker_help">Зведіть пальці, щоб масштабувати, перетягуйте, щоб розмістити. У попередньому перегляді поверх показано справжній інтерфейс будильника.</string>
+    <string name="watch_bg_picker_pick">Змінити</string>
+    <string name="watch_bg_picker_empty">Натисніть «Змінити», щоб вибрати зображення</string>
+    <string name="action_play_preview">Відтворити зразок</string>
+    <string name="action_stop_preview">Зупинити зразок</string>
+
+    <!-- Self-destruct + relative-alarm list labels. -->
+    <string name="field_self_destruct">Видаляти після спрацювання</string>
+    <string name="list_relative_in_min">через %1$d хв</string>
+    <string name="list_relative_in_hr">через %1$s год</string>
+    <string name="list_relative_in_sec">через %1$d с</string>
+    <string name="list_relative_fired">дзвонить зараз</string>
+    <string name="list_relative_off_min">%1$d хв</string>
+    <string name="list_relative_off_hr">%1$s год</string>
+    <string name="list_unskip_next_hint">не пропускати наст.</string>
+
+    <!-- Empty / hero list states. -->
+    <string name="no_enabled_alarms">Усі будильники вимкнено.</string>
+    <string name="screen_list_hero_alarm_in_hr">Будильник через %1$s год</string>
+    <string name="screen_list_hero_alarm_in_min">Будильник через %1$d хв</string>
+    <string name="screen_list_hero_alarm_in_sec">Будильник через %1$d с</string>
+
+    <!-- Save / discard / delete-confirm dialogs. -->
+    <string name="action_save">Зберегти</string>
+    <string name="unsaved_changes_title">Скасувати зміни?</string>
+    <string name="unsaved_changes_body">У вас є незбережені зміни. Якщо ви залишите цей екран, їх буде втрачено.</string>
+    <string name="unsaved_changes_confirm">Скасувати</string>
+    <string name="delete_alarm_confirm_body">Видалити цей будильник? Цю дію не можна скасувати.</string>
+    <string name="discard_draft_title">Скасувати новий будильник?</string>
+    <string name="discard_draft_body">Ви не завершили редагування цього будильника. Його буде вилучено зі списку.</string>
+    <string name="discard_draft_confirm">Скасувати</string>
+    <string name="swipe_delete_confirm_body">Видалити «%1$s»?</string>
+    <string name="swipe_delete_confirm_body_unlabeled">Видалити цей будильник?</string>
+
+    <!-- Watch sync card auth. -->
+    <string name="watch_status_card_needs_auth">Не авторизовано — натисніть ключ, щоб надати доступ до годинника</string>
+    <string name="watch_status_card_authorize">Авторизувати доступ до годинника</string>
+
+    <!-- Settings screen. -->
+    <string name="action_open_settings">Налаштування</string>
+    <string name="settings_section_display">Відображення</string>
+    <string name="settings_time_format_label">Формат часу</string>
+    <string name="settings_time_format_system">Системний</string>
+    <string name="settings_time_format_12h">12 год</string>
+    <string name="settings_time_format_24h">24 год</string>
+    <string name="settings_first_day_label">Перший день тижня</string>
+    <string name="settings_first_day_system">Системний (%1$s)</string>
+    <string name="settings_section_default_ringtones">Мелодії за замовчуванням</string>
+    <string name="settings_default_ringtones_intro">Використовуються, коли ви створюєте новий будильник без вибору звуку. Наявні будильники зберігають власний звук.</string>
+    <string name="settings_default_ringtone_absolute">Для будильників на конкретний час</string>
+    <string name="settings_default_ringtone_relative">Для будильників «через N хв»</string>
+    <string name="settings_default_ringtone_reset">Скинути</string>
+    <string name="settings_section_default_backgrounds">Фонові зображення за замовчуванням</string>
+    <string name="settings_default_backgrounds_intro">Використовуються, коли будильник не має власного зображення. Зображення телефону показується за будильником на екрані блокування; зображення годинника обрізається під циферблат.</string>
+    <string name="settings_default_phone_background">Фон будильника на телефоні</string>
+    <string name="settings_default_watch_background">Фон годинника</string>
+    <string name="field_watch_background_change">Змінити</string>
+    <string name="settings_default_background_none">Не встановлено</string>
+    <string name="settings_default_background_set">Встановлено</string>
+    <string name="settings_default_background_clear">Очистити фон за замовчуванням</string>
+    <string name="settings_watch_background_saved">Фон годинника збережено. Він з\'явиться під час наступного відкриття застосунку на годиннику.</string>
+
+    <!-- Companion note. -->
+    <string name="help_companion_note">Компаньйон для GT Wake на Huawei Watch GT 6 Pro. Сполучіть у Huawei Health; телефон дзвонить, а годинник дублює сигнал.</string>
+
+    <!-- Setup checklist + OEM tips. -->
+    <string name="help_section_reliability">Готовність будильника</string>
+    <string name="help_section_reliability_intro">Виправте ці налаштування телефону, перш ніж покладатися на будильник.</string>
+    <string name="help_reliability_ready_title">Усе готово</string>
+    <string name="help_reliability_ready_body">Потрібні дозволи для будильника надано. Тут немає чого виправляти.</string>
+    <string name="help_section_late_alarm">Якщо будильники запізнюються</string>
+    <string name="help_section_late_alarm_intro">Використовуйте це, лише якщо будильники затримуються, заглушуються режимом телефону або годинник пропускає синхронізацію. Це кроки усунення несправностей, а не обов\'язкове налаштування.</string>
+    <string name="help_section_voice">Голосове налаштування (Hey Google)</string>
+
+    <string name="setup_banner_title">Потрібне налаштування</string>
+    <string name="setup_banner_body">Відсутнє обов\'язкове налаштування будильника. Виправте його, перш ніж покладатися на будильник.</string>
+    <string name="setup_banner_action">Відкрити</string>
+    <string name="setup_fix">Виправити</string>
+
+    <string name="setup_perm_notifications_title">Сповіщення</string>
+    <string name="setup_perm_notifications_body">Дозволяє показувати сповіщення про будильник, що дзвонить. Android 13+ запитує це під час роботи.</string>
+    <string name="setup_perm_exact_alarm_title">Будильники й нагадування</string>
+    <string name="setup_perm_exact_alarm_body">Дозволяє точний час спрацювання будильника замість приблизної фонової роботи. Якщо вимкнено, запланованим будильникам не можна довіряти.</string>
+    <string name="setup_perm_fsi_title">Повноекранний будильник</string>
+    <string name="setup_perm_fsi_body">Дозволяє екрану будильника з\'являтися поверх екрана блокування. Якщо це залишається вимкненим після увімкнення, зв\'яжіться з розробником.</string>
+    <string name="setup_perm_battery_title">Батарея: без обмежень</string>
+    <string name="setup_perm_battery_body">Необов\'язково. Спробуйте це, лише якщо будильники запізнюються після проходження обов\'язкових перевірок.</string>
+
+    <string name="setup_oem_label_pixel">Google Pixel / чистий Android</string>
+    <string name="setup_oem_label_samsung">Samsung Galaxy (One UI)</string>
+    <string name="setup_oem_label_xiaomi">Xiaomi / Redmi / POCO</string>
+    <string name="setup_oem_label_oneplus">OnePlus (OxygenOS)</string>
+    <string name="setup_oem_label_huawei">Huawei / Honor</string>
+    <string name="setup_oem_label_other">Інший Android</string>
+    <string name="setup_oem_label_detected">%1$s (ваш телефон)</string>
+
+    <string name="setup_oem_keep_pixel">Зазвичай Pixel не потребує додаткового налаштування.\n\n  •  Якщо ввімкнено режим «Не турбувати», переконайтеся, що в ньому дозволено будильники.</string>
+    <string name="setup_oem_keep_samsung">Samsung може переміщувати невикористовувані застосунки до сплячих або глибоко сплячих, що обмежує будильники та фонові служби.\n\n  •  Налаштування → Батарея → Обмеження фонового використання → Застосунки, що ніколи не сплять → додайте GT Wake.\n  •  Переконайтеся, що GT Wake немає у списку сплячих або глибоко сплячих застосунків.\n  •  Якщо синхронізація з годинником запізнюється, додайте Huawei Health до застосунків, що ніколи не сплять.</string>
+    <string name="setup_oem_keep_xiaomi">Якщо будильники запізнюються на Xiaomi / HyperOS, перевірте фоновий автозапуск.\n\n  •  Налаштування → Застосунки → Дозволи → Фоновий автозапуск → GT Wake → Увімк.\n  •  За наявності дозвольте фонову активність для GT Wake.</string>
+    <string name="setup_oem_keep_oneplus">Якщо будильники запізнюються на OxygenOS, перевірте налаштування батареї застосунку.\n\n  •  Налаштування → Батарея → Додаткові налаштування → Керування батареєю застосунків → GT Wake.\n  •  Дозвольте фонову/передпланову активність для нічних тестів будильника.</string>
+    <string name="setup_oem_keep_huawei">Телефони Huawei можуть блокувати фоновий запуск, якщо ви не керуєте застосунком вручну.\n\n  •  Phone Manager → Запуск застосунків → GT Wake → Керувати вручну.\n  •  Увімкніть автозапуск, вторинний запуск і роботу у фоні.\n  •  Зробіть те саме для Huawei Health, якщо синхронізація з годинником ненадійна.</string>
+    <string name="setup_oem_keep_other">Якщо на вашому телефоні є Phone Manager / застосунок безпеки, знайдіть «Захищені застосунки», «Автозапуск» або «Фонова активність».\n\n  •  Додавайте туди GT Wake, лише якщо будильники запізнюються після проходження обов\'язкових перевірок.</string>
 </resources>

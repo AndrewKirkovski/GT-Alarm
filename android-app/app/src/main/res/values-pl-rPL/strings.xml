@@ -6,26 +6,59 @@
     <string name="notif_channel_alarm_name">Alarm</string>
     <string name="notif_channel_alarm_desc">Dzwoniące alarmy</string>
 
+    <string name="notif_channel_missed_name">Pominięte przypomnienia</string>
+    <string name="notif_channel_missed_desc">Alarmy względne, które nie mogły zadzwonić, gdy urządzenie było wyłączone</string>
+
     <string name="alarm_notification_title">Alarm</string>
     <string name="action_dismiss">Odrzuć</string>
     <string name="action_snooze">Drzemka</string>
     <string name="ring_waiting_for_watch">Czekanie na zegarek…</string>
+
+    <string name="missed_notification_title">Pominięto przypomnienie</string>
+    <string name="missed_notification_text_labeled">Przypomnienie „%1$s” zostało pominięte, gdy urządzenie było wyłączone.</string>
+    <string name="missed_notification_text_unlabeled">Przypomnienie „za N min” zostało pominięte, gdy urządzenie było wyłączone.</string>
 
     <string name="screen_list_title">Alarmy</string>
     <string name="screen_timer_title">Timer</string>
     <string name="field_label_placeholder">Etykieta alarmu</string>
     <string name="field_audio">Dźwięk</string>
     <string name="field_audio_default">Systemowy</string>
+    <string name="field_audio_app_default">Domyślny aplikacji</string>
     <string name="field_audio_pick">Wybierz…</string>
+    <string name="field_audio_unknown">Nieznany dzwonek</string>
+    <string name="field_background_image">Obraz tła</string>
+    <string name="field_background_image_pick">Wybierz…</string>
+    <string name="field_background_image_clear">Wyczyść obraz tła</string>
+    <string name="field_background_image_default">Domyślny aplikacji</string>
+    <string name="watch_bg_picker_title">Przytnij tło zegarka</string>
+    <string name="watch_bg_picker_help">Uszczypnij, aby przybliżyć, przeciągnij, aby przesunąć. Okrąg pokazuje, jak będzie wyglądać na zegarku.</string>
+    <string name="phone_bg_picker_title">Przytnij tło telefonu</string>
+    <string name="phone_bg_picker_help">Uszczypnij, aby przybliżyć, przeciągnij, aby przesunąć. Podgląd pokazuje rzeczywisty interfejs alarmu na wierzchu.</string>
+    <string name="watch_bg_picker_pick">Zmień</string>
+    <string name="watch_bg_picker_empty">Stuknij „Zmień”, aby wybrać obraz</string>
+    <string name="action_play_preview">Odtwórz podgląd</string>
+    <string name="action_stop_preview">Zatrzymaj podgląd</string>
     <string name="field_sound">Dźwięk</string>
     <string name="field_phone_vibration">Wibracja telefonu</string>
     <string name="field_watch_vibration">Wibracja zegarka</string>
     <string name="field_snooze_minutes">Czas drzemki</string>
     <string name="field_snooze_minutes_value">%1$d min</string>
+    <string name="field_self_destruct">Usuń po zadzwonieniu</string>
+    <string name="list_relative_in_min">za %1$d min</string>
+    <string name="list_relative_in_hr">za %1$s godz.</string>
+    <string name="list_relative_in_sec">za %1$d s</string>
+    <string name="list_relative_fired">dzwoni teraz</string>
+    <string name="list_relative_off_min">%1$d min</string>
+    <string name="list_relative_off_hr">%1$s godz.</string>
+    <string name="list_unskip_next_hint">przywróć następny</string>
     <string name="delete">Usuń</string>
     <string name="cancel">Anuluj</string>
     <string name="add_alarm">Dodaj alarm</string>
     <string name="no_alarms">Brak alarmów — stuknij +, aby dodać.</string>
+    <string name="no_enabled_alarms">Wszystkie alarmy są wyłączone.</string>
+    <string name="screen_list_hero_alarm_in_hr">Alarm za %1$s godz.</string>
+    <string name="screen_list_hero_alarm_in_min">Alarm za %1$d min</string>
+    <string name="screen_list_hero_alarm_in_sec">Alarm za %1$d s</string>
 
     <string name="day_sun_short">Nd</string>
     <string name="day_mon_short">Pn</string>
@@ -45,17 +78,31 @@
     <string name="repeats_timer">Stoper</string>
     <string name="delete_alarm">Usuń alarm</string>
 
+    <string name="action_save">Zapisz</string>
+    <string name="unsaved_changes_title">Odrzucić zmiany?</string>
+    <string name="unsaved_changes_body">Masz niezapisane zmiany. Zostaną utracone, jeśli opuścisz ten ekran.</string>
+    <string name="unsaved_changes_confirm">Odrzuć</string>
+    <string name="delete_alarm_confirm_body">Usunąć ten alarm? Tej operacji nie można cofnąć.</string>
+    <string name="discard_draft_title">Odrzucić nowy alarm?</string>
+    <string name="discard_draft_body">Nie dokończono edycji tego alarmu. Zostanie usunięty z listy.</string>
+    <string name="discard_draft_confirm">Odrzuć</string>
+    <string name="swipe_delete_confirm_body">Usunąć „%1$s”?</string>
+    <string name="swipe_delete_confirm_body_unlabeled">Usunąć ten alarm?</string>
+
     <string name="battery_opt_card_title">Niech alarmy będą niezawodne</string>
     <string name="battery_opt_card_body">Samsung One UI może opóźniać alarmy, gdy aplikacja jest w głębokim uśpieniu. Zezwól GT Wake na ignorowanie optymalizacji baterii, aby alarm zawsze dzwonił o czasie.</string>
     <string name="battery_opt_card_action">Otwórz ustawienia</string>
     <string name="battery_opt_card_dismiss">Nie teraz</string>
 
     <string name="watch_status_card_title">Synchronizacja zegarka</string>
+    <string name="watch_status_card_needs_auth">Brak autoryzacji — stuknij klucz, aby przyznać dostęp do zegarka</string>
+    <string name="watch_status_card_authorize">Autoryzuj dostęp do zegarka</string>
 
     <string name="voice_alarm_set">Alarm ustawiony na %1$s</string>
     <string name="voice_alarm_failed">Nie udało się ustawić alarmu</string>
 
     <string name="action_open_help">Pomoc</string>
+    <string name="action_open_settings">Ustawienia</string>
     <string name="help_intro">Android nie ma jednego ustawienia o nazwie „domyślna aplikacja alarmu”. Gdy poprosisz Asystenta Google o ustawienie alarmu, system użyje wcześniej wybranej aplikacji albo pokaże okno wyboru przy pierwszym uruchomieniu. Wybranie GT Wake i naciśnięcie „Zawsze” ustawia ją jako domyślną.</string>
     <string name="help_status_default">GT Wake jest domyślną aplikacją alarmu na tym urządzeniu.</string>
     <string name="help_status_disambiguator">Zainstalowano wiele aplikacji alarmu. Następnym razem, gdy powiesz „Hey Google, set an alarm”, Android pokaże okno wyboru — wybierz GT Wake i naciśnij Zawsze.</string>
@@ -70,6 +117,7 @@
     <string name="help_device_unsupported_title">Inny zegarek?</string>
     <string name="help_device_unsupported_body">Na dziś w pełni przetestowany jest tylko Huawei GT 6 Pro. Jeśli Twój model się nie synchronizuje albo układ jest dziwny — napisz do mnie. Przekazanie urządzenia do testów to najszybsza droga do pełnego wsparcia.</string>
     <string name="help_device_unsupported_button">Skontaktuj się z autorem</string>
+    <string name="help_companion_note">Aplikacja towarzysząca GT Wake na Huawei Watch GT 6 Pro. Sparuj w Huawei Health; telefon dzwoni, a zegarek to odzwierciedla.</string>
     <string name="field_snooze_off_value">Wył.</string>
     <string name="field_snooze_off_chip">Wył.</string>
     <string name="dialog_keep_editing">Wróć do edycji</string>
@@ -88,10 +136,73 @@
     <string name="field_max_snooze_unlimited">Bez limitu</string>
     <string name="field_max_snooze_value">%1$d×</string>
     <string name="help_privacy_link">Polityka prywatności</string>
+    <!-- URL copied verbatim — Polish falls back to the English privacy page (only zh-rCN overrides). -->
+    <string name="help_privacy_url">https://gtwake.kirkouski.com/privacy</string>
 
     <string name="privacy_consent_title">Witamy w GT Wake</string>
     <string name="privacy_consent_body">GT Wake nie ma kont, reklam ani śledzenia. Twoje alarmy i ustawienia pozostają na urządzeniu, a alarmy synchronizują się bezpośrednio ze sparowanym zegarkiem — nic nie jest wysyłane do nas. Aby kontynuować, zapoznaj się z polityką prywatności.</string>
     <string name="privacy_consent_read_policy">Przeczytaj politykę prywatności</string>
     <string name="privacy_consent_agree">Akceptuję i kontynuuję</string>
     <string name="privacy_consent_disagree">Nie akceptuję</string>
+
+    <!-- ===== Settings screen ===== -->
+    <string name="settings_section_display">Wyświetlanie</string>
+    <string name="settings_time_format_label">Format czasu</string>
+    <string name="settings_time_format_system">Systemowy</string>
+    <string name="settings_time_format_12h">12 h</string>
+    <string name="settings_time_format_24h">24 h</string>
+    <string name="settings_first_day_label">Pierwszy dzień tygodnia</string>
+    <string name="settings_first_day_system">Systemowy (%1$s)</string>
+    <string name="settings_section_default_ringtones">Domyślne dzwonki</string>
+    <string name="settings_default_ringtones_intro">Używane, gdy tworzysz nowy alarm bez wybierania dźwięku. Istniejące alarmy zachowują swój własny dźwięk.</string>
+    <string name="settings_default_ringtone_absolute">Dla alarmów na godzinę</string>
+    <string name="settings_default_ringtone_relative">Dla alarmów „za N min”</string>
+    <string name="settings_default_ringtone_reset">Resetuj</string>
+    <string name="settings_section_default_backgrounds">Domyślne obrazy tła</string>
+    <string name="settings_default_backgrounds_intro">Używane, gdy alarm nie ma własnego obrazu. Obraz telefonu jest wyświetlany za alarmem na ekranie blokady; obraz zegarka jest przycinany do tarczy zegarka.</string>
+    <string name="settings_default_phone_background">Tło alarmu na telefonie</string>
+    <string name="settings_default_watch_background">Tło zegarka</string>
+    <string name="field_watch_background_change">Zmień</string>
+    <string name="settings_default_background_none">Nie ustawiono</string>
+    <string name="settings_default_background_set">Ustawiono</string>
+    <string name="settings_default_background_clear">Wyczyść domyślne tło</string>
+    <string name="settings_watch_background_saved">Tło zegarka zapisane. Pojawi się przy następnym otwarciu aplikacji na zegarku.</string>
+
+    <!-- ===== Setup checklist + OEM tips (Help screen) ===== -->
+    <string name="help_section_reliability">Gotowość alarmu</string>
+    <string name="help_section_reliability_intro">Popraw te ustawienia telefonu, zanim zaczniesz polegać na alarmie.</string>
+    <string name="help_reliability_ready_title">Wszystko wygląda na gotowe</string>
+    <string name="help_reliability_ready_body">Wymagane uprawnienia alarmu są w porządku. Nie ma tu nic do poprawienia.</string>
+    <string name="help_section_late_alarm">Jeśli alarmy się spóźniają</string>
+    <string name="help_section_late_alarm_intro">Używaj ich tylko, jeśli alarmy są opóźnione, wyciszone przez tryb telefonu lub zegarek pomija synchronizację. To kroki rozwiązywania problemów, a nie wymagana konfiguracja.</string>
+    <string name="help_section_voice">Konfiguracja głosowa (Hey Google)</string>
+
+    <string name="setup_banner_title">Wymagana konfiguracja</string>
+    <string name="setup_banner_body">Brakuje wymaganego ustawienia alarmu. Popraw je, zanim zaczniesz polegać na alarmie.</string>
+    <string name="setup_banner_action">Otwórz</string>
+    <string name="setup_fix">Popraw</string>
+
+    <string name="setup_perm_notifications_title">Powiadomienia</string>
+    <string name="setup_perm_notifications_body">Pozwala na wyświetlanie powiadomienia o dzwoniącym alarmie. Android 13+ prosi o to w trakcie działania.</string>
+    <string name="setup_perm_exact_alarm_title">Alarmy i przypomnienia</string>
+    <string name="setup_perm_exact_alarm_body">Pozwala na dokładne odmierzanie czasu alarmu zamiast przybliżonej pracy w tle. Jeśli to jest wyłączone, zaplanowane alarmy nie są niezawodne.</string>
+    <string name="setup_perm_fsi_title">Alarm pełnoekranowy</string>
+    <string name="setup_perm_fsi_body">Pozwala na wyświetlanie ekranu alarmu na ekranie blokady. Jeśli pozostaje wyłączone po włączeniu, skontaktuj się z autorem.</string>
+    <string name="setup_perm_battery_title">Bateria: Bez ograniczeń</string>
+    <string name="setup_perm_battery_body">Opcjonalne. Wypróbuj tylko, jeśli alarmy się spóźniają po przejściu wymaganych kontroli.</string>
+
+    <string name="setup_oem_label_pixel">Google Pixel / czysty Android</string>
+    <string name="setup_oem_label_samsung">Samsung Galaxy (One UI)</string>
+    <string name="setup_oem_label_xiaomi">Xiaomi / Redmi / POCO</string>
+    <string name="setup_oem_label_oneplus">OnePlus (OxygenOS)</string>
+    <string name="setup_oem_label_huawei">Huawei / Honor</string>
+    <string name="setup_oem_label_other">Inny Android</string>
+    <string name="setup_oem_label_detected">%1$s (Twój telefon)</string>
+
+    <string name="setup_oem_keep_pixel">Zwykle nie jest potrzebna dodatkowa konfiguracja Pixela.\n\n  •  Jeśli tryb Nie przeszkadzać jest włączony, upewnij się, że alarmy są w nim dozwolone.</string>
+    <string name="setup_oem_keep_samsung">Samsung może przenosić nieużywane aplikacje do Uśpionych lub Głęboko uśpionych aplikacji, co ogranicza alarmy i usługi pierwszego planu.\n\n  •  Ustawienia → Bateria → Limity użycia w tle → Aplikacje, które nigdy nie zasypiają → dodaj GT Wake.\n  •  Upewnij się, że GT Wake nie jest na liście Uśpionych ani Głęboko uśpionych aplikacji.\n  •  Jeśli synchronizacja zegarka się spóźnia, dodaj też Huawei Health do Aplikacji, które nigdy nie zasypiają.</string>
+    <string name="setup_oem_keep_xiaomi">Jeśli alarmy się spóźniają na Xiaomi / HyperOS, sprawdź autostart w tle.\n\n  •  Ustawienia → Aplikacje → Uprawnienia → Autostart w tle → GT Wake → Wł.\n  •  Jeśli dostępne, zezwól na aktywność w tle dla GT Wake.</string>
+    <string name="setup_oem_keep_oneplus">Jeśli alarmy się spóźniają na OxygenOS, sprawdź ustawienia baterii aplikacji.\n\n  •  Ustawienia → Bateria → Więcej ustawień → Zarządzanie baterią aplikacji → GT Wake.\n  •  Zezwól na aktywność na pierwszym planie/w tle do nocnego testowania alarmów.</string>
+    <string name="setup_oem_keep_huawei">Telefony Huawei mogą blokować uruchamianie w tle, chyba że zarządzasz aplikacją ręcznie.\n\n  •  Menedżer telefonu → Uruchamianie aplikacji → GT Wake → Zarządzaj ręcznie.\n  •  Włącz Autouruchamianie, Uruchamianie pośrednie i Działanie w tle.\n  •  Zrób to samo dla Huawei Health, jeśli synchronizacja zegarka jest zawodna.</string>
+    <string name="setup_oem_keep_other">Jeśli Twój telefon ma Menedżera telefonu / aplikację zabezpieczającą, poszukaj Chronionych aplikacji, Autostartu lub Aktywności w tle.\n\n  •  Dodaj tam GT Wake tylko, jeśli alarmy się spóźniają po przejściu wymaganych kontroli.</string>
 </resources>

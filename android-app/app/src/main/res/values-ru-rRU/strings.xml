@@ -94,4 +94,135 @@
     <string name="privacy_consent_read_policy">Открыть политику конфиденциальности</string>
     <string name="privacy_consent_agree">Принять и продолжить</string>
     <string name="privacy_consent_disagree">Отклонить</string>
+
+    <!-- Missed reminders (relative-alarm + self-destruct). -->
+    <string name="notif_channel_missed_name">Пропущенные напоминания</string>
+    <string name="notif_channel_missed_desc">Относительные будильники, которые не сработали, пока устройство было выключено</string>
+    <string name="missed_notification_title">Напоминание пропущено</string>
+    <string name="missed_notification_text_labeled">«%1$s» пропущено, пока устройство было выключено.</string>
+    <string name="missed_notification_text_unlabeled">Напоминание «через N мин» пропущено, пока устройство было выключено.</string>
+
+    <!-- Audio fields. -->
+    <string name="field_audio_app_default">По умолчанию в приложении</string>
+    <string name="field_audio_unknown">Неизвестная мелодия</string>
+
+    <!-- Per-alarm background image. -->
+    <string name="field_background_image">Фоновое изображение</string>
+    <string name="field_background_image_pick">Выбрать…</string>
+    <string name="field_background_image_clear">Очистить фоновое изображение</string>
+    <string name="field_background_image_default">По умолчанию в приложении</string>
+
+    <!-- Background pickers. -->
+    <string name="watch_bg_picker_title">Обрезать фон часов</string>
+    <string name="watch_bg_picker_help">Сводите пальцы для масштаба, перетаскивайте для позиции. Круг показывает, как это будет выглядеть на часах.</string>
+    <string name="phone_bg_picker_title">Обрезать фон телефона</string>
+    <string name="phone_bg_picker_help">Сводите пальцы для масштаба, перетаскивайте для позиции. Предпросмотр показывает реальный экран будильника поверх.</string>
+    <string name="watch_bg_picker_pick">Изменить</string>
+    <string name="watch_bg_picker_empty">Нажмите «Изменить», чтобы выбрать изображение</string>
+    <string name="action_play_preview">Воспроизвести</string>
+    <string name="action_stop_preview">Остановить</string>
+
+    <!-- Relative alarms + self-destruct. -->
+    <string name="field_self_destruct">Удалить после срабатывания</string>
+    <string name="list_relative_in_min">через %1$d мин</string>
+    <string name="list_relative_in_hr">через %1$s ч</string>
+    <string name="list_relative_in_sec">через %1$d с</string>
+    <string name="list_relative_fired">срабатывает сейчас</string>
+    <string name="list_relative_off_min">%1$d мин</string>
+    <string name="list_relative_off_hr">%1$s ч</string>
+    <string name="list_unskip_next_hint">отменить пропуск</string>
+
+    <!-- Empty / hero states. -->
+    <string name="no_enabled_alarms">Все будильники выключены.</string>
+    <string name="screen_list_hero_alarm_in_hr">Будильник через %1$s ч</string>
+    <string name="screen_list_hero_alarm_in_min">Будильник через %1$d мин</string>
+    <string name="screen_list_hero_alarm_in_sec">Будильник через %1$d с</string>
+
+    <!-- Reverse-save edit model dialogs. -->
+    <string name="action_save">Сохранить</string>
+    <string name="unsaved_changes_title">Отменить изменения?</string>
+    <string name="unsaved_changes_body">У вас есть несохранённые изменения. Они будут потеряны, если вы покинете этот экран.</string>
+    <string name="unsaved_changes_confirm">Отменить</string>
+    <string name="delete_alarm_confirm_body">Удалить этот будильник? Это действие нельзя отменить.</string>
+    <string name="discard_draft_title">Отменить новый будильник?</string>
+    <string name="discard_draft_body">Вы не закончили редактирование этого будильника. Он будет удалён из списка.</string>
+    <string name="discard_draft_confirm">Отменить</string>
+    <string name="swipe_delete_confirm_body">Удалить «%1$s»?</string>
+    <string name="swipe_delete_confirm_body_unlabeled">Удалить этот будильник?</string>
+
+    <!-- Watch sync card. -->
+    <string name="watch_status_card_needs_auth">Нет авторизации — нажмите на ключ, чтобы предоставить доступ к часам</string>
+    <string name="watch_status_card_authorize">Авторизовать доступ к часам</string>
+
+    <string name="action_open_settings">Настройки</string>
+
+    <!-- ===== Settings screen ===== -->
+    <string name="settings_section_display">Отображение</string>
+    <string name="settings_time_format_label">Формат времени</string>
+    <string name="settings_time_format_system">Системный</string>
+    <string name="settings_time_format_12h">12 ч</string>
+    <string name="settings_time_format_24h">24 ч</string>
+    <string name="settings_first_day_label">Первый день недели</string>
+    <string name="settings_first_day_system">Системный (%1$s)</string>
+    <string name="settings_section_default_ringtones">Мелодии по умолчанию</string>
+    <string name="settings_default_ringtones_intro">Используются при создании нового будильника без выбора звука. У существующих будильников остаётся свой звук.</string>
+    <string name="settings_default_ringtone_absolute">Для будильников по времени</string>
+    <string name="settings_default_ringtone_relative">Для будильников «через N мин»</string>
+    <string name="settings_default_ringtone_reset">Сбросить</string>
+    <string name="settings_section_default_backgrounds">Фоновые изображения по умолчанию</string>
+    <string name="settings_default_backgrounds_intro">Используются, когда у будильника нет своего изображения. Фон телефона отображается за экраном будильника на блокировке; фон часов обрезается под циферблат.</string>
+    <string name="settings_default_phone_background">Фон будильника на телефоне</string>
+    <string name="settings_default_watch_background">Фон часов</string>
+    <string name="field_watch_background_change">Изменить</string>
+    <string name="settings_default_background_none">Не задан</string>
+    <string name="settings_default_background_set">Задан</string>
+    <string name="settings_default_background_clear">Очистить фон по умолчанию</string>
+    <string name="settings_watch_background_saved">Фон часов сохранён. Он появится при следующем открытии приложения на часах.</string>
+
+    <string name="help_companion_note">Спутник GT Wake для Huawei Watch GT 6 Pro. Выполните сопряжение в Huawei Health; телефон звонит, а часы дублируют сигнал.</string>
+
+    <!-- Privacy URL: ru keeps the default English page (no localized ru page). -->
+    <string name="help_privacy_url">https://gtwake.kirkouski.com/privacy</string>
+
+    <!-- ===== Setup checklist + OEM tips ===== -->
+    <string name="help_section_reliability">Готовность будильника</string>
+    <string name="help_section_reliability_intro">Исправьте эти настройки телефона, прежде чем полагаться на будильник.</string>
+    <string name="help_reliability_ready_title">Всё готово</string>
+    <string name="help_reliability_ready_body">Необходимые разрешения для будильника в порядке. Здесь нечего исправлять.</string>
+    <string name="help_section_late_alarm">Если будильники опаздывают</string>
+    <string name="help_section_late_alarm_intro">Используйте это, только если будильники задерживаются, заглушаются режимом телефона или часы пропускают синхронизацию. Это шаги по устранению неполадок, а не обязательная настройка.</string>
+    <string name="help_section_voice">Голосовая настройка (Hey Google)</string>
+
+    <!-- Home-screen setup banner. -->
+    <string name="setup_banner_title">Требуется настройка</string>
+    <string name="setup_banner_body">Не задана обязательная настройка будильника. Исправьте её, прежде чем полагаться на будильник.</string>
+    <string name="setup_banner_action">Открыть</string>
+    <string name="setup_fix">Исправить</string>
+
+    <!-- Permission rows. -->
+    <string name="setup_perm_notifications_title">Уведомления</string>
+    <string name="setup_perm_notifications_body">Разрешают показ уведомления о срабатывающем будильнике. Android 13+ запрашивает это во время работы.</string>
+    <string name="setup_perm_exact_alarm_title">Будильники и напоминания</string>
+    <string name="setup_perm_exact_alarm_body">Разрешают точное срабатывание будильника вместо приблизительной фоновой работы. Если выключено, запланированные будильники ненадёжны.</string>
+    <string name="setup_perm_fsi_title">Полноэкранный будильник</string>
+    <string name="setup_perm_fsi_body">Разрешает экрану будильника появляться поверх экрана блокировки. Если после включения остаётся выключенным — свяжитесь с разработчиком.</string>
+    <string name="setup_perm_battery_title">Батарея: без ограничений</string>
+    <string name="setup_perm_battery_body">Необязательно. Попробуйте, только если будильники опаздывают после прохождения обязательных проверок.</string>
+
+    <!-- Brand dropdown labels. -->
+    <string name="setup_oem_label_pixel">Google Pixel / чистый Android</string>
+    <string name="setup_oem_label_samsung">Samsung Galaxy (One UI)</string>
+    <string name="setup_oem_label_xiaomi">Xiaomi / Redmi / POCO</string>
+    <string name="setup_oem_label_oneplus">OnePlus (OxygenOS)</string>
+    <string name="setup_oem_label_huawei">Huawei / Honor</string>
+    <string name="setup_oem_label_other">Другой Android</string>
+    <string name="setup_oem_label_detected">%1$s (ваш телефон)</string>
+
+    <!-- Per-brand background-keep tips. -->
+    <string name="setup_oem_keep_pixel">Обычно для Pixel дополнительная настройка не нужна.\n\n  •  Если включён режим «Не беспокоить», убедитесь, что будильники в нём разрешены.</string>
+    <string name="setup_oem_keep_samsung">Samsung может переводить неиспользуемые приложения в режим «Спящие» или «Глубокий сон», что ограничивает будильники и фоновые службы.\n\n  •  Настройки → Батарея → Ограничения фоновой работы → Приложения без перехода в спящий режим → добавьте GT Wake.\n  •  Убедитесь, что GT Wake нет в списках «Спящие приложения» или «Приложения в глубоком сне».\n  •  Если синхронизация с часами опаздывает, добавьте Huawei Health в «Приложения без перехода в спящий режим» тоже.</string>
+    <string name="setup_oem_keep_xiaomi">Если будильники опаздывают на Xiaomi / HyperOS, проверьте автозапуск в фоне.\n\n  •  Настройки → Приложения → Разрешения → Автозапуск → GT Wake → Вкл.\n  •  Если доступно, разрешите фоновую активность для GT Wake.</string>
+    <string name="setup_oem_keep_oneplus">Если будильники опаздывают на OxygenOS, проверьте настройки батареи приложения.\n\n  •  Настройки → Батарея → Доп. настройки → Управление батареей приложений → GT Wake.\n  •  Разрешите активность на переднем плане/в фоне для ночного теста будильника.</string>
+    <string name="setup_oem_keep_huawei">Телефоны Huawei могут блокировать запуск в фоне, если приложением не управлять вручную.\n\n  •  Диспетчер телефона → Запуск приложений → GT Wake → Управлять вручную.\n  •  Включите автозапуск, дополнительный запуск и работу в фоне.\n  •  Сделайте то же для Huawei Health, если синхронизация с часами нестабильна.</string>
+    <string name="setup_oem_keep_other">Если на вашем телефоне есть Диспетчер телефона / приложение безопасности, найдите «Защищённые приложения», «Автозапуск» или «Фоновую активность».\n\n  •  Добавьте туда GT Wake, только если будильники опаздывают после прохождения обязательных проверок.</string>
 </resources>

@@ -375,6 +375,13 @@ function applyReplace(msg, done) {
 
 export default {
     markAppStart: markAppStart,
+    // Re-arm the drain-quiescence terminate timer when an inbound FILE is
+    // received (the file path doesn't go through handle()/noteIncomingEnvelope,
+    // so a slow file transfer could otherwise be terminated mid-receive). Carries
+    // the same grace-window guard, so it's a no-op in a user-opened session.
+    noteFileActivity: function () {
+        noteIncomingEnvelope();
+    },
     // Apply a full-state replace parsed from a FILE-delivered envelope (used when
     // the phone sends the list as a file because it exceeds the text-message
     // ceiling). Same path as the text sync_replace, but with a completion

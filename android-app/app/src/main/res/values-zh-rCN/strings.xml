@@ -6,26 +6,60 @@
     <string name="notif_channel_alarm_name">闹钟</string>
     <string name="notif_channel_alarm_desc">正在响的闹钟</string>
 
+    <string name="notif_channel_missed_name">错过的提醒</string>
+    <string name="notif_channel_missed_desc">设备关机时无法响起的相对闹钟</string>
+
     <string name="alarm_notification_title">闹钟</string>
     <string name="action_dismiss">关闭</string>
     <string name="action_snooze">稍后提醒</string>
     <string name="ring_waiting_for_watch">等待手表…</string>
+
+    <string name="missed_notification_title">错过的提醒</string>
+    <string name="missed_notification_text_labeled">设备关机时错过了「%1$s」。</string>
+    <string name="missed_notification_text_unlabeled">设备关机时错过了一个「N 分钟后」的提醒。</string>
 
     <string name="screen_list_title">闹钟</string>
     <string name="screen_timer_title">计时器</string>
     <string name="field_label_placeholder">闹钟标签</string>
     <string name="field_audio">声音</string>
     <string name="field_audio_default">系统默认</string>
+    <string name="field_audio_app_default">应用默认</string>
     <string name="field_audio_pick">选择…</string>
+    <string name="field_audio_unknown">未知铃声</string>
+    <string name="field_background_image">背景图片</string>
+    <string name="field_background_image_pick">选择…</string>
+    <string name="field_background_image_clear">清除背景图片</string>
+    <string name="field_background_image_default">应用默认</string>
+    <string name="watch_bg_picker_title">裁剪手表背景</string>
+    <string name="watch_bg_picker_help">双指缩放，拖动调整位置。圆圈预览它在手表上的显示效果。</string>
+    <string name="phone_bg_picker_title">裁剪手机背景</string>
+    <string name="phone_bg_picker_help">双指缩放，拖动调整位置。预览中会叠加显示真实的闹钟界面。</string>
+    <string name="watch_bg_picker_pick">更改</string>
+    <string name="watch_bg_picker_empty">点击「更改」选择图片</string>
+    <string name="action_play_preview">播放预览</string>
+    <string name="action_stop_preview">停止预览</string>
     <string name="field_sound">声音</string>
     <string name="field_phone_vibration">手机振动</string>
     <string name="field_watch_vibration">手表振动</string>
     <string name="field_snooze_minutes">稍后提醒时长</string>
     <string name="field_snooze_minutes_value">%1$d 分钟</string>
+    <string name="field_self_destruct">响起后删除</string>
     <string name="delete">删除</string>
     <string name="cancel">取消</string>
     <string name="add_alarm">添加闹钟</string>
     <string name="no_alarms">没有闹钟 — 点击 + 添加</string>
+    <string name="no_enabled_alarms">所有闹钟均已关闭。</string>
+
+    <string name="list_relative_in_min">%1$d 分钟后</string>
+    <string name="list_relative_in_hr">%1$s 小时后</string>
+    <string name="list_relative_in_sec">%1$d 秒后</string>
+    <string name="list_relative_fired">正在响起</string>
+    <string name="list_relative_off_min">%1$d 分钟</string>
+    <string name="list_relative_off_hr">%1$s 小时</string>
+
+    <string name="screen_list_hero_alarm_in_hr">%1$s 小时后响铃</string>
+    <string name="screen_list_hero_alarm_in_min">%1$d 分钟后响铃</string>
+    <string name="screen_list_hero_alarm_in_sec">%1$d 秒后响铃</string>
 
     <string name="day_sun_short">日</string>
     <string name="day_mon_short">一</string>
@@ -45,17 +79,31 @@
     <string name="repeats_timer">计时器</string>
     <string name="delete_alarm">删除闹钟</string>
 
+    <string name="action_save">保存</string>
+    <string name="unsaved_changes_title">放弃更改？</string>
+    <string name="unsaved_changes_body">您有未保存的更改。离开此页面后将会丢失。</string>
+    <string name="unsaved_changes_confirm">放弃</string>
+    <string name="delete_alarm_confirm_body">删除此闹钟？此操作无法撤销。</string>
+    <string name="discard_draft_title">放弃新建闹钟？</string>
+    <string name="discard_draft_body">您尚未完成此闹钟的编辑。它将从列表中移除。</string>
+    <string name="discard_draft_confirm">放弃</string>
+    <string name="swipe_delete_confirm_body">删除「%1$s」？</string>
+    <string name="swipe_delete_confirm_body_unlabeled">删除此闹钟？</string>
+
     <string name="battery_opt_card_title">保持闹钟稳定</string>
     <string name="battery_opt_card_body">三星 One UI 可能在应用进入深度睡眠时延迟闹钟。允许 GT Wake 忽略电池优化,确保闹钟准时响起。</string>
     <string name="battery_opt_card_action">打开设置</string>
     <string name="battery_opt_card_dismiss">暂不</string>
 
     <string name="watch_status_card_title">手表同步</string>
+    <string name="watch_status_card_needs_auth">未授权 — 点击钥匙图标以授予手表访问权限</string>
+    <string name="watch_status_card_authorize">授权手表访问</string>
 
     <string name="voice_alarm_set">闹钟已设置为 %1$s</string>
     <string name="voice_alarm_failed">无法设置闹钟</string>
 
     <string name="action_open_help">帮助</string>
+    <string name="action_open_settings">设置</string>
     <string name="help_intro">Android 没有单一的「默认闹钟应用」设置。当您要求 Google 助理设置闹钟时，系统会使用您之前选择的应用，或在首次使用时显示选择对话框。选择 GT Wake 并点击「始终」即可将其设为默认。</string>
     <string name="help_status_default">GT Wake 是此设备上的默认闹钟应用。</string>
     <string name="help_status_disambiguator">已安装多个闹钟应用。下次您说「Hey Google, set an alarm」时，Android 会显示选择对话框 — 请选择 GT Wake 并点击「始终」。</string>
@@ -75,6 +123,7 @@
     <string name="dialog_keep_editing">继续编辑</string>
 
     <string name="list_skip_next_hint">跳过下次</string>
+    <string name="list_unskip_next_hint">取消跳过</string>
     <string name="field_vibration_pattern">振动模式</string>
     <string name="vibration_pattern_pulse">脉冲</string>
     <string name="vibration_pattern_heartbeat">心跳</string>
@@ -96,4 +145,67 @@
     <string name="privacy_consent_read_policy">阅读完整隐私政策</string>
     <string name="privacy_consent_agree">同意并继续</string>
     <string name="privacy_consent_disagree">不同意</string>
+
+    <string name="help_companion_note">适用于华为 Watch GT 6 Pro 的 GT Wake 配套应用。在华为运动健康中配对后，手机响铃，手表同步响起。</string>
+
+    <!-- ===== 设置页面 ===== -->
+    <string name="settings_section_display">显示</string>
+    <string name="settings_time_format_label">时间格式</string>
+    <string name="settings_time_format_system">跟随系统</string>
+    <string name="settings_time_format_12h">12 小时制</string>
+    <string name="settings_time_format_24h">24 小时制</string>
+    <string name="settings_first_day_label">每周起始日</string>
+    <string name="settings_first_day_system">跟随系统（%1$s）</string>
+    <string name="settings_section_default_ringtones">默认铃声</string>
+    <string name="settings_default_ringtones_intro">在新建闹钟时未选择声音时使用。现有闹钟保留各自的声音。</string>
+    <string name="settings_default_ringtone_absolute">用于定时闹钟</string>
+    <string name="settings_default_ringtone_relative">用于「N 分钟后」闹钟</string>
+    <string name="settings_default_ringtone_reset">重置</string>
+    <string name="settings_section_default_backgrounds">默认背景图片</string>
+    <string name="settings_default_backgrounds_intro">在闹钟未设置自己的图片时使用。手机图片显示在锁屏闹钟背后；手表图片会裁剪至表盘大小。</string>
+    <string name="settings_default_phone_background">手机闹钟背景</string>
+    <string name="settings_default_watch_background">手表背景</string>
+    <string name="field_watch_background_change">更改</string>
+    <string name="settings_default_background_none">未设置</string>
+    <string name="settings_default_background_set">已设置</string>
+    <string name="settings_default_background_clear">清除默认背景</string>
+    <string name="settings_watch_background_saved">手表背景已保存。下次打开手表应用时即会显示。</string>
+
+    <!-- ===== 闹钟就绪检查 + 各品牌设置提示 ===== -->
+    <string name="help_section_reliability">闹钟就绪检查</string>
+    <string name="help_section_reliability_intro">在依赖闹钟之前，请先修正以下手机设置。</string>
+    <string name="help_reliability_ready_title">一切准备就绪</string>
+    <string name="help_reliability_ready_body">所需的闹钟权限均已就绪，无需修正。</string>
+    <string name="help_section_late_alarm">如果闹钟延迟</string>
+    <string name="help_section_late_alarm_intro">仅在闹钟延迟、被某种手机模式静音或手表错过同步时才需要这些步骤。它们属于故障排查步骤，并非必需设置。</string>
+    <string name="help_section_voice">语音设置（Hey Google）</string>
+
+    <string name="setup_banner_title">需要设置</string>
+    <string name="setup_banner_body">缺少必需的闹钟设置。请在依赖闹钟之前完成修正。</string>
+    <string name="setup_banner_action">打开</string>
+    <string name="setup_fix">修正</string>
+
+    <string name="setup_perm_notifications_title">通知</string>
+    <string name="setup_perm_notifications_body">允许显示响铃闹钟通知。Android 13 及以上版本会在运行时请求此权限。</string>
+    <string name="setup_perm_exact_alarm_title">闹钟和提醒</string>
+    <string name="setup_perm_exact_alarm_body">允许使用精确闹钟定时，而非大致的后台调度。如果关闭，已安排的闹钟将不可靠。</string>
+    <string name="setup_perm_fsi_title">全屏闹钟</string>
+    <string name="setup_perm_fsi_body">允许闹钟界面在锁屏上方显示。如果开启后仍保持关闭，请联系开发者。</string>
+    <string name="setup_perm_battery_title">电池：无限制</string>
+    <string name="setup_perm_battery_body">可选。仅在必需项检查通过后闹钟仍延迟时再尝试。</string>
+
+    <string name="setup_oem_label_pixel">Google Pixel / 原生 Android</string>
+    <string name="setup_oem_label_samsung">三星 Galaxy（One UI）</string>
+    <string name="setup_oem_label_xiaomi">小米 / 红米 / POCO</string>
+    <string name="setup_oem_label_oneplus">一加（OxygenOS）</string>
+    <string name="setup_oem_label_huawei">华为 / 荣耀</string>
+    <string name="setup_oem_label_other">其他 Android</string>
+    <string name="setup_oem_label_detected">%1$s（您的手机）</string>
+
+    <string name="setup_oem_keep_pixel">Pixel 通常无需额外设置。\n\n  •  如果开启了勿扰模式，请确保该模式下允许闹钟。</string>
+    <string name="setup_oem_keep_samsung">三星可能会将不常用的应用移入「休眠应用」或「深度休眠应用」，从而限制闹钟和前台服务。\n\n  •  设置 → 电池 → 后台使用限制 → 不进入休眠的应用 → 添加 GT Wake。\n  •  确保 GT Wake 未被列入「休眠应用」或「深度休眠应用」。\n  •  如果手表同步延迟，也将华为运动健康添加到「不进入休眠的应用」。</string>
+    <string name="setup_oem_keep_xiaomi">如果闹钟在小米 / HyperOS 上延迟，请检查后台自启动。\n\n  •  设置 → 应用 → 权限 → 后台自启动 → GT Wake → 开启。\n  •  如有该选项，请允许 GT Wake 的后台活动。</string>
+    <string name="setup_oem_keep_oneplus">如果闹钟在 OxygenOS 上延迟，请检查应用的电池设置。\n\n  •  设置 → 电池 → 更多设置 → 应用电池管理 → GT Wake。\n  •  在夜间闹钟测试期间允许前台/后台活动。</string>
+    <string name="setup_oem_keep_huawei">华为手机可能会阻止后台启动，除非您手动管理应用。\n\n  •  手机管家 → 应用启动管理 → GT Wake → 手动管理。\n  •  开启「允许自启动」「允许关联启动」和「允许后台活动」。\n  •  如果手表同步不稳定，对华为运动健康执行相同操作。</string>
+    <string name="setup_oem_keep_other">如果您的手机带有手机管家 / 安全应用，请查找「受保护的应用」「自启动」或「后台活动」。\n\n  •  仅在必需项检查通过后闹钟仍延迟时，才将 GT Wake 添加到其中。</string>
 </resources>

@@ -4,6 +4,7 @@ import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.kirkouski.gtwake.companion.domain.Alarm
+import com.kirkouski.gtwake.companion.domain.VibrationPattern
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -373,6 +374,146 @@ class MigrationTest {
                     1,
                     c.getInt(1),
                 )
+            }
+        }
+
+        ctx.deleteDatabase(TEST_DB_NAME)
+    }
+
+    @Test
+    fun migrate9To10_addsPerDeviceVibEnablesAndMigratesLegacyOff() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        ctx.deleteDatabase(TEST_DB_NAME)
+
+        // v9 schema by hand (exportSchema=false). Mirrors the shipped v9
+        // AlarmEntity — everything the v10 entity has EXCEPT the two columns
+        // MIGRATION_9_10 adds (phoneVibrationEnabled / watchVibrationEnabled).
+        // This is the ONLY migration real users (all on v9 = 1.0.5) will run.
+        val v9Create = """
+            CREATE TABLE IF NOT EXISTS `alarms` (
+                `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                `label` TEXT NOT NULL,
+                `hour` INTEGER NOT NULL,
+                `minute` INTEGER NOT NULL,
+                `daysOfWeek` INTEGER NOT NULL,
+                `enabled` INTEGER NOT NULL,
+                `audioUri` TEXT,
+                `audioName` TEXT,
+                `isVibrationOnly` INTEGER NOT NULL,
+                `updatedAtEpoch` INTEGER NOT NULL DEFAULT 0,
+                `snoozeMinutes` INTEGER NOT NULL DEFAULT ${Alarm.DEFAULT_SNOOZE_MINUTES},
+                `relativeMinutes` INTEGER,
+                `selfDestruct` INTEGER NOT NULL DEFAULT 0,
+                `snoozedUntilEpoch` INTEGER,
+                `backgroundImageUri` TEXT,
+                `vibrationPatternName` TEXT NOT NULL DEFAULT '${VibrationPattern.DEFAULT.name}',
+                `volumeRampSeconds` INTEGER NOT NULL DEFAULT 0,
+                `maxSnoozeCount` INTEGER NOT NULL DEFAULT 0,
+                `consecutiveSnoozeCount` INTEGER NOT NULL DEFAULT 0,
+                `skipNextEpoch` INTEGER
+            )
+        """.trimIndent()
+
+        val v9Helper: SupportSQLiteOpenHelper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(ctx)
+                .name(TEST_DB_NAME)
+                .callback(object : SupportSQLiteOpenHelper.Callback(9) {
+                    override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                        db.execSQL(v9Create)
+                    }
+                    override fun onUpgrade(
+                        db: androidx.sqlite.db.SupportSQLiteDatabase,
+                        oldVersion: Int,
+                        newVersion: Int,
+                    ) = Unit
+                })
+                .build()
+        )
+
+        v9Helper.writableDatabase.use { db ->
+            // Legacy "no vibration" row — vibrationPatternName == 'OFF'.
+            db.execSQL(
+                "INSERT INTO alarms (label, hour, minute, daysOfWeek, enabled, isVibrationOnly, vibrationPatternName) " +
+                    "VALUES ('Legacy off', 7, 0, 0, 1, 0, 'OFF')",
+            )
+            // Normal row with a real pattern that must survive untouched.
+            db.execSQL(
+                "INSERT INTO alarms (label, hour, minute, daysOfWeek, enabled, isVibrationOnly, vibrationPatternName) " +
+                    "VALUES ('Buzzes', 8, 30, 0, 1, 0, 'HEARTBEAT')",
+            )
+        }
+
+        val migrationHelper: SupportSQLiteOpenHelper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(ctx)
+                .name(TEST_DB_NAME)
+                .callback(object : SupportSQLiteOpenHelper.Callback(10) {
+                    override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                        db.execSQL(v9Create)
+                    }
+                    override fun onUpgrade(
+                        db: androidx.sqlite.db.SupportSQLiteDatabase,
+                        oldVersion: Int,
+                        newVersion: Int,
+                    ) {
+                        if (oldVersion <= 9 && newVersion >= 10) MIGRATION_9_10.migrate(db)
+                    }
+                })
+                .build()
+        )
+
+        migrationHelper.writableDatabase.use { db ->
+            // Both new columns must exist as INTEGER NOT NULL DEFAULT 1.
+            db.query("PRAGMA table_info('alarms')").use { c ->
+                val nameIdx = c.getColumnIndex("name")
+                val typeIdx = c.getColumnIndex("type")
+                val notNullIdx = c.getColumnIndex("notnull")
+                val dfltIdx = c.getColumnIndex("dflt_value")
+                var sawPhone = false
+                var sawWatch = false
+                while (c.moveToNext()) {
+                    when (c.getString(nameIdx)) {
+                        "phoneVibrationEnabled" -> {
+                            sawPhone = true
+                            assertEquals("phoneVibrationEnabled must be INTEGER", "INTEGER", c.getString(typeIdx))
+                            assertEquals("phoneVibrationEnabled must be NOT NULL", 1, c.getInt(notNullIdx))
+                            assertEquals("phoneVibrationEnabled DEFAULT must be 1", "1", c.getString(dfltIdx))
+                        }
+                        "watchVibrationEnabled" -> {
+                            sawWatch = true
+                            assertEquals("watchVibrationEnabled must be INTEGER", "INTEGER", c.getString(typeIdx))
+                            assertEquals("watchVibrationEnabled must be NOT NULL", 1, c.getInt(notNullIdx))
+                            assertEquals("watchVibrationEnabled DEFAULT must be 1", "1", c.getString(dfltIdx))
+                        }
+                    }
+                }
+                assertTrue("phoneVibrationEnabled column missing after migration", sawPhone)
+                assertTrue("watchVibrationEnabled column missing after migration", sawWatch)
+            }
+
+            // Legacy OFF row → both enables 0 + pattern reset to the real default.
+            db.query(
+                "SELECT phoneVibrationEnabled, watchVibrationEnabled, vibrationPatternName " +
+                    "FROM alarms WHERE label = 'Legacy off'",
+            ).use { c ->
+                assertTrue(c.moveToNext())
+                assertEquals("legacy OFF row → phone vibration off", 0, c.getInt(0))
+                assertEquals("legacy OFF row → watch vibration off", 0, c.getInt(1))
+                assertEquals(
+                    "legacy OFF row → pattern reset to DEFAULT",
+                    VibrationPattern.DEFAULT.name,
+                    c.getString(2),
+                )
+            }
+
+            // Normal row → enables default to 1 (enabled) + pattern untouched.
+            db.query(
+                "SELECT phoneVibrationEnabled, watchVibrationEnabled, vibrationPatternName " +
+                    "FROM alarms WHERE label = 'Buzzes'",
+            ).use { c ->
+                assertTrue(c.moveToNext())
+                assertEquals("normal row → phone vibration stays enabled", 1, c.getInt(0))
+                assertEquals("normal row → watch vibration stays enabled", 1, c.getInt(1))
+                assertEquals("normal row → pattern unchanged", "HEARTBEAT", c.getString(2))
             }
         }
 

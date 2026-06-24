@@ -6,6 +6,13 @@ This is the **authoritative spec** for GT Alarm. Every feature must map to a cri
 
 > **2026-04-27 architecture pivot — read first:** Empirical install testing on the GT 6 confirmed the watch runs **HarmonyOS LiteWearable, NOT full HarmonyOS NEXT**. The legacy NEXT-targeted watch app has been moved to `watch-app.old/` and a fresh LiteWearable JS project is being built in `watch-app/` (Phase 0b). All "WATCH APP" criteria below describe the legacy NEXT app and are kept here as historical record + porting reference; new criteria for the LiteWearable rewrite live in [§ WATCH APP — LiteWearable rewrite (Phase 0b)](#watch-app--litewearable-rewrite-phase-0b) below. The phone-side Android app is unaffected by this pivot. The cross-device design has also been revised: the phone is now the sole scheduler — see [`sync-architecture.md`](sync-architecture.md) §3.
 
+> **2026-06-24 — 1.0.6 release deltas (post review-pass):**
+> - ✅ **Watch crown scrolls the alarm list** — the 2 s poll was reassigning `self.alarms` every tick, re-rendering the `<list>` and dropping `rotation({focus})`; now diff-before-reassign + deferred focus. Device-verified on GT 6 Pro (crown-to-dismiss on the ring still works).
+> - ❌ **Watch audio playback — NOT SUPPORTED** (closes the F3 experiment): `@system.audio` resolves but its `src` setter is a no-op on the GT 6 — no source loads, every `play()` errors. The probe + bundled clips were removed. Watch alarm feedback is **vibration only**. See `sync-architecture.md` §6.1.
+> - ✅ **>3-alarm sync** — full-state replace is sent as a Wear Engine **file transfer** above the ~1 KB text-message ceiling, with ack+retry (device-verified; see `sync-architecture.md` §2.1/§5.7).
+> - ✅ **Per-device vibration** — independent phone + watch vibration switches per alarm; DB v9→v10 covered by `MigrationTest.migrate9To10_*`, plus a destructive-migration fallback for the never-shipped interim v5–v8.
+> - ✅ **Translations complete** — all 5 non-English Android locales filled to parity; the watch app now ships all 6 locales (added `ru-RU`, `uk-UA`, `be-BY` under `watch-app/entry/src/main/js/MainAbility/i18n/`). Supersedes the stale `js/default/i18n/` ❌ entries further below.
+
 ---
 
 ## Conventions

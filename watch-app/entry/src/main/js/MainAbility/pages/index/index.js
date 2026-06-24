@@ -18,7 +18,7 @@ import ConnectionStore from '../../common/connectionStore.js';
 
 // Bump per hardware-test build so the on-screen tag confirms the new
 // HAP actually replaced the old one.
-var BUILD_TAG = 'syncfix-crownaudio-ondemand';
+var BUILD_TAG = 'audio-removed-clean';
 
 // Startup sequence (deterministic): get size → set responsive dims → show
 // splash (bg + centred hourglass) → load the rest (i18n/privacy/connection/
@@ -157,11 +157,6 @@ function cancelTerminate() {
         _terminateTimer = null;
     }
     _terminateScheduled = false;
-}
-
-// THROWAWAY 1.0.6 F3 audio-probe helper — module-level (snapshot-safe), remove with the probe.
-function _probeKeys(o) {
-    try { return Object.keys(o).join(','); } catch (e) { return '?'; }
 }
 
 function pad2(n) {
@@ -330,19 +325,6 @@ function compareAlarms(a, b) {
     }
     if (aHour !== bHour) return aHour - bHour;
     return aMin - bMin;
-}
-
-function formatLastSync(self, epoch) {
-    if (!epoch || epoch <= 0) return self.noSyncYet;
-    var ageMs = Date.now() - epoch;
-    if (ageMs < 0) return self.noSyncYet;
-    var ageSec = Math.floor(ageMs / 1000);
-    if (ageSec < 60) return self.syncJustNow;
-    var ageMin = Math.floor(ageSec / 60);
-    if (ageMin < 60) return self.syncMinAgo.replace('{n}', '' + ageMin);
-    var ageHr = Math.floor(ageMin / 60);
-    if (ageHr < 24) return self.syncHrAgo.replace('{n}', '' + ageHr);
-    return self.syncDayAgo.replace('{n}', '' + Math.floor(ageHr / 24));
 }
 
 export default {
@@ -577,99 +559,12 @@ export default {
         });
         Logger.i('index.onInit build=' + BUILD_TAG);
 
-        // === AUDIO PROBE — THROWAWAY 1.0.6 feature-3 research; REMOVE after the
-        // verdict is logged. Probes whether ANY Lite Wearable audio/recorder module
-        // is reachable at runtime. typeof-guarded so we never READ an undeclared
-        // identifier (ACELite throws ReferenceError on that). Results relay to the
-        // phone via the WatchLog batch (tag AUDIOPROBE). ===
-        var _probeNames = ['system.audio', 'system.media', 'system.sound',
-            'system.recorder', 'system.audiorecorder', 'audio', 'media', 'multimedia'];
-        var _hasRN = (typeof requireNative !== 'undefined');
-        var _hasRM = (typeof requireModule !== 'undefined');
-        Logger.i('AUDIOPROBE loaders requireNative=' + _hasRN + ' requireModule=' + _hasRM);
-        for (var _pi = 0; _pi < _probeNames.length; _pi++) {
-            var _pn = _probeNames[_pi];
-            var _pg, _pt;
-            if (_hasRN) {
-                try {
-                    _pg = requireNative(_pn);
-                    _pt = (_pg === null || _pg === undefined) ? ('' + _pg) : (typeof _pg) + '[' + _probeKeys(_pg) + ']';
-                    Logger.i('AUDIOPROBE rn "' + _pn + '" => ' + _pt);
-                } catch (_pe1) { Logger.i('AUDIOPROBE rn "' + _pn + '" ERR ' + _pe1); }
-            }
-            if (_hasRM) {
-                try {
-                    _pg = requireModule(_pn);
-                    _pt = (_pg === null || _pg === undefined) ? ('' + _pg) : (typeof _pg) + '[' + _probeKeys(_pg) + ']';
-                    Logger.i('AUDIOPROBE rm "' + _pn + '" => ' + _pt);
-                } catch (_pe2) { Logger.i('AUDIOPROBE rm "' + _pn + '" ERR ' + _pe2); }
-            }
-        }
-        // === AUDIO PLAYBACK PROBE (throwaway): actually try to PLAY bundled
-        // audio via requireNative('system.audio'). WAV=440Hz, MP3=880Hz so we
-        // can tell BY EAR which (if any) plays. The FA `system.audio` API is
-        // undocumented; try the standard @system.* options-object shape and log
-        // the callbacks + getPlayState so we learn the real signature. ===
-        // Correct FA `@system.audio` usage (per Huawei Watch GT FA docs): assign
-        // event handlers, set src + volume, call play() with NO args. getPlayState
-        // is async (callback). The bundled-resource src scheme is the unknown, so
-        // CASCADE through candidate URIs — advance on onerror OR a foreground
-        // timeout (covers a silent no-op) — and stop on the first onplay.
-        var _ap = null;
-        try { _ap = (typeof requireNative !== 'undefined') ? requireNative('system.audio') : null; } catch (_ape) { _ap = null; }
-        if (_ap) {
-            Logger.i('AUDIOPLAY keys=[' + _probeKeys(_ap) + ']');
-            var _schemes = [
-                '/common/probe.wav', './common/probe.wav', 'common/probe.wav',
-                '/common/probe.mp3', './common/probe.mp3', 'common/probe.mp3',
-            ];
-            var _si = 0;
-            var _hit = false;
-            var _advTimer = null;
-            var _clearAdv = function () { if (_advTimer) { try { clearTimeout(_advTimer); } catch (ec) {} _advTimer = null; } };
-            var _logSt = function (tag) {
-                try {
-                    _ap.getPlayState({
-                        success: function (s) { Logger.i('AUDIOPLAY ' + tag + ' state=' + (s ? s.state : '?') + ' src=[' + (s ? s.src : '') + '] vol=' + (s ? s.volume : '?') + ' muted=' + (s ? s.muted : '?')); },
-                        fail: function (d, c) { Logger.i('AUDIOPLAY ' + tag + ' state.fail c=' + c); },
-                    });
-                } catch (eg) {}
-            };
-            var _next = function () {
-                if (_hit) { return; }
-                _clearAdv();
-                if (_si >= _schemes.length) { Logger.i('AUDIOPLAY all schemes exhausted - no playback'); return; }
-                var idx = _si; var uri = _schemes[_si]; _si++;
-                try { _ap.stop(); } catch (es) {}
-                try { _ap.src = uri; } catch (ess) { Logger.i('AUDIOPLAY t' + idx + ' src-set THREW ' + ess); }
-                Logger.i('AUDIOPLAY t' + idx + ' src<-' + uri + ' readback=[' + _ap.src + ']');
-                try { _ap.play(); Logger.i('AUDIOPLAY t' + idx + ' play() ok'); } catch (ep) { Logger.i('AUDIOPLAY t' + idx + ' play THREW ' + ep); }
-                _logSt('t' + idx);
-                try { _advTimer = setTimeout(function () { if (!_hit) { Logger.i('AUDIOPLAY t' + idx + ' timeout(no onplay/onerror) -> next'); _next(); } }, 1000); } catch (et) {}
-            };
-            _ap.onerror = function () {
-                var em = '?'; try { em = '' + _ap.errorType; } catch (ee) {}
-                Logger.i('AUDIOPLAY EVT onerror errorType=' + em + ' -> next');
-                _clearAdv(); _next();
-            };
-            _ap.onplay = function () { _hit = true; _clearAdv(); Logger.i('AUDIOPLAY EVT onplay <<< PLAYING src=[' + _ap.src + ']'); };
-            _ap.onloadeddata = function () { Logger.i('AUDIOPLAY EVT onloadeddata dur=' + _ap.duration); };
-            _ap.onended = function () { Logger.i('AUDIOPLAY EVT onended'); };
-            _ap.onstop = function () { Logger.i('AUDIOPLAY EVT onstop'); };
-            _ap.ondurationchange = function () { Logger.i('AUDIOPLAY EVT ondurationchange dur=' + _ap.duration); };
-            try { _ap.volume = 1.0; } catch (ev) {}
-            try { _ap.muted = false; } catch (em2) {}
-            // ON-DEMAND now (was auto-on-init). Auto-running play() on launch left
-            // the audio session active, which routes the digital crown to VOLUME
-            // instead of scrolling the alarm <list> — the crown-scroll regression.
-            // Store the cascade; onRowTap fires it (tap any alarm row to probe).
-            // Resets _si/_hit so each tap re-runs the full scheme cascade.
-            self._triggerAudio = function () { _si = 0; _hit = false; _next(); };
-            Logger.i('AUDIOPLAY armed (tap a row to probe) keys=[' + _probeKeys(_ap) + ']');
-        } else {
-            Logger.i('AUDIOPLAY system.audio unavailable');
-        }
-        // === END AUDIO PROBE ===
+        // F3 watch-audio experiment REMOVED (2026-06-24). Verdict: @system.audio
+        // resolves on the GT 6 Lite Wearable (getPlayState works) but its `src`
+        // setter is a NO-OP — readback + getPlayState.src are always empty, so no
+        // source can be loaded and every play() instantly fires onerror
+        // (errorType undefined) with state stuck at 'stop'. Playback is not
+        // achievable; the watch buzzes (vibrator) for alarms instead. See memory.
 
         // Responsive layout: query the real screen size + shape and recompute
         // every screen-dependent dimension. getInfo is async (callback-only on
@@ -999,11 +894,19 @@ export default {
         // render is still self-diagnosing.
         WearBridge.setFileHandler(function (path) {
             var p = '' + path;
+            // Re-arm the thin-client drain timer on ANY inbound file. The 3s drain
+            // is armed by the earlier sync_check; a file transfer (large alarm list
+            // / slow link) + read + apply + ack can outrun it, and the file path
+            // did NOT re-arm it — so the watch could terminate mid-receive. During
+            // a user-opened session this is a no-op (grace-window guard inside).
+            IncomingHandler.noteFileActivity();
             // Full-state alarm replace delivered as a FILE — the phone sends the
             // list this way when it exceeds the ~1 KB P2P text-message ceiling
-            // (see HuaweiWearBridge.pushFileReplace). Parse + apply via the same
-            // sync_replace path, then ack so the phone stops retrying.
-            if (p.indexOf('alarms_') !== -1) {
+            // (see HuaweiWearBridge.pushFileReplace). Routed on the BASENAME prefix
+            // (parseAlarmsHash returns '' unless the file is named alarms_<hash>.*)
+            // so a bg path that merely contains "alarms_" can't misroute. Parse +
+            // apply via the sync_replace path, then ack so the phone stops retrying.
+            if (parseAlarmsHash(p) !== '') {
                 self.applyAlarmsFile(p);
                 return;
             }
@@ -1132,21 +1035,36 @@ export default {
             for (var i = 0; i < sorted.length; i++) {
                 rows.push(formatRow(self, sorted[i]));
             }
-            self.alarms = rows;
-            // Give the alarm <list> digital-crown focus so the crown
-            // scrolls it (only the focused component receives crown
-            // events). rotation() is idempotent — re-asserting on each
-            // 2 s refresh recovers focus after a ring screen or a
-            // background cycle. SDK: ListElement.rotation({focus}).
+            // CROWN-SCROLL FIX: only reassign self.alarms when the rendered
+            // content actually changed. The 2 s poll rebuilt + reassigned this
+            // array EVERY tick (new formatRow objects each time), which
+            // re-rendered the <list> and DROPPED its digital-crown focus — so
+            // rotation({focus}) was set then thrown away every 2 s and the crown
+            // never scrolled. A stable array keeps the list element (and its
+            // focus) alive between real changes.
+            var sig = JSON.stringify(rows);
+            if (sig !== self._alarmsSig) {
+                self._alarmsSig = sig;
+                self.alarms = rows;
+            }
+            // (Re-)assert crown focus, DEFERRED so it runs AFTER any re-render
+            // settles — a synchronous call right after a reassign targets the
+            // pre-render element. The working ring crown-list focuses the same
+            // way (deferred from enterRing). rotation() is idempotent; the poll
+            // recovers focus after a ring screen / background cycle.
+            // SDK: ListElement.rotation({focus}).
             if (self.screen === 'list' && rows.length > 0) {
-                var listEl = self.$refs.alarmList;
-                if (listEl && listEl.rotation) {
-                    try {
-                        listEl.rotation({ focus: true });
-                    } catch (crownErr) {
-                        Logger.err('index.crownFocus', crownErr);
+                setTimeout(function () {
+                    if (self.screen !== 'list') { return; }
+                    var listEl = self.$refs.alarmList;
+                    if (listEl && listEl.rotation) {
+                        try {
+                            listEl.rotation({ focus: true });
+                        } catch (crownErr) {
+                            Logger.err('index.crownFocus', crownErr);
+                        }
                     }
-                }
+                }, 0);
             }
             // Scrim gate for the background photo. bgSrc is a plain field
             // set by the P2P file handler; the poll surfaces it reliably
@@ -1188,9 +1106,20 @@ export default {
                     parsed = JSON.parse(text);
                 } catch (e) {
                     Logger.err('index.alarmsFile JSON.parse', e);
+                    // Drop the transient file so a corrupt/partial transfer doesn't
+                    // linger; the phone's ack timeout will re-send a fresh copy.
+                    file.delete({ uri: p, success: function () {}, fail: function () {} });
                     return;
                 }
-                IncomingHandler.applyReplaceFromFile(parsed, function () {
+                IncomingHandler.applyReplaceFromFile(parsed, function (ok) {
+                    // ACK only AFTER the store write actually committed (ok===true).
+                    // applyReplace passes false for a parseable-but-malformed file
+                    // (no alarms array) — acking that would tell the phone we
+                    // converged when we stored nothing (breaks persist-then-ack).
+                    if (!ok) {
+                        Logger.w('index.alarmsFile applyReplace failed — NOT acking');
+                        return;
+                    }
                     Logger.i('index.alarmsFile applied — ack hash=' + hash);
                     try {
                         WearBridge.sendAlarmsReceived(hash);
@@ -1375,11 +1304,6 @@ export default {
     onRowTap: function (id) {
         var self = this;
         this._userEngaged = true;
-        // Throwaway F3 audio probe — fire on a row tap (was auto-on-init, which
-        // hijacked the crown). No-op if onInit didn't arm it / system.audio absent.
-        if (this._triggerAudio) {
-            try { this._triggerAudio(); } catch (ae) { Logger.err('index.triggerAudio', ae); }
-        }
         this.tapHint = this.editOnPhoneToast;
         this.tapHintShown = true;
         if (this._tapHintTimer !== null) {

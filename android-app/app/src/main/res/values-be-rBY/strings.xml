@@ -6,26 +6,61 @@
     <string name="notif_channel_alarm_name">Будзільнік</string>
     <string name="notif_channel_alarm_desc">Будзільнікі, што звоняць</string>
 
+    <string name="notif_channel_missed_name">Прапушчаныя напаміны</string>
+    <string name="notif_channel_missed_desc">Адносныя будзільнікі, якія не змаглі спрацаваць, пакуль прылада была выключана</string>
+
     <string name="alarm_notification_title">Будзільнік</string>
     <string name="action_dismiss">Адхіліць</string>
     <string name="action_snooze">Адкласці</string>
     <string name="ring_waiting_for_watch">Чаканне гадзінніка…</string>
+
+    <string name="missed_notification_title">Напамін прапушчаны</string>
+    <string name="missed_notification_text_labeled">\'%1$s\' быў прапушчаны, пакуль прылада была выключана.</string>
+    <string name="missed_notification_text_unlabeled">Напамін «праз N хв» быў прапушчаны, пакуль прылада была выключана.</string>
 
     <string name="screen_list_title">Будзільнікі</string>
     <string name="screen_timer_title">Таймер</string>
     <string name="field_label_placeholder">Метка будзільніка</string>
     <string name="field_audio">Гук</string>
     <string name="field_audio_default">Сістэмны</string>
+    <string name="field_audio_app_default">Па змаўчанні</string>
     <string name="field_audio_pick">Выбраць…</string>
+    <string name="field_audio_unknown">Невядомы рынгтон</string>
+    <string name="field_background_image">Фонавы відарыс</string>
+    <string name="field_background_image_pick">Выбраць…</string>
+    <string name="field_background_image_clear">Прыбраць фонавы відарыс</string>
+    <string name="field_background_image_default">Па змаўчанні</string>
+    <string name="watch_bg_picker_title">Абрэзаць фон гадзінніка</string>
+    <string name="watch_bg_picker_help">Зводзьце пальцы для маштабавання, перацягвайце для пазіцыянавання. Кружок паказвае, як гэта будзе выглядаць на гадзінніку.</string>
+    <string name="phone_bg_picker_title">Абрэзаць фон тэлефона</string>
+    <string name="phone_bg_picker_help">Зводзьце пальцы для маштабавання, перацягвайце для пазіцыянавання. Папярэдні прагляд паказвае рэальны інтэрфейс будзільніка зверху.</string>
+    <string name="watch_bg_picker_pick">Змяніць</string>
+    <string name="watch_bg_picker_empty">Націсніце «Змяніць», каб выбраць відарыс</string>
+    <string name="action_play_preview">Прайграць узор</string>
+    <string name="action_stop_preview">Спыніць узор</string>
     <string name="field_sound">Гук</string>
     <string name="field_phone_vibration">Вібрацыя тэлефона</string>
     <string name="field_watch_vibration">Вібрацыя гадзінніка</string>
     <string name="field_snooze_minutes">Працягласць адкладвання</string>
     <string name="field_snooze_minutes_value">%1$d хв</string>
+
+    <string name="field_self_destruct">Выдаліць пасля спрацоўвання</string>
+    <string name="list_relative_in_min">праз %1$d хв</string>
+    <string name="list_relative_in_hr">праз %1$s г</string>
+    <string name="list_relative_in_sec">праз %1$d с</string>
+    <string name="list_relative_fired">звоніць зараз</string>
+    <string name="list_relative_off_min">%1$d хв</string>
+    <string name="list_relative_off_hr">%1$s г</string>
+    <string name="list_unskip_next_hint">не прапускаць наступны</string>
+
     <string name="delete">Выдаліць</string>
     <string name="cancel">Адмяніць</string>
     <string name="add_alarm">Дадаць будзільнік</string>
     <string name="no_alarms">Няма будзільнікаў — націсніце +, каб дадаць.</string>
+    <string name="no_enabled_alarms">Усе будзільнікі выключаны.</string>
+    <string name="screen_list_hero_alarm_in_hr">Будзільнік праз %1$s г</string>
+    <string name="screen_list_hero_alarm_in_min">Будзільнік праз %1$d хв</string>
+    <string name="screen_list_hero_alarm_in_sec">Будзільнік праз %1$d с</string>
 
     <string name="day_sun_short">Нд</string>
     <string name="day_mon_short">Пн</string>
@@ -45,17 +80,31 @@
     <string name="repeats_timer">Таймер</string>
     <string name="delete_alarm">Выдаліць будзільнік</string>
 
+    <string name="action_save">Захаваць</string>
+    <string name="unsaved_changes_title">Адхіліць змены?</string>
+    <string name="unsaved_changes_body">У вас ёсць незахаваныя змены. Яны будуць страчаны, калі вы пакінеце гэты экран.</string>
+    <string name="unsaved_changes_confirm">Адхіліць</string>
+    <string name="delete_alarm_confirm_body">Выдаліць гэты будзільнік? Гэта дзеянне нельга адмяніць.</string>
+    <string name="discard_draft_title">Адхіліць новы будзільнік?</string>
+    <string name="discard_draft_body">Вы не скончылі рэдагаваць гэты будзільнік. Ён будзе выдалены са спіса.</string>
+    <string name="discard_draft_confirm">Адхіліць</string>
+    <string name="swipe_delete_confirm_body">Выдаліць \"%1$s\"?</string>
+    <string name="swipe_delete_confirm_body_unlabeled">Выдаліць гэты будзільнік?</string>
+
     <string name="battery_opt_card_title">Каб будзільнікі былі надзейнымі</string>
     <string name="battery_opt_card_body">Samsung One UI можа затрымліваць будзільнікі, калі праграма ў глыбокім сне. Дазвольце GT Wake ігнараваць аптымізацыю батарэі, каб будзільнік заўсёды званіў своечасова.</string>
     <string name="battery_opt_card_action">Адкрыць налады</string>
     <string name="battery_opt_card_dismiss">Не зараз</string>
 
     <string name="watch_status_card_title">Сінхранізацыя з гадзіннікам</string>
+    <string name="watch_status_card_needs_auth">Не аўтарызавана — націсніце ключ, каб даць доступ да гадзінніка</string>
+    <string name="watch_status_card_authorize">Аўтарызаваць доступ да гадзінніка</string>
 
     <string name="voice_alarm_set">Будзільнік зададзены на %1$s</string>
     <string name="voice_alarm_failed">Не атрымалася задаць будзільнік</string>
 
     <string name="action_open_help">Дапамога</string>
+    <string name="action_open_settings">Налады</string>
     <string name="help_intro">У Android няма адзінай налады «прыкладанне будзільніка па змаўчанні». Калі вы просіце Google Assistant паставіць будзільнік, сістэма альбо выкарыстоўвае раней выбранае прыкладанне, альбо паказвае дыялог выбару пры першым разе. Абярыце GT Wake і націсніце «Заўсёды», каб зрабіць яго прыкладаннем па змаўчанні.</string>
     <string name="help_status_default">GT Wake — прыкладанне будзільніка па змаўчанні на гэтай прыладзе.</string>
     <string name="help_status_disambiguator">Усталявана некалькі прыкладанняў будзільніка. Калі вы наступны раз скажаце «Hey Google, set an alarm», Android пакажа дыялог выбару — абярыце GT Wake і націсніце «Заўсёды».</string>
@@ -70,6 +119,7 @@
     <string name="help_device_unsupported_title">Іншая мадэль гадзінніка?</string>
     <string name="help_device_unsupported_body">На сёння цалкам пратэставаны толькі Huawei GT 6 Pro. Калі ваша мадэль не сінхранізуецца ці выгляд скажоны — напішыце мне. Перадача прылады на тэст — самы хуткі шлях да поўнай падтрымкі.</string>
     <string name="help_device_unsupported_button">Звязацца з распрацоўшчыкам</string>
+    <string name="help_companion_note">Кампаньён для GT Wake на Huawei Watch GT 6 Pro. Спаруйце ў Huawei Health; тэлефон звоніць, а гадзіннік адлюстроўвае гэта.</string>
     <string name="field_snooze_off_value">Выкл</string>
     <string name="field_snooze_off_chip">Выкл</string>
     <string name="dialog_keep_editing">Працягнуць рэдагаванне</string>
@@ -94,4 +144,65 @@
     <string name="privacy_consent_read_policy">Адкрыць палітыку прыватнасці</string>
     <string name="privacy_consent_agree">Прыняць і працягнуць</string>
     <string name="privacy_consent_disagree">Адхіліць</string>
+
+    <!-- ===== Settings screen ===== -->
+    <string name="settings_section_display">Адлюстраванне</string>
+    <string name="settings_time_format_label">Фармат часу</string>
+    <string name="settings_time_format_system">Сістэмны</string>
+    <string name="settings_time_format_12h">12 г</string>
+    <string name="settings_time_format_24h">24 г</string>
+    <string name="settings_first_day_label">Першы дзень тыдня</string>
+    <string name="settings_first_day_system">Сістэмны (%1$s)</string>
+    <string name="settings_section_default_ringtones">Рынгтоны па змаўчанні</string>
+    <string name="settings_default_ringtones_intro">Выкарыстоўваюцца, калі вы ствараеце новы будзільнік без выбару гуку. Існуючыя будзільнікі захоўваюць свой гук.</string>
+    <string name="settings_default_ringtone_absolute">Для будзільнікаў па часе</string>
+    <string name="settings_default_ringtone_relative">Для будзільнікаў «праз N хв»</string>
+    <string name="settings_default_ringtone_reset">Скінуць</string>
+    <string name="settings_section_default_backgrounds">Фонавыя відарысы па змаўчанні</string>
+    <string name="settings_default_backgrounds_intro">Выкарыстоўваюцца, калі ў будзільніка няма ўласнага відарыса. Відарыс тэлефона паказваецца за будзільнікам на экране блакіроўкі; відарыс гадзінніка абразаецца пад цыферблат.</string>
+    <string name="settings_default_phone_background">Фон будзільніка на тэлефоне</string>
+    <string name="settings_default_watch_background">Фон гадзінніка</string>
+    <string name="field_watch_background_change">Змяніць</string>
+    <string name="settings_default_background_none">Не зададзена</string>
+    <string name="settings_default_background_set">Зададзена</string>
+    <string name="settings_default_background_clear">Прыбраць фон па змаўчанні</string>
+    <string name="settings_watch_background_saved">Фон гадзінніка захаваны. Ён з\'явіцца пры наступным адкрыцці праграмы на гадзінніку.</string>
+
+    <!-- ===== Setup checklist + OEM tips ===== -->
+    <string name="help_section_reliability">Гатоўнасць будзільніка</string>
+    <string name="help_section_reliability_intro">Выправіце гэтыя налады тэлефона, перш чым спадзявацца на будзільнік.</string>
+    <string name="help_reliability_ready_title">Усё гатова</string>
+    <string name="help_reliability_ready_body">Неабходныя дазволы для будзільніка ў парадку. Тут няма чаго выпраўляць.</string>
+    <string name="help_section_late_alarm">Калі будзільнікі спазняюцца</string>
+    <string name="help_section_late_alarm_intro">Выкарыстоўвайце гэта толькі калі будзільнікі затрымліваюцца, заглушаюцца рэжымам тэлефона ці гадзіннік прапускае сінхранізацыю. Гэта крокі па ліквідацыі непаладак, а не абавязковая налада.</string>
+    <string name="help_section_voice">Галасавая налада (Hey Google)</string>
+
+    <string name="setup_banner_title">Патрэбна налада</string>
+    <string name="setup_banner_body">Адсутнічае абавязковая налада будзільніка. Выправіце яе, перш чым спадзявацца на будзільнік.</string>
+    <string name="setup_banner_action">Адкрыць</string>
+    <string name="setup_fix">Выправіць</string>
+
+    <string name="setup_perm_notifications_title">Апавяшчэнні</string>
+    <string name="setup_perm_notifications_body">Дазваляе паказваць апавяшчэнне будзільніка, што звоніць. Android 13+ запытвае гэта падчас працы.</string>
+    <string name="setup_perm_exact_alarm_title">Будзільнікі і напаміны</string>
+    <string name="setup_perm_exact_alarm_body">Дазваляе дакладны час будзільніка замест прыблізнай фонавай працы. Калі гэта выключана, запланаваныя будзільнікі ненадзейныя.</string>
+    <string name="setup_perm_fsi_title">Поўнаэкранны будзільнік</string>
+    <string name="setup_perm_fsi_body">Дазваляе экрану будзільніка з\'яўляцца паверх экрана блакіроўкі. Калі гэта застаецца выключаным пасля ўключэння, звяжыцеся з распрацоўшчыкам.</string>
+    <string name="setup_perm_battery_title">Батарэя: без абмежаванняў</string>
+    <string name="setup_perm_battery_body">Неабавязкова. Паспрабуйце гэта, толькі калі будзільнікі спазняюцца пасля праходжання абавязковых праверак.</string>
+
+    <string name="setup_oem_label_pixel">Google Pixel / стандартны Android</string>
+    <string name="setup_oem_label_samsung">Samsung Galaxy (One UI)</string>
+    <string name="setup_oem_label_xiaomi">Xiaomi / Redmi / POCO</string>
+    <string name="setup_oem_label_oneplus">OnePlus (OxygenOS)</string>
+    <string name="setup_oem_label_huawei">Huawei / Honor</string>
+    <string name="setup_oem_label_other">Іншы Android</string>
+    <string name="setup_oem_label_detected">%1$s (ваш тэлефон)</string>
+
+    <string name="setup_oem_keep_pixel">Звычайна дадатковая налада Pixel не патрэбна.\n\n  •  Калі ўключаны рэжым «Не турбаваць», пераканайцеся, што будзільнікі дазволены ў гэтым рэжыме.</string>
+    <string name="setup_oem_keep_samsung">Samsung можа перамяшчаць невыкарыстоўваныя праграмы ў «Спячыя» ці «Глыбока спячыя» праграмы, што абмяжоўвае будзільнікі і фонавыя службы.\n\n  •  Налады → Батарэя → Абмежаванні фонавага выкарыстання → Праграмы, якія ніколі не спяць → дадайце GT Wake.\n  •  Пераканайцеся, што GT Wake няма ў спісе «Спячыя» ці «Глыбока спячыя» праграмы.\n  •  Калі сінхранізацыя з гадзіннікам спазняецца, дадайце Huawei Health у «Праграмы, якія ніколі не спяць» таксама.</string>
+    <string name="setup_oem_keep_xiaomi">Калі будзільнікі спазняюцца на Xiaomi / HyperOS, праверце фонавы аўтазапуск.\n\n  •  Налады → Праграмы → Дазволы → Фонавы аўтазапуск → GT Wake → Укл.\n  •  Калі даступна, дазвольце фонавую актыўнасць для GT Wake.</string>
+    <string name="setup_oem_keep_oneplus">Калі будзільнікі спазняюцца на OxygenOS, праверце налады батарэі праграмы.\n\n  •  Налады → Батарэя → Дадатковыя налады → Кіраванне батарэяй праграм → GT Wake.\n  •  Дазвольце фонавую/актыўную працу для начнога тэставання будзільніка.</string>
+    <string name="setup_oem_keep_huawei">Тэлефоны Huawei могуць блакіраваць фонавы запуск, калі вы не кіруеце праграмай уручную.\n\n  •  Менеджар тэлефона → Запуск праграм → GT Wake → Кіраваць уручную.\n  •  Уключыце Аўтазапуск, Другасны запуск і Працу ў фоне.\n  •  Зрабіце тое ж для Huawei Health, калі сінхранізацыя з гадзіннікам ненадзейная.</string>
+    <string name="setup_oem_keep_other">Калі ў вашым тэлефоне ёсць Менеджар тэлефона / праграма бяспекі, пашукайце Абароненыя праграмы, Аўтазапуск ці Фонавую актыўнасць.\n\n  •  Дадавайце GT Wake туды толькі калі будзільнікі спазняюцца пасля праходжання абавязковых праверак.</string>
 </resources>

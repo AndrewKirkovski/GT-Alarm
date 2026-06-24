@@ -30,6 +30,16 @@ object DatabaseModule {
                 .addMigrations(
                     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_9_10,
                 )
+        // Versions 5-8 only ever existed in interim DEBUG builds — they NEVER
+        // shipped. Every released build is at v9 (1.0.5) → v10 runs MIGRATION_9_10
+        // with user data preserved (v9 is NOT in this list, so it is untouched).
+        // Allow a destructive fallback ONLY for the never-shipped 5-8 starting
+        // points so a stray interim DB can't crash a RELEASE build with an
+        // unrecoverable "A migration from N to 10 was required but not found".
+        @Suppress("DEPRECATION")
+        // reason: Room flags the destructive-migration helpers deprecated in some
+        // 2.7+ branches; the @ConstructedBy path doesn't cover destructive yet.
+        builder.fallbackToDestructiveMigrationFrom(dropAllTables = true, 5, 6, 7, 8)
         if (BuildConfig.DEBUG) {
             // Pre-release: v5 → v6 added Alarm.backgroundImageUri; v6 → v7
             // added Alarm.watchBackgroundImageUri; v7 → v8 dropped that

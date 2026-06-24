@@ -178,7 +178,7 @@ JSON over P2P. Every message is a single line, single object, no nesting.
 | `sync_done` | < 64 B |
 | `alarm_added` / `alarm_updated` with audio URI | < 1 KiB |
 | `watch_log_batch` (≤ 8 lines) | < 1 KiB |
-| `sync_replace` as TEXT (≤ ~2 alarms) | < 768 B |
+| `sync_replace` as TEXT (single alarm only; ~1 alarm ≈ 480 B, 2 ≈ 890 B) | < 768 B |
 | `sync_replace` as FILE (`alarms_<hash>.json`, any count) | not message-size-bound |
 
 `sync_replace` is the only payload that scales with alarm count. `HuaweiWearBridge.pushFullReplace` checks the serialized UTF-8 length against `SYNC_REPLACE_MAX_BYTES` (768 B): under it, the replace is sent as a **text message** (fast); over it, `pushFileReplace` writes the same `sync_replace` JSON to a temp file `alarms_<hash>.json` and sends it as a **Wear Engine file transfer** with the same app-level ack + retry as the background image (`pendingAlarmsAck` / watch `alarms_received`). The watch's `fileHandler` branches on the `alarms_` name, reads the file, and runs the same `applyReplace` path (validate + `replaceAll` + tombstone pruned), so the file path **still prunes** watch-only rows. The legacy per-alarm `alarm_added` burst remains only as a last-ditch fallback if the file transfer itself fails (it cannot prune). A realistic ≤ 3-alarm list already exceeds 768 B, so the file path is the normal route for multi-alarm watches; the historical 4 KiB text cap sat ~4× above the real ~1 KiB ceiling and is why >3 alarms silently failed to sync.
@@ -315,7 +315,7 @@ Wired in `android-app/.../wear/HuaweiWearBridge.kt` (`ensurePeerAppRunning`, `po
 - Even if we coded around this with a "phone pre-pushes upcoming alarms and watch arms `setTimeout` while paired", the watch would fail to fire when its JS process is paged out — which on GT 6 happens within minutes of inactivity.
 - The dependency cost is real: if the watch is out of Bluetooth range when the alarm time arrives, the watch will not ring. The phone still rings on its own schedule. Acceptable trade-off because the phone always has the user-facing wake path; the watch is a convenience surface for tap-to-dismiss when the user is wearing it.
 
-**Audio: phone always plays its own alarm via `AlarmRingService` with `USAGE_ALARM`.** Watch optionally vibrates and plays a short tone. There is no system-level "watch alarm tone" on Lite (no Reminder Agent), so the watch is silent unless we explicitly play audio inside the page. First Dismiss wins — see §4.
+**Audio: phone always plays its own alarm via `AlarmRingService` with `USAGE_ALARM`.** The watch gives feedback by **vibration only** — watch-side audio is NOT achievable (verified on GT 6, 2026-06-24: `@system.audio` resolves but its `src` setter is a no-op, so no source loads and every `play()` errors; see §6.1). There is no system-level "watch alarm tone" on Lite (no Reminder Agent). First Dismiss wins — see §4.
 
 **Pre-arming for in-range cases (Phase 5b candidate, not committed):** the phone could send `{ type: "alarm_armed", alarmId, fireAtEpoch }` shortly before the scheduled time so the watch can pre-render the ring UI without a perceptible "fire→render" gap. Optimization, not load-bearing. Defer until end-to-end is working.
 
@@ -545,7 +545,7 @@ Researched 2026-04-25 + revised 2026-04-27 against developer.huawei.com + develo
 |-----------------------------|---------------|------------------------|
 | System reminder card        | N/A           | LiteWearable has no Reminder Agent. There is no system-rendered alarm card before our ring page — we render the entire alarm UI ourselves. |
 | **Fullscreen ring page** (our `js/default/pages/ring/ring.{hml,css,js}`) | ✅ | We own every pixel. Round display: own background `<image>` / `<canvas>`. HML/CSS supports full styling. |
-| System alarm ringtone       | N/A           | No system-played alarm tone on Lite. We can play audio via `@system.media` or `@system.audio` from inside the page if we want a tone (off by default — phone audio is the primary). |
+| System alarm ringtone       | N/A           | No system-played alarm tone on Lite, AND no in-page audio either: verified on GT 6 (2026-06-24) that `@system.audio` resolves but its `src` setter is a **no-op** (readback + getPlayState.src always empty), so no source loads and every `play()` instantly errors. Watch feedback is **vibration only**. (The F3 audio probe was removed; bundling probe.wav/mp3 + the staging copy tripped an install crash.) |
 | Vibration pattern           | ✅            | `vibrator.vibrate({type:'pattern', pattern: [...]})` from the page. We start vibration when the ring page mounts and stop on dismiss. |
 | Lock-screen takeover        | ⚠️ different model | LiteWearable apps don't run "over keyguard" the way Android does. The watch face is what shows when the watch is asleep; an `alarm_fired` ping wakes the JS process and the OS launches our ring page on top of the watch face. This is the Lite equivalent of "fullscreen alarm". |
 
