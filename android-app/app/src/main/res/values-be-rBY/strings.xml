@@ -56,7 +56,9 @@
     <string name="delete">Выдаліць</string>
     <string name="cancel">Адмяніць</string>
     <string name="add_alarm">Дадаць будзільнік</string>
-    <string name="no_alarms">Няма будзільнікаў — націсніце +, каб дадаць.</string>
+    <string name="no_alarms">Няма будзільнікаў</string>
+    <string name="no_alarms_hint">Націсніце +, каб дадаць будзільнік</string>
+    <string name="no_enabled_alarms_hint">Уключыце адзін або націсніце +, каб дадаць будзільнік</string>
     <string name="no_enabled_alarms">Усе будзільнікі выключаны.</string>
     <string name="screen_list_hero_alarm_in_hr">Будзільнік праз %1$s г</string>
     <string name="screen_list_hero_alarm_in_min">Будзільнік праз %1$d хв</string>

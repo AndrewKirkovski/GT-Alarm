@@ -10,7 +10,7 @@ This is the **authoritative spec** for GT Alarm. Every feature must map to a cri
 > - ✅ **Watch crown scrolls the alarm list** — the 2 s poll was reassigning `self.alarms` every tick, re-rendering the `<list>` and dropping `rotation({focus})`; now diff-before-reassign + deferred focus. Device-verified on GT 6 Pro (crown-to-dismiss on the ring still works).
 > - ❌ **Watch audio playback — NOT SUPPORTED** (closes the F3 experiment): `@system.audio` resolves but its `src` setter is a no-op on the GT 6 — no source loads, every `play()` errors. The probe + bundled clips were removed. Watch alarm feedback is **vibration only**. See `sync-architecture.md` §6.1.
 > - ✅ **>3-alarm sync** — full-state replace is sent as a Wear Engine **file transfer** above the ~1 KB text-message ceiling, with ack+retry (device-verified; see `sync-architecture.md` §2.1/§5.7).
-> - ✅ **Per-device vibration** — independent phone + watch vibration switches per alarm; DB v9→v10 covered by `MigrationTest.migrate9To10_*`, plus a destructive-migration fallback for the never-shipped interim v5–v8.
+> - ✅ **Per-device vibration** — independent phone + watch vibration switches per alarm; DB v9→v10 covered by `MigrationTest.migrate9To10_*`. (A v5–v8 destructive-migration fallback was attempted but **REVERTED** — it conflicted with `MIGRATION_4_5` and crashed startup in 1.0.6; see the 1.0.7 release notes.)
 > - ✅ **Translations complete** — all 5 non-English Android locales filled to parity; the watch app now ships all 6 locales (added `ru-RU`, `uk-UA`, `be-BY` under `watch-app/entry/src/main/js/MainAbility/i18n/`). Supersedes the stale `js/default/i18n/` ❌ entries further below.
 
 ---

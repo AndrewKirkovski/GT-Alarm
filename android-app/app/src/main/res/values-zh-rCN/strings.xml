@@ -47,7 +47,9 @@
     <string name="delete">删除</string>
     <string name="cancel">取消</string>
     <string name="add_alarm">添加闹钟</string>
-    <string name="no_alarms">没有闹钟 — 点击 + 添加</string>
+    <string name="no_alarms">没有闹钟</string>
+    <string name="no_alarms_hint">点击 + 添加闹钟</string>
+    <string name="no_enabled_alarms_hint">开启一个，或点击 + 添加闹钟</string>
     <string name="no_enabled_alarms">所有闹钟均已关闭。</string>
 
     <string name="list_relative_in_min">%1$d 分钟后</string>

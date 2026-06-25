@@ -5,7 +5,8 @@ the integer release codes are **per-app** and increment by 1 each release.
 
 | versionName | phone code | watch code | tag | date |
 |---|---|---|---|---|
-| 1.0.6 | 6 | 1000006 | `v1.0.6` | 2026-06-24 |
+| 1.0.7 | 7 | 1000007 | `v1.0.7` | 2026-06-25 |
+| 1.0.6 | 6 | 1000006 | `v1.0.6` | 2026-06-24 (REJECTED — startup crash; superseded by 1.0.7) |
 | 1.0.5 | 5 | 1000005 | `v1.0.5` | 2026-06-19 |
 | 1.0.2 | 4 | 1000003 | `v1.0.2` | 2026-06-11 |
 | 1.0.1 | 3 | 1000002 | `v1.0.1` | 2026-06-11 |
@@ -16,7 +17,31 @@ Apps:
 
 ---
 
-## 1.0.6 — 2026-06-24
+## 1.0.7 — 2026-06-25
+phone `versionCode 7` · watch `code 1000007` · tag `v1.0.7`
+
+**Startup-crash hotfix over 1.0.6 (which the store rejected).** 1.0.6 had added a release
+`fallbackToDestructiveMigrationFrom(5,6,7,8)` to the Room builder, but version 5 is the END of
+`MIGRATION_4_5`, so Room threw `IllegalArgumentException: Inconsistency detected …` at DB
+`build()` — which runs during Hilt init in `GtAlarmApp.onCreate`, crashing **every launch** on a
+fresh install. Reverted that fallback (it also guarded an impossible case: every shipped release is
+DB v9, interim v5–v8 were destructive, and a debug↔release signature change forces a fresh install,
+so no v5–v8 DB can reach a release build). Verified crash-free on a Pixel emulator — fresh install
+*and* upgrade-from-v9. **All 1.0.6 features below ship unchanged in 1.0.7.**
+
+**Also in 1.0.7 — alarm-list polish**
+- **Empty states restyled to match the hero** — a bold header + a small subtle subtext instead of one
+  flat line. Empty list → "No alarms" / "Press + to add an alarm"; all alarms disabled → "All alarms
+  are off" / "Turn one on, or press + to add an alarm" (the two new hint strings are localized).
+- **Hero countdown redesigned** to a two-tier "Alarm in 3⁴⁵": a big primary number with the secondary
+  as a half-size superscript and **no unit letters**. ≥ 1 h renders hours:minutes; under an hour renders
+  minutes:seconds and now **ticks every second** (the ticking is what tells m:s apart from h:m — there
+  are no labels). Replaces the old single-unit label with quarter-hour fractions ("3¾ hr"). The
+  countdown prefix stays English-only for now, matching the existing `screen_list_hero_*` strings.
+
+---
+
+## 1.0.6 — 2026-06-24 (REJECTED — startup crash, superseded by 1.0.7)
 phone `versionCode 6` · watch `code 1000006` · tag `v1.0.6`
 
 Cross-device sync reliability + per-device controls, watch crown scrolling, and a full localization pass.
@@ -51,8 +76,9 @@ Cross-device sync reliability + per-device controls, watch crown scrolling, and 
   app (watch now ships all 6 languages).
 
 **Release engineering**
-- A DB **destructive-migration fallback for the never-shipped interim v5–v8 schemas** (release builds had
-  none, so a stray interim DB could crash on launch); v9 keeps its real, data-preserving migration.
+- ~~A DB destructive-migration fallback for the never-shipped interim v5–v8 schemas.~~ **This was the
+  1.0.6 startup-crash cause — REVERTED in 1.0.7** (it conflicted with `MIGRATION_4_5`, which ends at
+  version 5, and threw at DB build). v9 keeps its real, data-preserving migration regardless.
 - Removed a junk `bash.exe.stackdump`; `*.stackdump` now gitignored.
 
 ## 1.0.5 — 2026-06-19

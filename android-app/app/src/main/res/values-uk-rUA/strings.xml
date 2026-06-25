@@ -25,7 +25,9 @@
     <string name="delete">Видалити</string>
     <string name="cancel">Скасувати</string>
     <string name="add_alarm">Додати будильник</string>
-    <string name="no_alarms">Немає будильників — натисніть +, щоб додати.</string>
+    <string name="no_alarms">Немає будильників</string>
+    <string name="no_alarms_hint">Натисніть +, щоб додати будильник</string>
+    <string name="no_enabled_alarms_hint">Увімкніть один або натисніть +, щоб додати будильник</string>
 
     <string name="day_sun_short">Нд</string>
     <string name="day_mon_short">Пн</string>

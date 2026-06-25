@@ -77,9 +77,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -280,7 +285,8 @@ fun AlarmListScreen(
 }
 
 // Hero section: countdown to next enabled alarm + its date/time.
-// Ticks every 30 s; if no upcoming alarm exists, distinguishes an empty
+// Ticks every second when under an hour out (so the seconds visibly tick) and
+// every 30 s otherwise; if no upcoming alarm exists, distinguishes an empty
 // alarm list from a list whose alarms are all disabled.
 @Suppress("LongMethod")
 @Composable
@@ -290,10 +296,14 @@ private fun HeroSection(
 ) {
     val ctx = LocalContext.current
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
+    // Keep `now` live so the hero countdown updates. Under an hour out the
+    // secondary tier is SECONDS (the countdown has no unit labels — the ticking
+    // is what tells minutes:seconds apart from hours:minutes), so refresh every
+    // second; above an hour the minutes tier only needs a 30 s cadence.
+    LaunchedEffect(alarms) {
         while (true) {
-            delay(30_000L)
             now = System.currentTimeMillis()
+            delay(nextHeroTickMs(alarms, now))
         }
     }
     val nextAlarm = remember(alarms, now) {
@@ -310,7 +320,11 @@ private fun HeroSection(
     ) {
         if (nextTrigger != null && nextTrigger > now) {
             val remaining = nextTrigger - now
-            val heroText = singleUnitCountdownText(remaining, prefix = CountdownPrefix.ALARM_IN)
+            // Two-tier countdown "Alarm in <big>N <sup>MM</sup>" with no unit
+            // labels (>=1h → h:m; <1h → m:s — the ticking seconds disambiguate).
+            // Built in a helper to keep this composable under the complexity cap.
+            val template = stringResource(R.string.screen_list_hero_countdown)
+            val heroText = heroCountdownAnnotated(heroCountdownTiers(remaining), template)
             Text(
                 text = heroText,
                 fontSize = 28.sp,
@@ -333,17 +347,23 @@ private fun HeroSection(
                 modifier = Modifier.padding(top = 4.dp),
             )
         } else {
-            val textRes = if (alarms.isEmpty()) {
-                R.string.no_alarms
-            } else {
-                R.string.no_enabled_alarms
-            }
+            // Empty / all-off states mirror the populated hero: a bold 28.sp
+            // header + a small subtle subtext (same styling as the "Alarm in X"
+            // header and its date line above), kept consistent across both states.
+            val isEmpty = alarms.isEmpty()
             Text(
-                text = stringResource(textRes),
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Normal,
+                text = stringResource(if (isEmpty) R.string.no_alarms else R.string.no_enabled_alarms),
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.78f),
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Text(
+                text = stringResource(if (isEmpty) R.string.no_alarms_hint else R.string.no_enabled_alarms_hint),
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
+                modifier = Modifier.padding(top = 4.dp),
             )
         }
     }
@@ -919,6 +939,57 @@ private fun singleCountdownUnit(remainingMillis: Long): CountdownUnit = when {
     else -> CountdownUnit.Hours(roundedQuarterHourLabel(remainingMillis))
 }
 
+// Two-tier hero countdown as (primary, secondary): >=1h → (hours, minutes);
+// otherwise (minutes, seconds). Always exactly two tiers, never a third — the
+// caller renders `secondary` as a half-size superscript and (in the m:s tier)
+// the ticking second is what tells it apart from h:m.
+private fun heroCountdownTiers(remainingMillis: Long): Pair<Int, Int> =
+    if (remainingMillis >= MILLIS_PER_HOUR) {
+        val hours = (remainingMillis / MILLIS_PER_HOUR).toInt()
+        val minutes = ((remainingMillis % MILLIS_PER_HOUR) / MILLIS_PER_MINUTE).toInt()
+        hours to minutes
+    } else {
+        val minutes = (remainingMillis / MILLIS_PER_MINUTE).toInt()
+        val seconds = ((remainingMillis % MILLIS_PER_MINUTE) / MILLIS_PER_SECOND).toInt()
+        minutes to seconds
+    }
+
+// Tick cadence for the hero countdown: 1 s when the next alarm is under an hour
+// out (so the seconds tier visibly ticks), else 30 s. Pulled out of HeroSection
+// to keep that composable under the cyclomatic-complexity budget.
+private fun nextHeroTickMs(alarms: List<Alarm>, nowMs: Long): Long {
+    val nextMs = alarms.asSequence()
+        .filter { it.enabled }
+        .map { NextTriggerCalculator.nextTriggerEpochMillis(it) }
+        .minOrNull()
+    val rem = if (nextMs != null) nextMs - nowMs else Long.MAX_VALUE
+    return if (rem in 1 until MILLIS_PER_HOUR) COUNTDOWN_FAST_TICK_MS else COUNTDOWN_SLOW_TICK_MS
+}
+
+// Render the two countdown tiers as "Alarm in <primary> <superscript secondary>"
+// by splicing the styled numbers into the localized template at its %1$s slot
+// (so word order localizes). Secondary is a half-size raised superscript.
+private fun heroCountdownAnnotated(tiers: Pair<Int, Int>, template: String): AnnotatedString {
+    val numbers = buildAnnotatedString {
+        append(tiers.first.toString())
+        // No separator between the tiers — the superscript baseline shift sets
+        // the secondary apart on its own (e.g. "19" + raised "35" → 19³⁵).
+        withStyle(SpanStyle(fontSize = 14.sp, baselineShift = BaselineShift.Superscript)) {
+            append(tiers.second.toString().padStart(2, '0'))
+        }
+    }
+    val slot = template.indexOf(COUNTDOWN_SLOT)
+    return buildAnnotatedString {
+        if (slot >= 0) {
+            append(template.substring(0, slot))
+            append(numbers)
+            append(template.substring(slot + COUNTDOWN_SLOT.length))
+        } else {
+            append(numbers)
+        }
+    }
+}
+
 @Composable
 private fun secondsCountdownText(value: Int, prefix: CountdownPrefix): String = when (prefix) {
     CountdownPrefix.ALARM_IN -> stringResource(R.string.screen_list_hero_alarm_in_sec, value)
@@ -965,6 +1036,9 @@ private enum class CountdownPrefix { NONE, IN, ALARM_IN }
 private const val COUNTDOWN_SLOW_TICK_MS = 30_000L
 private const val COUNTDOWN_FAST_TICK_MS = 1_000L
 private const val COUNTDOWN_STOP_GRACE_MS = 5_000L
+// Placeholder in the localized "Alarm in %1$s" hero template; the numbers
+// (big primary + superscript secondary) are spliced in at this slot.
+private const val COUNTDOWN_SLOT = "%1\$s"
 private const val MILLIS_PER_SECOND = 1_000L
 private const val MILLIS_PER_MINUTE = 60_000L
 private const val HALF_MINUTE_MILLIS = 30_000L

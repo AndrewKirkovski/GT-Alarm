@@ -86,8 +86,10 @@
     <string name="delete">Delete</string>
     <string name="cancel">Cancel</string>
     <string name="add_alarm">Add alarm</string>
-    <string name="no_alarms">No alarms yet — tap + to add one.</string>
-    <string name="no_enabled_alarms" tools:ignore="MissingTranslation">All alarms are off.</string>
+    <string name="no_alarms">No alarms</string>
+    <string name="no_alarms_hint" tools:ignore="MissingTranslation">Press + to add an alarm</string>
+    <string name="no_enabled_alarms" tools:ignore="MissingTranslation">All alarms are off</string>
+    <string name="no_enabled_alarms_hint" tools:ignore="MissingTranslation">Turn one on, or press + to add an alarm</string>
     <!-- reason: hero-area countdown on the alarm list. Translations land in a
          follow-up. The _sec variant stays a plain string (not <plurals>) to match
          the _hr/_min variants and the list_relative_* family — PluralsCandidate
@@ -95,6 +97,11 @@
     <string name="screen_list_hero_alarm_in_hr" tools:ignore="MissingTranslation">Alarm in %1$s hr</string>
     <string name="screen_list_hero_alarm_in_min" tools:ignore="MissingTranslation">Alarm in %1$d min</string>
     <string name="screen_list_hero_alarm_in_sec" tools:ignore="MissingTranslation,PluralsCandidate">Alarm in %1$d sec</string>
+    <!-- reason: two-tier hero countdown "Alarm in <big>N<sup>MM</sup>". %1$s is
+         the numbers slot (spliced as a styled AnnotatedString, not String.format),
+         kept as a placeholder so word order localizes. English-only for now, like
+         the _hr/_min/_sec variants above. -->
+    <string name="screen_list_hero_countdown" tools:ignore="MissingTranslation">Alarm in %1$s</string>
 
     <string name="day_sun_short">Su</string>
     <string name="day_mon_short">Mo</string>

@@ -54,7 +54,9 @@
     <string name="delete">Usuń</string>
     <string name="cancel">Anuluj</string>
     <string name="add_alarm">Dodaj alarm</string>
-    <string name="no_alarms">Brak alarmów — stuknij +, aby dodać.</string>
+    <string name="no_alarms">Brak alarmów</string>
+    <string name="no_alarms_hint">Stuknij +, aby dodać alarm</string>
+    <string name="no_enabled_alarms_hint">Włącz jeden lub stuknij +, aby dodać alarm</string>
     <string name="no_enabled_alarms">Wszystkie alarmy są wyłączone.</string>
     <string name="screen_list_hero_alarm_in_hr">Alarm za %1$s godz.</string>
     <string name="screen_list_hero_alarm_in_min">Alarm za %1$d min</string>
