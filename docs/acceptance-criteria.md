@@ -434,6 +434,36 @@ i18n is not "wrap a few strings"; it's an end-to-end contract. Both apps must en
 
 ---
 
+## DISTRIBUTION
+
+Three channels for the phone app, one for the watch. **All phone channels must ship the same signing
+certificate** (`gtwake.phone`, RSA 2048, SHA-256 `95F6:00:1E:…`): Google Play App Signing is configured
+with our own uploaded key rather than a Google-generated one (verified 2026-08-24 in Play Console —
+app-signing key SHA-256/SHA-1/MD5 all match the local keystore). That parity is load-bearing twice
+over: Android refuses cross-cert updates, and the watch's Wear Engine `supportLists` is keyed on the
+phone cert. A channel signed with a different key would silently lose both.
+
+- ✅ Google Play — AAB re-signed by Play with our key; app-signing cert confirmed `95F6…`
+- 🟠 Huawei AppGallery — `gtwake-appgallery-app-signing.zip` packed 2026-06-10, but **upload to AGC
+  App Signing (Method 2) is unconfirmed**. Caveat: if Huawei generated its own key instead, the
+  AppGallery build's cert differs and watch pairing breaks for exactly the users most likely to own
+  the watch. Verify the registered cert in AGC reads `95F6…`
+- ✅ Direct APK at `gtwake.kirkouski.com/download` — deployed 2026-08-24; page, staging script and
+  cert guard all live. Guard proven by a negative test against a differently-signed APK
+- ✅ Served file verified byte-identical to the `dist/` artifact — production `curl` returns
+  `content-length: 5812620` and SHA-256 `670893e5…429d3a`, with
+  `content-type: application/vnd.android.package-archive`
+- 🟠 Missing/stale APK URLs return `200 text/html`, not 404 — Pages ignores a 404 status in
+  `_redirects` (tested). Mitigated: `_headers` keys the exact filename so a miss isn't mislabelled as
+  an APK, and the router sends `/apk/*` to `/download`. Caveat: **never verify a download by status
+  code alone** — assert `content-length` or re-hash
+- ❌ Sideload verified as an in-place update over a Play install (no uninstall prompt, alarms preserved)
+- ❌ Watch pairing verified on a sideloaded install
+- 📋 Auto-update for sideloaded installs — out of scope: requires `INTERNET`, which the published
+  privacy policy states the app does not declare
+- 📋 Google's sideload developer-verification regime (Sept 2026 BR/ID/SG/TH, global 2027) — revisit
+  before the global phase; no effect on EU users today
+
 ## KNOWN GAPS TO CLOSE NEXT
 
 ### Android

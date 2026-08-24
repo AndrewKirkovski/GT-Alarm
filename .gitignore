@@ -123,3 +123,8 @@ android-app/**/replay_*.log
 
 # MCP server configuration — contains API keys (Recraft, etc.)
 .mcp.json
+
+# APK safety net. Every APK in this tree is a build output (dist/, android-app/
+# build outputs, meta/site/public/apk/). A stray 5.5 MB binary committed to a
+# public repo cannot be removed without rewriting history.
+*.apk

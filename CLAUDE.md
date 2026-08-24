@@ -62,8 +62,10 @@ When the user asks for a "new version" / release, follow this EXACTLY:
 5. **Commit** `Release v<version>: <summary>`, then create an **annotated tag** on that commit: `git tag -a v<version> -m "v<version>"`.
 6. **Push the commit AND the tag** (`git push origin main --follow-tags`).
 7. **Build signed store artifacts for upload:** `bash scripts/android.sh release` (phone APK+AAB) + `bash scripts/build-watch-release.sh` (watch `.app`). If the signing cert changed since the last release, also re-run `scripts/pack-signing-uploads.sh` and re-upload the store-signing packages.
+8. **Collect into `dist/`:** `bash scripts/collect-release.sh` stamps the three signed artifacts into `dist/gtwake-{phone,watch}-<versionName>-<code>.{apk,aab,app}` — the single, gitignored, upload-ready location. **Upload from `dist/`, not the deep `build/outputs/` paths.** (`scripts/collect-release.sh --build` does steps 7+8 in one: builds both apps' release artifacts, then collects.)
+9. **Publish the direct download:** `cd meta/site && npm run deploy`. This re-syncs the APK out of `dist/`, regenerates the published SHA-256, rebuilds, and deploys to Cloudflare Pages. It **hard-fails unless the APK's signing cert is `95F6…`** — that cert parity is what lets users move between the Play build and the site build without uninstalling, and what satisfies the watch's Wear Engine allow-list. Never bypass it with `GTWAKE_SKIP_CERT_CHECK=1` for a real release.
 
-Keep `versionName` monotonic; never reuse a release code.
+Keep `versionName` monotonic; never reuse a release code. The site is a **third distribution channel** — a release is not fully shipped until step 9 runs, or `gtwake.kirkouski.com/download` will advertise the previous version.
 
 ## Doc-verification protocol
 

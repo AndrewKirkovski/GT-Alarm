@@ -1,1 +1,9 @@
+# SPA fallback. Static assets take precedence over this on Cloudflare Pages
+# (verified against production: /favicon.svg, /assets/*, and the APK all serve
+# intact), so it only fires on a miss.
+#
+# Do NOT try to 404 missing /apk/* here — Pages ignores a 404 status in this
+# file (tested against production, it still returned 200). Missing APKs are
+# handled instead by keying _headers on the exact filename, so a miss is served
+# as honest text/html, plus a router rule sending /apk/* to /download.
 /*    /index.html   200

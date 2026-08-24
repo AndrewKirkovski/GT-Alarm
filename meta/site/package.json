@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "apk:sync": "node scripts/sync-apk.mjs",
+    "build": "node scripts/sync-apk.mjs && vite build",
     "typecheck": "vue-tsc --noEmit",
     "preview": "vite preview",
-    "deploy": "wrangler pages deploy dist --project-name=gtwake-site"
+    "deploy": "npm run build && wrangler pages deploy dist --project-name=gtwake-site"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

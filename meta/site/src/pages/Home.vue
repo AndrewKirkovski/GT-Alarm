@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Button } from '@/components/ui/button'
 import { RouterLink } from 'vue-router'
+import { download, formatMiB } from '@/data/download'
 import {
   BellRing,
   Watch,
@@ -57,6 +58,11 @@ const features = [
       </div>
       <p class="mt-4 text-sm text-muted-foreground">
         The watch app needs the Companion on your phone and a watch paired through Huawei Health.
+      </p>
+      <p class="mt-2 text-sm text-muted-foreground">
+        No Google Play or AppGallery on your phone?
+        <RouterLink to="/download" class="font-medium text-primary hover:underline">Download the APK directly</RouterLink>
+        — v{{ download.versionName }}, {{ formatMiB(download.sizeBytes) }}.
       </p>
     </div>
   </section>

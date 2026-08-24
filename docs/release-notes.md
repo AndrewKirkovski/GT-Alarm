@@ -12,7 +12,7 @@ the integer release codes are **per-app** and increment by 1 each release.
 | 1.0.1 | 3 | 1000002 | `v1.0.1` | 2026-06-11 |
 
 Apps:
-- **Phone** — `com.kirkouski.gtwake.companion` (Android, Google Play + AppGallery), `versionCode` in `android-app/app/build.gradle.kts`.
+- **Phone** — `com.kirkouski.gtwake.companion` (Android, Google Play + AppGallery + direct APK at `gtwake.kirkouski.com/download`), `versionCode` in `android-app/app/build.gradle.kts`. All three channels ship the **same signing cert** (`95F6…`), so users can move between them without uninstalling.
 - **Watch** — `com.kirkouski.gtwatch.watch` (HarmonyOS Lite Wearable, AppGallery only), `version.code` in `watch-app/entry/src/main/config.json`.
 
 ---

@@ -12,6 +12,7 @@ import { RouterLink, RouterView } from 'vue-router'
         </RouterLink>
         <nav class="flex items-center gap-5 text-sm text-muted-foreground">
           <RouterLink to="/" class="hover:text-foreground">Home</RouterLink>
+          <RouterLink to="/download" class="hover:text-foreground">Download</RouterLink>
           <RouterLink to="/privacy" class="hover:text-foreground">Privacy</RouterLink>
         </nav>
       </div>
@@ -26,6 +27,7 @@ import { RouterLink, RouterView } from 'vue-router'
         <span>© 2026 Andrei Kirkouski</span>
         <span class="flex gap-5">
           <RouterLink to="/" class="hover:text-foreground">Home</RouterLink>
+          <RouterLink to="/download" class="hover:text-foreground">Download APK</RouterLink>
           <RouterLink to="/privacy" class="hover:text-foreground">Privacy policy</RouterLink>
         </span>
       </div>

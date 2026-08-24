@@ -3,3 +3,8 @@ dist
 .wrangler
 *.local
 .DS_Store
+
+# Signed APK staged into the build by scripts/sync-apk.mjs. Source of truth is
+# the repo-root dist/ (itself gitignored). ~5.5 MB binary — never committed.
+# Regenerate with `npm run apk:sync` (or any `npm run build`).
+public/apk/
