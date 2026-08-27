@@ -486,11 +486,17 @@ phone cert. A channel signed with a different key would silently lose both.
   App Signing (Method 2) is unconfirmed**. Caveat: if Huawei generated its own key instead, the
   AppGallery build's cert differs and watch pairing breaks for exactly the users most likely to own
   the watch. Verify the registered cert in AGC reads `95F6…`
-- ✅ Direct APK at `gtwake.kirkouski.com/download` — deployed 2026-08-24; page, staging script and
-  cert guard all live. Guard proven by a negative test against a differently-signed APK
-- ✅ Served file verified byte-identical to the `dist/` artifact — production `curl` returns
-  `content-length: 5812620` and SHA-256 `670893e5…429d3a`, with
-  `content-type: application/vnd.android.package-archive`
+- ✅ Direct APK at `gtwake.kirkouski.com/download` — **1.0.8 deployed 2026-08-27** (first deployed
+  2026-08-24); page, staging script and cert guard all live. Guard proven by a negative test
+  against a differently-signed APK
+- ✅ Served file verified byte-identical to the `dist/` artifact — production `curl` on
+  `/apk/gtwake-1.0.8.apk` returns `content-length: 5812980` and SHA-256 `2953f481…cfda54`
+  (matching `dist/gtwake-phone-1.0.8-8.apk` and the published `download.json`), with
+  `content-type: application/vnd.android.package-archive`. Registered cert SHA-256
+  `95f6001e…33be5c` — the deploy hard-fails on any other signer
+- 🟠 Superseded APK URLs (e.g. `/apk/gtwake-1.0.7.apk`) now serve the SPA shell as
+  `200 text/html`, so old direct links silently stop delivering an APK. Same root cause as
+  the bullet below; users should link to `/download`, never to a version-stamped path
 - 🟠 Missing/stale APK URLs return `200 text/html`, not 404 — Pages ignores a 404 status in
   `_redirects` (tested). Mitigated: `_headers` keys the exact filename so a miss isn't mislabelled as
   an APK, and the router sends `/apk/*` to `/download`. Caveat: **never verify a download by status
