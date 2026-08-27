@@ -688,12 +688,20 @@ class AlarmRepository @Inject constructor(
             "missedDuringDowntime id=${alarm.id} target=$target labelLen=${alarm.label.length}",
         )
         AlarmNotifications.postMissedNotification(appContext, alarm)
-        // Mirrors live dismiss: relative/self-destruct → delete,
-        // absolute one-shot → disable (keep template for re-enable).
-        if (alarm.isRelative || alarm.selfDestruct) {
-            delete(alarm.id)
-        } else {
-            setEnabled(alarm.id, false)
+        // Delegate to the SAME decision function the live ring path and
+        // applyPendingDismissals use, so all three dismiss routes agree.
+        // Previously this branched on `alarm.isRelative || alarm.selfDestruct`,
+        // which deleted every missed timer regardless of the flag — silently
+        // overriding "Don't delete after firing" whenever the fire was missed
+        // during downtime rather than dismissed live.
+        when (com.kirkouski.gtwake.companion.ring.AlarmRingService.dismissAction(alarm)) {
+            com.kirkouski.gtwake.companion.ring.AlarmRingService.DismissAction.DELETE ->
+                delete(alarm.id)
+            com.kirkouski.gtwake.companion.ring.AlarmRingService.DismissAction.DISABLE ->
+                setEnabled(alarm.id, false)
+            // Unreachable in practice — callers filter to enabled one-shots —
+            // but KEEP is the correct no-op for a recurring alarm.
+            com.kirkouski.gtwake.companion.ring.AlarmRingService.DismissAction.KEEP -> Unit
         }
     }
 

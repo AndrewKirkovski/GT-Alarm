@@ -81,8 +81,7 @@
         <!-- taskAffinity="" (empty string) keeps AlarmActivity in its own task
              so it can't be shoved behind a recent MainActivity when fired from
              a lock screen, and FLAG_ACTIVITY_NEW_TASK lands on a fresh stack
-             every time. resizeableActivity=false avoids being squeezed into a
-             window on Samsung DeX. -->
+             every time. -->
         <activity
             android:name=".ring.AlarmActivity"
             android:directBootAware="true"

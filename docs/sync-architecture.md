@@ -607,7 +607,8 @@ Researched 2026-04-25 + revised 2026-04-27. **Verdict: each side is partially te
 
 **Android Studio AVD (stock-Android pixel image, API 35):** ✅ confirmed
 - `AlarmManager.setAlarmClock` + `setShowWhenLocked` + full-screen-intent → `AlarmActivity` fires reliably. Verify with `adb shell dumpsys alarm | grep com.kirkouski.gtwake.companion`.
-- `BootReceiver` triggered via `adb shell am broadcast -a android.intent.action.BOOT_COMPLETED -n com.kirkouski.gtwake.companion/.scheduler.BootReceiver`.
+- `BootReceiver` triggered via `adb shell am broadcast -a android.intent.action.BOOT_COMPLETED -n com.kirkouski.gtwake.companion/.scheduler.BootReceiver`. **Stale from API 36:** the shell can no longer send this — `SecurityException: Permission Denial: not allowed to send broadcast android.intent.action.BOOT_COMPLETED from pid=…, uid=2000` (it is a protected broadcast). On API 36 use a real `adb reboot` instead. Only `BOOT_COMPLETED` reaches `rescheduleAllOnBoot()`; `TIME_SET` / `MY_PACKAGE_REPLACED` route to `rescheduleAll()`, so `adb install -r` is not a substitute.
+- **Clock control without root:** `adb shell cmd alarm set-time <epoch_millis>` works on a `google_apis_playstore` image (which cannot be `adb root`ed). This is how missed-during-downtime is reproduced: force-stop the app (cancels its pending alarms = "downtime"), advance the clock past the fire time, then `adb reboot`.
 - `setAlarmClock` is whitelisted from Doze; `adb shell dumpsys deviceidle force-idle` then wait for fire — confirmed working on AVD.
 - `MediaPlayer(USAGE_ALARM)` plays through emulator audio output.
 - Phase 5a `IncomingMessageHandler` unit-tested via fakes (82 tests passing).

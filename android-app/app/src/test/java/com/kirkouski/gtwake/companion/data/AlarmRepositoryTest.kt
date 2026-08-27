@@ -6,13 +6,17 @@ import com.kirkouski.gtwake.companion.data.db.AlarmDao
 import com.kirkouski.gtwake.companion.data.db.AlarmEntity
 import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.domain.DaysOfWeek
+import com.kirkouski.gtwake.companion.ring.AlarmNotifications
 import com.kirkouski.gtwake.companion.scheduler.AlarmScheduler
 import com.kirkouski.gtwake.companion.wear.WearBridgeService
 import com.kirkouski.gtwake.companion.widget.WidgetRefresher
 import android.content.Context
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -444,6 +448,62 @@ class AlarmRepositoryTest {
         // The skip target is the clock-time next-recurrence, not the now+60s
         // snooze override.
         assertTrue("skip target must be strictly after the cleared snooze", (skipped ?: 0L) > now + 60_000L)
+    }
+
+    // --- missed-during-downtime routes through dismissAction (1.0.8) ---
+    //
+    // handleMissedDuringDowntime used to branch on `alarm.isRelative ||
+    // alarm.selfDestruct`, which deleted EVERY missed timer regardless of the
+    // flag. With "Don't delete after firing" now user-settable on timers, that
+    // silently overrode the setting whenever the fire was missed rather than
+    // dismissed live. Both paths now share AlarmRingService.dismissAction.
+    //
+    // AlarmNotifications is an object, so mockkObject stubs the missed-notification
+    // side effect out — the mocked Context can't build a real Notification, and
+    // the routing decision is what's under test here.
+
+    private fun pastRelativeRow(id: Long, selfDestruct: Boolean) = AlarmEntity(
+        id = id, label = "",
+        hour = 0, minute = 0,
+        daysOfWeek = DaysOfWeek.NONE,
+        enabled = true, audioUri = null, audioName = null, isVibrationOnly = false,
+        // Fired an hour ago: intendedFire = updatedAtEpoch + relativeMinutes,
+        // which lands well before bootCompleteAt.
+        updatedAtEpoch = System.currentTimeMillis() - 3_600_000L,
+        relativeMinutes = 1,
+        selfDestruct = selfDestruct,
+    )
+
+    @Test
+    fun `missed timer with keep-after-firing is disabled, not deleted`() = runTest {
+        mockkObject(AlarmNotifications)
+        every { AlarmNotifications.postMissedNotification(any(), any()) } returns Unit
+        try {
+            dao.upsert(pastRelativeRow(1L, selfDestruct = false))
+
+            repo.rescheduleAllOnBoot()
+
+            val row = dao.getById(1L)
+            assertNotNull("row must survive — the user asked to keep it", row)
+            assertEquals(false, row?.enabled)
+        } finally {
+            unmockkObject(AlarmNotifications)
+        }
+    }
+
+    @Test
+    fun `missed timer with self-destruct is still deleted`() = runTest {
+        mockkObject(AlarmNotifications)
+        every { AlarmNotifications.postMissedNotification(any(), any()) } returns Unit
+        try {
+            dao.upsert(pastRelativeRow(2L, selfDestruct = true))
+
+            repo.rescheduleAllOnBoot()
+
+            assertNull("self-destruct timers must still vanish", dao.getById(2L))
+        } finally {
+            unmockkObject(AlarmNotifications)
+        }
     }
 }
 

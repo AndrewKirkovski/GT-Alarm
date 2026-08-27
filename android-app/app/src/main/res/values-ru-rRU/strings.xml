@@ -26,7 +26,8 @@
     <string name="cancel">Отмена</string>
     <string name="add_alarm">Добавить будильник</string>
     <string name="no_alarms">Нет будильников</string>
-    <string name="no_alarms_hint">Нажмите +, чтобы добавить будильник</string>
+    <string name="no_alarms_hint">Здесь появятся ваши будильники</string>
+    <string name="empty_alarms_body">Создайте первый будильник</string>
     <string name="no_enabled_alarms_hint">Включите один или нажмите +, чтобы добавить будильник</string>
 
     <string name="day_sun_short">Вс</string>
@@ -38,7 +39,6 @@
     <string name="day_sat_short">Сб</string>
 
     <string name="widget_next_alarm_none">Будильники не запланированы</string>
-    <string name="permission_exact_alarm_rationale">Точные будильники отключены. Откройте настройки системы, чтобы разрешить их.</string>
 
     <string name="repeats_once">Один раз</string>
     <string name="repeats_every_day">Каждый день</string>
@@ -126,6 +126,7 @@
 
     <!-- Relative alarms + self-destruct. -->
     <string name="field_self_destruct">Удалить после срабатывания</string>
+    <string name="field_keep_after_firing">Не удалять после срабатывания</string>
     <string name="list_relative_in_min">через %1$d мин</string>
     <string name="list_relative_in_hr">через %1$s ч</string>
     <string name="list_relative_in_sec">через %1$d с</string>

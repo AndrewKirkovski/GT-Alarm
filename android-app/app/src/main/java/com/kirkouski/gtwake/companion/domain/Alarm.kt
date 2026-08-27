@@ -23,9 +23,11 @@ data class Alarm(
     // `daysOfWeek` MUST be 0 (relative alarms are one-shot).
     val relativeMinutes: Int? = null,
     // Self-destruct: when true, the row is deleted after the final dismiss
-    // (snooze cycles preserve it). Default ON for one-shot absolute + all
-    // relative; OFF for recurring. Illegal combination: `selfDestruct == true`
-    // with `daysOfWeek != 0` (enforced below + by the edit screen UI).
+    // (snooze cycles preserve it). Edit-screen defaults since 1.0.8: ON for
+    // relative (the Timer tab presents it inverted as "Don't delete after
+    // firing", off by default), OFF for one-shot absolute, OFF for recurring.
+    // Illegal combination: `selfDestruct == true` with `daysOfWeek != 0`
+    // (enforced below + by the edit screen UI).
     val selfDestruct: Boolean = false,
     // Snoozed-until timestamp. When non-null and in the future, the alarm
     // is currently snoozed and `nextTriggerEpochMillis()` returns this

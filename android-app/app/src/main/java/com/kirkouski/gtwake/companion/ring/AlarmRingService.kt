@@ -682,8 +682,15 @@ class AlarmRingService : Service() {
         //             stays in the list as a re-arm-able template.
         //   DELETE  — self-destruct: row vanishes (tombstone + propagation
         //             to watch via AlarmRepository.delete). Used for alarms
-        //             with `flags.SELF_DESTRUCT` (default for relative +
-        //             new-style one-shot absolute).
+        //             with `selfDestruct` set — since 1.0.8 that is the
+        //             default for relative (timers) only; one-shot absolute
+        //             defaults to KEEPING the row, i.e. DISABLE.
+        //
+        // Shared by all three dismiss routes: the live ring path, the BFU
+        // pre-unlock drain (AlarmRepository.applyPendingDismissals) and
+        // missed-during-downtime (AlarmRepository.handleMissedDuringDowntime).
+        // Keep it the single decision point — the missed path used to branch
+        // separately and silently ignored the user's per-alarm setting.
         fun dismissAction(alarm: Alarm?): DismissAction = when {
             alarm == null || !alarm.enabled -> DismissAction.KEEP
             alarm.selfDestruct -> DismissAction.DELETE

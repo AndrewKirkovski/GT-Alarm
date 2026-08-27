@@ -50,8 +50,8 @@ Do not implement against memory of how an API used to work. APIs change.
 | Setting | Value | Rationale |
 |---|---|---|
 | `minSdk` | **31** (Android 12) | Removes legacy `SCHEDULE_EXACT_ALARM` runtime checks for the public alarm-clock path. `setAlarmClock` works since API 21 but `USE_EXACT_ALARM` (auto-granted, non-revocable) only exists from 33; on 31–32 we still rely on `SCHEDULE_EXACT_ALARM` so we keep that fallback. ~98% device coverage on One UI 7. |
-| `targetSdk` | **35** (Android 15) | Required by Play Store from Aug 2025; `enableEdgeToEdge()` is the standard pattern. |
-| `compileSdk` | **36** | Latest available; required for predictive-back AndroidX APIs and Material3 Expressive components. |
+| `targetSdk` | **36** (Android 16) | Google Play requires 36 for all new apps and updates from **2026-08-31** (extension available to 2026-11-01); apps below 35 also stop reaching new users on newer devices. Bumped from 35 in 1.0.8. No target-gated Android-16 change affects the alarm path: edge-to-edge was already enforced at 35, predictive back was already opted in via `android:enableOnBackInvokedCallback="true"`, the app uses `AlarmManager` not `JobScheduler`, and FSI / exact-alarm / lock-screen behavior is unchanged at 36. Huawei AppGallery sets a *floor* (`targetSdkVersion >= 30`, mandatory since 2023-10-31) and no ceiling, so 36 clears it. **Lock-screen takeover verified on an API 36 emulator with a secure keyguard: 5/5 trials woke the screen and resumed `AlarmActivity`** (see the BAL note below). |
+| `compileSdk` | **36** | Latest available; required for predictive-back AndroidX APIs and Material3 Expressive components. Matches `targetSdk` since 1.0.8. |
 | AGP | **9.1.1** | Stable as of 2026-04. Requires Gradle ≥ 9.3.1 (wrapper pinned to 9.3.1). |
 | Kotlin | **2.3.21** | K2 default; matches Compose compiler 2.3.x. Requires `android.builtInKotlin=false` + `android.newDsl=false` in `gradle.properties` for Detekt 2.0 compat (per `changelog-2.0.0.md`). |
 | KSP | **2.3.7** | Detached from Kotlin-prefix versioning since KSP 2.3.0; the standalone scheme is now plain `2.3.x`. KSP1 does NOT support Kotlin 2.3+, so `ksp.useKSP2=true` is mandatory. |
@@ -99,6 +99,8 @@ Do not implement against memory of how an API used to work. APIs change.
 - 🟡 Confirmation dialog on destructive actions: edit-screen Delete (existing alarm), edit-screen Discard (new draft), list swipe-to-delete. Swipe cancel resets `SwipeToDismissBoxState` so the row snaps back. (Phase 5b post-review rework.)
 - 🟡 Swipe-to-delete on list row — `SwipeToDismissBox` wired in `AlarmListScreen.SwipeToDeleteRow` (Phase 3b.3, 2026-04-25)
 - 🟡 Toggle enable / disable — `Switch` in `AlarmListScreen`
+- 🟡 **At most ONE remediation prompt on the list at a time** (1.0.8), most-severe first, so the user clears them one by one instead of facing a stack of competing "fix this" cards. Order: `SetupNeededBanner` (any `isRequiredForRing()` permission denied) → `BatteryOptRationaleCard`. Resolving the top one reveals the next on the following recomposition. The old standalone exact-alarm card was **deleted**, not merely deprioritised: `EXACT_ALARM` is `isRequiredForRing()`, so `hasUnresolvedSetup()` was already true whenever `!canExact` — it could never appear except underneath the Setup banner, which links to the Setup screen that itemises the same permission with a working deep-link. `MainActivity.openExactAlarmSettings()`, the `onOpenExactAlarmSettings` parameter, and `permission_exact_alarm_rationale` (6 locales) went with it. Verified on an API 36 tablet: with FSI denied, only "Setup needed" renders.
+- 🟡 Empty-list state is a card, not a bare icon — `AlarmListScreen.EmptyAlarmsCard` occupies the same list slot as `AlarmListCard` with the same shape (16dp) and margins (16dp horizontal), so the empty screen reads as three consistent cards (setup/permission banner → empty card → watch-sync card) instead of a floating icon between two cards. Carries the alarm-off icon, `empty_alarms_body`, and two `GtAccentButton` CTAs that deep-link a new draft straight into the Alarm or Timer tab via `Routes.edit(null, mode)`. `HeroSection` stays the first `LazyColumn` item, above every card. No card title — the hero already prints "No alarms" directly above, and `no_alarms_hint` is non-instructional ("Your wake-ups will show here") so it doesn't compete with the CTAs. (1.0.8.)
 - 🟡 Persist across process kill + reboot — Room v2 (Phase 4 LWW migration) + `BootReceiver`
 - 🟡 List shows next firing time as relative + absolute — `subtitleLine(alarm)` in `AlarmListScreen.kt` renders `<days_label> · <relative_hint>` for enabled alarms (e.g. "Mon Wed Fri · in 14 hr"). `util/RelativeTime.formatUntil` delegates to `DateUtils.getRelativeTimeSpanString` with `FORMAT_ABBREV_RELATIVE` for one-component output that fits the row width. Trigger time recomputed on alarm change via `remember(alarm)`. (Phase 3 #4, 2026-04-26.)
 - 🟡 One-off alarm flips `enabled = false` after firing — `AlarmRingService.handleDismiss` flips via `repository.setEnabled(id, false)` when `daysOfWeek == 0`. Verified by `AlarmRingServiceTest.shouldAutoDisableOnDismiss` (Phase 3b.1, 2026-04-25).
@@ -108,10 +110,15 @@ Do not implement against memory of how an API used to work. APIs change.
 - 🟡 `Alarm.relativeMinutes`: nullable Int, range `[Alarm.MIN_RELATIVE_MINUTES, Alarm.MAX_RELATIVE_MINUTES]` = `[1, 1440]` (1 min to 24 h). Domain invariant: non-null `relativeMinutes` requires `daysOfWeek == 0`; enforced by `Alarm.kt` init block, defensively coerced in the edit-screen save path, and **rejected** (not coerced) by `WearJsonCodec.parseAlarm` on receive.
 - 🟡 Computed fire time: `Alarm.computedFireEpoch() = updatedAtEpoch + relativeMinutes * 60_000L`. Re-toggling the alarm off→on bumps `updatedAtEpoch` which re-anchors the timer (countdown restarts).
 - 🟡 Live countdown on list row: `rememberRelativeCountdownText` ticks every 30 s when remaining > 60 s, every 1 s when ≤ 60 s, stops 5 s past fire OR immediately when the alarm is toggled off.
-- 🟡 Boot recovery: `AlarmRepository.rescheduleAllOnBoot` distinguishes "missed during current uptime" (re-arm normally — AlarmManager fires immediately) from "missed during downtime" (post a passive notification + delete the row). Clock-rollback guard: `bootCompleteAt = (now - SystemClock.elapsedRealtime()).coerceAtMost(now)` so a wall-clock-backwards correction can't classify still-future alarms as missed.
+- 🟡 Boot recovery: `AlarmRepository.rescheduleAllOnBoot` distinguishes "missed during current uptime" (re-arm normally — AlarmManager fires immediately) from "missed during downtime" (post a passive notification, then apply the same outcome a live dismiss would). Since 1.0.8 `handleMissedDuringDowntime` delegates to `AlarmRingService.dismissAction` rather than branching on `isRelative || selfDestruct`; the old short-circuit deleted every missed timer regardless of the flag, silently overriding "Don't delete after firing" whenever the fire was missed instead of dismissed. All three dismiss routes (live ring, BFU `applyPendingDismissals`, missed-during-downtime) now share one decision function. Covered by two `AlarmRepositoryTest` cases. Clock-rollback guard: `bootCompleteAt = (now - SystemClock.elapsedRealtime()).coerceAtMost(now)` so a wall-clock-backwards correction can't classify still-future alarms as missed.
 
 ### Self-destruct (Delete after firing) — Phase 5b MVP
-- 🟡 `Alarm.selfDestruct`: boolean. Default `true` for one-shots (RELATIVE always; ABSOLUTE with `daysOfWeek == 0`) unless the user explicitly toggles. Default `false` for recurring (UI hides the toggle). Domain invariant: `selfDestruct == true` requires `daysOfWeek == 0`; enforced in `Alarm.kt`, edit screen save path, and **rejected** by `WearJsonCodec.parseAlarm`.
+- 🟡 `Alarm.selfDestruct`: boolean, one persisted field. Domain invariant: `selfDestruct == true` requires `daysOfWeek == 0`; enforced in `Alarm.kt`, edit screen save path, and **rejected** by `WearJsonCodec.parseAlarm`.
+- 🟡 **The edit screen holds TWO independent drafts for it** (1.0.8), because the two modes present it with opposite polarity and opposite defaults:
+  - ABSOLUTE — `AlarmEditUiState.absoluteSelfDestruct`, labelled `field_self_destruct` ("Delete after firing"), **default OFF**: a dated alarm is kept (disabled) after it rings so it stays re-armable.
+  - RELATIVE — `AlarmEditUiState.timerKeepAfterFiring`, labelled `field_keep_after_firing` ("Don't delete after firing"), **default OFF**, i.e. a timer does delete itself. This draft is the INVERSE of the persisted flag.
+  - `updateMode` deliberately does not touch either draft, so an Alarm↔Timer tab switch preserves both. `buildAlarm` collapses them: RELATIVE → `!timerKeepAfterFiring`; ABSOLUTE → `absoluteSelfDestruct && daysOfWeek == 0`. `stateFromAlarm` reads the persisted flag into the draft for that alarm's mode and leaves the other at its own default (not a mirror). `toggleDay` no longer resets the draft — the row is hidden while recurring and `buildAlarm` masks the flag off, so the invariant still holds and clearing days restores the user's choice. Covered by `AlarmEditViewModelTest` (8 cases).
+- 🟡 Recurring alarms: the toggle row is hidden entirely (`isOneShot` gate in `AlarmEditScreen`) and the persisted flag is forced `false`.
 - 🟡 Dismiss-action mapping in `AlarmRingService.dismissAction`: `selfDestruct == true` → `DELETE` (row removed via `repository.delete` + tombstone propagated); `selfDestruct == false` + one-shot → `DISABLE` (existing behavior); recurring → `KEEP`. Dismiss coroutine awaits the DELETE before `stopForegroundAndSelf()` to prevent service-reap from leaving stale rows.
 - 🟡 Migration v3→v4 adds `relativeMinutes INTEGER` (nullable) + `selfDestruct INTEGER NOT NULL DEFAULT 0` to the `alarms` table. `MigrationTest` asserts PRAGMA column TYPE (not just nullability) and round-trips a non-null integer value to catch accidental TEXT affinity.
 
@@ -166,6 +173,37 @@ Do not implement against memory of how an API used to work. APIs change.
 - `POST_NOTIFICATIONS` (runtime, 13+)
 - `VIBRATE`
 - `WAKE_LOCK`
+
+### Android 16 — the `pi.send` activity-launch backup no longer works (measured 2026-08-27)
+
+🟠 **PARTIAL.** On an Android 16 device the FSI notification is the *only* path that actually
+starts `AlarmActivity`. The `pi.send` backup — the one CLAUDE.md calls "the canonical compliance
+path when FSI degrades to a heads-up" — is refused by the BAL gate every single time:
+
+```
+Background activity launch blocked!  cmp=…/.ring.AlarmActivity
+  balAllowedByPiCreator: BSP.ALLOW_BAL      resultIfPiCreatorAllowsBal: BAL_BLOCK
+  balAllowedByPiSender:  BSP.ALLOW_BAL      resultIfPiSenderAllowsBal:  BAL_BLOCK
+  balDontBringExistingBackgroundTaskStackToFg: true
+→ START … (BAL_BLOCK) result code=102
+```
+
+The creator-side opt-in (`AlarmNotifications.kt:253` —
+`setPendingIntentCreatorBackgroundActivityStartMode(MODE_BACKGROUND_ACTIVITY_START_ALLOWED)`) is
+present and *is* honoured (`balAllowedByPiCreator: BSP.ALLOW_BAL`), but Android 16 still refuses on
+`balDontBringExistingBackgroundTaskStackToFg`. Immediately afterwards SystemUI's full-screen-intent
+launch succeeds — `(BAL_ALLOW_NON_APP_VISIBLE_WINDOW [realCaller]) result code=0` — and that is what
+puts the ring UI up.
+
+**This is NOT caused by targeting 36.** An A/B on the same device and code shows the identical
+`BAL_BLOCK result code=102` on `targetSdk 35`, followed by the same successful SystemUI launch. It
+is an Android-16 device behaviour affecting all apps, not a target-gated change.
+
+**Consequence to carry forward:** the two-path design has silently become one path on Android 16. If
+`USE_FULL_SCREEN_INTENT` is ever revoked (Samsung One UI demotes sideloaded installs to
+`MODE_DEFAULT`), there is no longer a working fallback to get `AlarmActivity` into the task — which
+is also what Wear Engine P2P receive depends on. Re-verify on real hardware and, if it reproduces,
+design a replacement backup before relying on the current one.
 
 **Runtime checks on cold start (`MainActivity.onCreate`):**
 - 🟡 `NotificationManager.canUseFullScreenIntent()` (API 34+); if false, surface a non-blocking card linking to `Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT`
@@ -530,7 +568,7 @@ the proposition itself wobbles.
   - **Boot branch:** `BootReceiver` routes `LOCKED_BOOT_COMPLETED → repository.rescheduleFromBfu()` (no Room); `BOOT_COMPLETED → repository.rescheduleAllOnBoot()` (Room); other broadcasts → `rescheduleAll()`.
   - **Ring path pre-unlock:** `AlarmRingService.fetchAlarmForRing` reads Room when unlocked, otherwise the BFU cache. Audio routes through `AlarmAudioPlayer.start(forceBundledFallback = !isUserUnlocked)` which plays `R.raw.fallback_alarm` directly (ContentResolver-backed SAF + system-default URIs return null pre-unlock). Pre-unlock `handleDismiss` notifies the watch via `wearBridge.sendAlarmDismissed` (transport-only suspend) under `PRE_UNLOCK_SEND_TIMEOUT_MS = 3000ms` inside `serviceScope.launch` so the FGS stays alive during the send. `handleSnooze` reads `snoozeMinutes` from the BFU cache, calls `scheduler.scheduleAt`, then sends `wearBridge.sendAlarmSnoozed`.
   - **Phase A v1 scope cuts (documented):**
-    - **Recurring alarms only re-armed pre-unlock.** `rescheduleFromBfu` filters to `daysOfWeek != 0`. One-shots scheduled to fire pre-unlock get a missed-during-downtime notification + DISABLE (non-self-destruct) or DELETE (self-destruct / relative) on unlock via `rescheduleAllOnBoot`'s `intendedFireForOneShot` helper, which computes the fire time as scheduled at last user action (not "now") so a missed 7 AM doesn't silently roll to tomorrow's 7 AM.
+    - **Recurring alarms only re-armed pre-unlock.** `rescheduleFromBfu` filters to `daysOfWeek != 0`. One-shots scheduled to fire pre-unlock get a missed-during-downtime notification, then whatever `AlarmRingService.dismissAction` returns for that alarm — DELETE when `selfDestruct` is set, DISABLE otherwise. **Relative-ness is no longer a delete trigger** (changed in 1.0.8; the old rule was "DELETE (self-destruct / relative)", which ignored the user's "Don't delete after firing" choice on a missed timer). `rescheduleAllOnBoot`'s `intendedFireForOneShot` helper decides *whether* an alarm was missed, computing the fire time as scheduled at last user action (not "now") so a missed 7 AM doesn't silently roll to tomorrow's 7 AM; it no longer decides *what happens to it*.
     - **Lock-screen dismiss persists across unlock.** `AlarmRingService.handleDismiss` pre-unlock calls `bfuCache.markDismissed(id)`, recorded in the BFU cache's `pendingDismissals` set. `AlarmRepository.rescheduleAllOnBoot` drains the set at the start of post-unlock reconcile and applies the same `dismissAction` the live ring path uses (DELETE / DISABLE / KEEP). Without this, a one-shot dismissed at 07:00 pre-unlock would re-fire at 07:00 tomorrow because its Room `enabled` flag was never updated.
     - **Watch sync best-effort pre-unlock.** Wear Engine binding may or may not work in direct-boot mode (Huawei doesn't document this); the ring envelope is self-sufficient per the thin-client criterion above, so the watch CAN ring without prior sync if Wear Engine functions pre-unlock. **TODO on-device verification required** — `GtAlarmApp.onCreate` defers `setIncomingHandler` pre-unlock on the assumption Huawei Health needs the credential keystore, but `preArmWatch` pre-unlock already calls `sendAlarmFired` through the same binder. Both can't be correct; resolve by reboot + schedule +5min + don't unlock + observe whether watch rings.
   - **Architecture choice — parallel cache vs DB-in-DPS:** BlackyHawky/Clock (and AOSP DeskClock) move the **whole Room database** to device-protected storage via `Context.moveDatabaseFrom`. That gives full pre-unlock CRUD (dismiss/snooze persists in the same DB) at the cost of putting alarm `label` strings in device-derived-key storage rather than user-credential-encrypted. We chose a **parallel cache** instead: labels stay phone-only (PII), one less migration to ship, and the watch is the primary control surface anyway. Trade-off: pre-unlock dismiss/snooze don't persist in v1, mitigated by the recurring-only re-arm + the watch's own ring-end ack flow. If the parallel-cache scope cuts prove painful on real hardware testing, we can revisit by migrating Room to DPS for Phase A v2.

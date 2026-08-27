@@ -98,6 +98,7 @@ import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.domain.DaysOfWeek
 import com.kirkouski.gtwake.companion.domain.NextTriggerCalculator
 import com.kirkouski.gtwake.companion.ui.components.GtAccentButton
+import com.kirkouski.gtwake.companion.ui.edit.AlarmMode
 import com.kirkouski.gtwake.companion.util.RelativeTime
 import com.kirkouski.gtwake.companion.util.TimeFormatter
 import com.kirkouski.gtwake.companion.util.rememberOrderedDayBits
@@ -116,9 +117,10 @@ import com.kirkouski.gtwake.companion.wear.WatchSyncStatus
 @Composable
 @Suppress("LongMethod")
 fun AlarmListScreen(
-    onAdd: () -> Unit,
+    // Takes the mode so the empty-state card can open a new draft straight on
+    // the Alarm or the Timer tab; the top-right + always means ABSOLUTE.
+    onAdd: (AlarmMode) -> Unit,
     onEdit: (Long) -> Unit,
-    onOpenExactAlarmSettings: () -> Unit,
     onOpenBatteryOptSettings: () -> Unit,
     onOpenHelp: () -> Unit,
     onAuthorizeWatch: () -> Unit,
@@ -191,13 +193,22 @@ fun AlarmListScreen(
                 item(key = "hero") {
                     HeroSection(alarms = alarms, settings = settings)
                 }
-                if (showSetupBanner) {
-                    item(key = "setup-banner") {
+                // AT MOST ONE remediation prompt at a time, most-severe first, so
+                // the user resolves them one by one instead of facing a stack of
+                // competing "fix this" cards. Clearing the top one reveals the
+                // next on the following recomposition.
+                //
+                // The old standalone exact-alarm card is gone rather than merely
+                // deprioritised: EXACT_ALARM is `isRequiredForRing()`, so
+                // `hasUnresolvedSetup()` is already true whenever `!canExact` —
+                // that card could never appear except underneath the Setup
+                // banner, and the Setup screen it links to itemises the same
+                // permission with a working deep-link.
+                when {
+                    showSetupBanner -> item(key = "setup-banner") {
                         SetupNeededBanner(onOpenSetup = onOpenHelp)
                     }
-                }
-                if (showBatteryOptCard) {
-                    item(key = "battery-opt") {
+                    showBatteryOptCard -> item(key = "battery-opt") {
                         BatteryOptRationaleCard(
                             onOpenSettings = {
                                 onOpenBatteryOptSettings()
@@ -207,26 +218,9 @@ fun AlarmListScreen(
                         )
                     }
                 }
-                if (!canExact) {
-                    item(key = "exact-alarm") {
-                        Card(
-                            modifier = Modifier
-                                .padding(horizontal = 16.dp, vertical = 4.dp)
-                                .fillMaxWidth()
-                                .clickable { onOpenExactAlarmSettings() },
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.permission_exact_alarm_rationale),
-                                modifier = Modifier.padding(16.dp),
-                            )
-                        }
-                    }
-                }
                 item(key = "alarm-list") {
                     if (alarms.isEmpty()) {
-                        EmptyAlarmsPlaceholder()
+                        EmptyAlarmsCard(onAdd = onAdd)
                     } else {
                         AlarmListCard(
                             alarms = alarms,
@@ -262,7 +256,7 @@ fun AlarmListScreen(
                         color = MaterialTheme.colorScheme.surface,
                         shadowElevation = 4.dp,
                     ) {
-                        IconButton(onClick = onAdd) {
+                        IconButton(onClick = { onAdd(AlarmMode.ABSOLUTE) }) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_add),
                                 contentDescription = stringResource(R.string.add_alarm),
@@ -271,7 +265,7 @@ fun AlarmListScreen(
                         }
                     }
                 } else {
-                    IconButton(onClick = onAdd) {
+                    IconButton(onClick = { onAdd(AlarmMode.ABSOLUTE) }) {
                         Icon(
                             painter = painterResource(R.drawable.ic_add),
                             contentDescription = stringResource(R.string.add_alarm),
@@ -408,21 +402,50 @@ private fun AlarmListCard(
     }
 }
 
+// Empty-list slot. Deliberately a Card with the SAME shape/margins as
+// AlarmListCard so the empty↔populated swap doesn't shift the layout, and so
+// the empty screen reads as three consistent cards instead of a bare icon
+// floating between two of them. No title here — HeroSection already prints
+// "No alarms" directly above.
 @Composable
-private fun EmptyAlarmsPlaceholder() {
-    Box(
+private fun EmptyAlarmsCard(onAdd: (AlarmMode) -> Unit) {
+    Card(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 40.dp),
-        contentAlignment = Alignment.Center,
+            .padding(horizontal = 16.dp)
+            .fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Icon(
                 painter = painterResource(R.drawable.ic_alarm_off),
                 contentDescription = null,
                 modifier = Modifier.size(72.dp),
                 tint = Color.Unspecified,
             )
+            Text(
+                text = stringResource(R.string.empty_alarms_body),
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            Row(
+                modifier = Modifier.padding(top = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                GtAccentButton(onClick = { onAdd(AlarmMode.ABSOLUTE) }) {
+                    Text(stringResource(R.string.alarm_notification_title))
+                }
+                GtAccentButton(onClick = { onAdd(AlarmMode.RELATIVE) }) {
+                    Text(stringResource(R.string.screen_timer_title))
+                }
+            }
         }
     }
 }
@@ -868,8 +891,13 @@ private fun subtitleLine(alarm: Alarm, firstDayOverride: Int?, showDays: Boolean
 private fun repeatLabel(alarm: Alarm, firstDayOverride: Int?): String = when {
     alarm.daysOfWeek != DaysOfWeek.NONE -> daysLabel(alarm.daysOfWeek, firstDayOverride)
     alarm.isRelative -> stringResource(R.string.repeats_timer)
-    alarm.selfDestruct -> stringResource(R.string.repeats_once)
-    else -> ""
+    // No days and not relative ⇒ a one-shot dated alarm, whether or not it
+    // self-destructs. This used to be keyed off `selfDestruct`, which was
+    // survivable only while that defaulted ON for one-shots: since 1.0.8 it
+    // defaults OFF, so every newly created dated alarm fell through to "" and
+    // rendered with NO subtitle at all once it fired and disabled itself.
+    // Repetition and deletion are independent — label the former.
+    else -> stringResource(R.string.repeats_once)
 }
 
 // reason: complexity is 12 because the function combines two distinct

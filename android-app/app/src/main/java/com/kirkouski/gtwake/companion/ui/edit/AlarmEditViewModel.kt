@@ -39,8 +39,18 @@ data class AlarmEditUiState(
     val snoozeMinutes: Int = Alarm.DEFAULT_SNOOZE_MINUTES,
     val mode: AlarmMode = AlarmMode.ABSOLUTE,
     val relativeMinutes: Int = 15,
-    val selfDestruct: Boolean = true,
-    val selfDestructUserSet: Boolean = false,
+    // Two INDEPENDENT drafts for what persists as the single `Alarm.selfDestruct`
+    // flag, because the two modes present it with opposite polarity and opposite
+    // defaults. Keeping them separate is what lets an Alarm↔Timer tab switch
+    // preserve each side's value instead of re-deriving one from the other.
+    // `buildAlarm` collapses them back onto `Alarm.selfDestruct`.
+    //
+    // ABSOLUTE — "Delete after firing". Default OFF: a dated alarm is kept
+    // (disabled) after it rings so it stays re-armable.
+    val absoluteSelfDestruct: Boolean = false,
+    // RELATIVE — "Don't delete after firing", the INVERSE of selfDestruct.
+    // Default OFF, i.e. a timer does delete itself after ringing.
+    val timerKeepAfterFiring: Boolean = false,
     val vibrationPattern: com.kirkouski.gtwake.companion.domain.VibrationPattern =
         com.kirkouski.gtwake.companion.domain.VibrationPattern.DEFAULT,
     val volumeRampSeconds: Int = 0,
@@ -116,15 +126,13 @@ class AlarmEditViewModel @Inject constructor(
         it.copy(label = label.take(Alarm.MAX_LABEL_LENGTH))
     }
 
+    // Selecting days does NOT clear `absoluteSelfDestruct`: the row is hidden
+    // while the alarm is recurring (the `isOneShot` gate in AlarmEditScreen) and
+    // `buildAlarm` masks the flag off, so the domain invariant
+    // (selfDestruct == true requires daysOfWeek == 0) still holds. Preserving
+    // the draft means clearing all days again restores the user's own choice.
     fun toggleDay(day: Int) = mutate {
-        val newDays = DaysOfWeek.toggle(it.daysOfWeek, day)
-        val newSelfDestruct = if (newDays != 0) false else it.selfDestruct
-        val newUserSet = if (newDays != 0) false else it.selfDestructUserSet
-        it.copy(
-            daysOfWeek = newDays,
-            selfDestruct = newSelfDestruct,
-            selfDestructUserSet = newUserSet,
-        )
+        it.copy(daysOfWeek = DaysOfWeek.toggle(it.daysOfWeek, day))
     }
 
     fun updateAudio(uri: String?, name: String?) = mutate {
@@ -172,19 +180,13 @@ class AlarmEditViewModel @Inject constructor(
         it.copy(snoozeMinutes = clamped)
     }
 
+    // Switching tabs only changes the mode (and drops days for a timer, which
+    // is one-shot by definition). It deliberately does NOT touch either
+    // self-destruct draft — each mode owns its own value and its own default.
     fun updateMode(mode: AlarmMode) = mutate {
-        val newDays = if (mode == AlarmMode.RELATIVE) 0 else it.daysOfWeek
-        val newSelfDestruct = if (it.selfDestructUserSet) {
-            it.selfDestruct
-        } else {
-            mode == AlarmMode.RELATIVE || newDays == 0
-        }
-        val newRelativeMinutes = it.relativeMinutes
         it.copy(
             mode = mode,
-            daysOfWeek = newDays,
-            selfDestruct = newSelfDestruct,
-            relativeMinutes = newRelativeMinutes,
+            daysOfWeek = if (mode == AlarmMode.RELATIVE) 0 else it.daysOfWeek,
         )
     }
 
@@ -197,11 +199,13 @@ class AlarmEditViewModel @Inject constructor(
         )
     }
 
+    /** Flips whichever draft the currently-visible row is bound to. */
     fun toggleSelfDestruct() = mutate {
-        if (it.mode == AlarmMode.ABSOLUTE && it.daysOfWeek != 0) {
-            it.copy(selfDestruct = false, selfDestructUserSet = true)
-        } else {
-            it.copy(selfDestruct = !it.selfDestruct, selfDestructUserSet = true)
+        when {
+            it.mode == AlarmMode.RELATIVE -> it.copy(timerKeepAfterFiring = !it.timerKeepAfterFiring)
+            it.daysOfWeek == 0 -> it.copy(absoluteSelfDestruct = !it.absoluteSelfDestruct)
+            // Recurring absolute: the row is hidden, there is nothing to flip.
+            else -> it
         }
     }
 
@@ -298,7 +302,13 @@ class AlarmEditViewModel @Inject constructor(
 
     private fun buildAlarm(s: AlarmEditUiState): Alarm {
         val daysOfWeek = if (s.mode == AlarmMode.RELATIVE) 0 else s.daysOfWeek
-        val selfDestruct = s.selfDestruct && daysOfWeek == 0
+        // Collapse the two mode-scoped drafts onto the single persisted flag.
+        // The `&& daysOfWeek == 0` mask enforces the domain invariant that
+        // Alarm.init would otherwise throw on.
+        val selfDestruct = when (s.mode) {
+            AlarmMode.RELATIVE -> !s.timerKeepAfterFiring
+            AlarmMode.ABSOLUTE -> s.absoluteSelfDestruct && daysOfWeek == 0
+        }
         val relativeMinutes = if (s.mode == AlarmMode.RELATIVE) {
             s.relativeMinutes.coerceIn(Alarm.MIN_RELATIVE_MINUTES, Alarm.MAX_RELATIVE_MINUTES)
         } else {
@@ -349,8 +359,11 @@ class AlarmEditViewModel @Inject constructor(
         snoozeMinutes = alarm.snoozeMinutes,
         mode = if (alarm.isRelative) AlarmMode.RELATIVE else AlarmMode.ABSOLUTE,
         relativeMinutes = alarm.relativeMinutes ?: DEFAULT_RELATIVE_MINUTES,
-        selfDestruct = alarm.selfDestruct,
-        selfDestructUserSet = false,
+        // Read the persisted flag into the draft for THIS alarm's mode; the
+        // other mode's draft starts at its own default, not a mirror — switching
+        // an existing dated alarm to the Timer tab should offer the timer default.
+        absoluteSelfDestruct = if (alarm.isRelative) false else alarm.selfDestruct,
+        timerKeepAfterFiring = if (alarm.isRelative) !alarm.selfDestruct else false,
         vibrationPattern = alarm.vibrationPattern,
         volumeRampSeconds = alarm.volumeRampSeconds,
         maxSnoozeCount = alarm.maxSnoozeCount,

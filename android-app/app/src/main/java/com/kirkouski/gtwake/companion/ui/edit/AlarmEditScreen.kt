@@ -396,13 +396,26 @@ fun AlarmEditScreen(
                         }
                     }
 
-                    // Self-destruct (one-shot alarms only)
+                    // Self-destruct (one-shot alarms only). The two modes bind to
+                    // separate drafts with opposite polarity: a dated alarm asks
+                    // "Delete after firing", a timer asks "Don't delete after
+                    // firing". Both default to off.
                     val isOneShot = state.mode == AlarmMode.RELATIVE || state.daysOfWeek == 0
                     if (isOneShot) {
+                        val isTimer = state.mode == AlarmMode.RELATIVE
                         HorizontalDivider(thickness = 0.5.dp, color = divider)
                         Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
                             SelfDestructRow(
-                                checked = state.selfDestruct,
+                                labelRes = if (isTimer) {
+                                    R.string.field_keep_after_firing
+                                } else {
+                                    R.string.field_self_destruct
+                                },
+                                checked = if (isTimer) {
+                                    state.timerKeepAfterFiring
+                                } else {
+                                    state.absoluteSelfDestruct
+                                },
                                 onToggle = vm::toggleSelfDestruct,
                             )
                         }
@@ -781,7 +794,11 @@ private fun RelativeRow(minutes: Int, onChange: (Int) -> Unit) {
 }
 
 @Composable
-private fun SelfDestructRow(checked: Boolean, onToggle: () -> Unit) {
+private fun SelfDestructRow(
+    labelRes: Int,
+    checked: Boolean,
+    onToggle: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -793,7 +810,7 @@ private fun SelfDestructRow(checked: Boolean, onToggle: () -> Unit) {
             modifier = Modifier.padding(end = 12.dp).size(24.dp),
         )
         Text(
-            text = stringResource(R.string.field_self_destruct),
+            text = stringResource(labelRes),
             modifier = Modifier.weight(1f),
         )
         Switch(

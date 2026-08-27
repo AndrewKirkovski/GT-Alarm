@@ -45,6 +45,7 @@
     <string name="field_snooze_minutes_value">%1$d хв</string>
 
     <string name="field_self_destruct">Выдаліць пасля спрацоўвання</string>
+    <string name="field_keep_after_firing">Не выдаляць пасля спрацоўвання</string>
     <string name="list_relative_in_min">праз %1$d хв</string>
     <string name="list_relative_in_hr">праз %1$s г</string>
     <string name="list_relative_in_sec">праз %1$d с</string>
@@ -57,7 +58,8 @@
     <string name="cancel">Адмяніць</string>
     <string name="add_alarm">Дадаць будзільнік</string>
     <string name="no_alarms">Няма будзільнікаў</string>
-    <string name="no_alarms_hint">Націсніце +, каб дадаць будзільнік</string>
+    <string name="no_alarms_hint">Вашы будзільнікі будуць тут</string>
+    <string name="empty_alarms_body">Стварыце першы будзільнік</string>
     <string name="no_enabled_alarms_hint">Уключыце адзін або націсніце +, каб дадаць будзільнік</string>
     <string name="no_enabled_alarms">Усе будзільнікі выключаны.</string>
     <string name="screen_list_hero_alarm_in_hr">Будзільнік праз %1$s г</string>
@@ -73,7 +75,6 @@
     <string name="day_sat_short">Сб</string>
 
     <string name="widget_next_alarm_none">Няма запланаваных будзільнікаў</string>
-    <string name="permission_exact_alarm_rationale">Дакладныя будзільнікі адключаны. Адкрыйце сістэмныя налады, каб дазволіць.</string>
 
     <string name="repeats_once">Адзін раз</string>
     <string name="repeats_every_day">Кожны дзень</string>

@@ -57,6 +57,10 @@
     <!-- reason: new for relative-alarm + self-destruct MVP. Translations
          will land in a follow-up; tools:ignore silences the lint until then. -->
     <string name="field_self_destruct" tools:ignore="MissingTranslation">Delete after firing</string>
+    <!-- Timer-mode counterpart of field_self_destruct, deliberately inverted:
+         a timer deletes itself by default, so the switch offers the opt-out
+         rather than the opt-in. Both toggles read as OFF on a fresh draft. -->
+    <string name="field_keep_after_firing">Don\'t delete after firing</string>
     <string name="list_relative_in_min" tools:ignore="MissingTranslation">in %1$d min</string>
     <string name="list_relative_in_hr" tools:ignore="MissingTranslation">in %1$s hr</string>
     <string name="list_relative_in_sec" tools:ignore="MissingTranslation">in %1$d s</string>
@@ -87,7 +91,8 @@
     <string name="cancel">Cancel</string>
     <string name="add_alarm">Add alarm</string>
     <string name="no_alarms">No alarms</string>
-    <string name="no_alarms_hint" tools:ignore="MissingTranslation">Press + to add an alarm</string>
+    <string name="no_alarms_hint" tools:ignore="MissingTranslation">Your wake-ups will show here</string>
+    <string name="empty_alarms_body">Create your first alarm</string>
     <string name="no_enabled_alarms" tools:ignore="MissingTranslation">All alarms are off</string>
     <string name="no_enabled_alarms_hint" tools:ignore="MissingTranslation">Turn one on, or press + to add an alarm</string>
     <!-- reason: hero-area countdown on the alarm list. Translations land in a
@@ -112,7 +117,6 @@
     <string name="day_sat_short">Sa</string>
 
     <string name="widget_next_alarm_none">No alarms scheduled</string>
-    <string name="permission_exact_alarm_rationale">Exact alarms are disabled. Open system settings to allow them.</string>
 
     <string name="repeats_once">Once</string>
     <string name="repeats_every_day">Every day</string>

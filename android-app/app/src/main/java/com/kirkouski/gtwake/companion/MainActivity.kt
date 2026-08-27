@@ -135,9 +135,8 @@ class MainActivity : ComponentActivity() {
                     ) {
                         composable(Routes.LIST) {
                             AlarmListScreen(
-                                onAdd = { navController.navigate(Routes.edit(null)) },
+                                onAdd = { mode -> navController.navigate(Routes.edit(null, mode)) },
                                 onEdit = { id -> navController.navigate(Routes.edit(id)) },
-                                onOpenExactAlarmSettings = { openExactAlarmSettings() },
                                 onOpenBatteryOptSettings = { openBatteryOptSettings() },
                                 onOpenHelp = { navController.switchTab(Routes.HELP) },
                                 onAuthorizeWatch = {
@@ -247,15 +246,6 @@ class MainActivity : ComponentActivity() {
         onboardingState.markFsiPromptShown()
         Log.i(TAG, "first-run FSI prompt — appop not MODE_ALLOWED, deeplinking to Settings")
         openFullScreenIntentSettings()
-    }
-
-    private fun openExactAlarmSettings() {
-        val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-            data = "package:$packageName".toUri()
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        runCatching { startActivity(intent) }
-            .onFailure { Log.w(TAG, "ACTION_REQUEST_SCHEDULE_EXACT_ALARM unavailable: ${it.message}") }
     }
 
     private fun openFullScreenIntentSettings() {

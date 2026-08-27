@@ -1,10 +1,12 @@
 # GT Wake — Release Notes
 
-Version log for both apps. **`versionName` is shared across the phone and watch**;
-the integer release codes are **per-app** and increment by 1 each release.
+Version log for both apps. The apps ship independently: a release covering both keeps
+`versionName` in step, while a single-app release bumps only that app's numbers and
+leaves the other's unchanged. The integer release codes are **per-app**.
 
 | versionName | phone code | watch code | tag | date |
 |---|---|---|---|---|
+| 1.0.8 | 8 | 1000007 (unchanged — phone-only release) | `v1.0.8` | 2026-08-27 |
 | 1.0.7 | 7 | 1000007 | `v1.0.7` | 2026-06-25 |
 | 1.0.6 | 6 | 1000006 | `v1.0.6` | 2026-06-24 (REJECTED — startup crash; superseded by 1.0.7) |
 | 1.0.5 | 5 | 1000005 | `v1.0.5` | 2026-06-19 |
@@ -14,6 +16,56 @@ the integer release codes are **per-app** and increment by 1 each release.
 Apps:
 - **Phone** — `com.kirkouski.gtwake.companion` (Android, Google Play + AppGallery + direct APK at `gtwake.kirkouski.com/download`), `versionCode` in `android-app/app/build.gradle.kts`. All three channels ship the **same signing cert** (`95F6…`), so users can move between them without uninstalling.
 - **Watch** — `com.kirkouski.gtwatch.watch` (HarmonyOS Lite Wearable, AppGallery only), `version.code` in `watch-app/entry/src/main/config.json`.
+
+---
+
+## 1.0.8 — 2026-08-27
+phone `versionCode 8` · watch unchanged at `1.0.7` / `code 1000007` · tag `v1.0.8`
+
+**Phone-only release.** Nothing changed on the watch, so its build is not re-cut or
+re-uploaded. The wire format between the two apps is untouched — 1.0.8 phones and 1.0.7
+watches sync exactly as before.
+
+**Targets Android 16 (API 36).** `targetSdk` moved 35 → 36 ahead of the Google Play
+deadline of 2026-08-31, after which updates below 36 cannot be published. `compileSdk`
+was already 36, so no dependency changes were needed. No target-gated Android 16 change
+touches the alarm path: edge-to-edge was already enforced at 35, predictive back was
+already opted in, the app schedules with `AlarmManager` rather than `JobScheduler`, and
+full-screen-intent / exact-alarm / lock-screen behaviour is unchanged at 36. AppGallery
+sets a minimum `targetSdkVersion` of 30 and no maximum, so the bump is safe there too.
+
+**Empty alarm list is a card.** With no alarms the list used to render a bare icon
+floating between the setup banner and the watch-sync card. That slot is now
+`EmptyAlarmsCard` — same shape and margins as the populated alarm card — carrying two
+buttons that open a new draft directly on the **Alarm** or the **Timer** tab. The hero
+subtitle changed from the instructional "Press + to add an alarm" to "Your wake-ups will
+show here" so it no longer competes with those buttons. New/reworded strings are
+localized across all six locales.
+
+**One setup prompt at a time.** The list could stack up to three "fix this" cards at once
+("Setup needed", "Keep alarms reliable", and an exact-alarm card). It now shows at most one,
+most-severe first, so they get resolved one by one; clearing the top one reveals the next. The
+exact-alarm card was removed outright — the permission it pointed at is already covered by
+"Setup needed" and by the Setup screen behind it, so that card could never appear on its own.
+
+**"Delete after firing" defaults reworked.** The setting persists as one field but the
+two modes now present it independently:
+
+- A **dated alarm** asks "Delete after firing", defaulting to **off** — it stays in the
+  list (disabled) after ringing, ready to re-arm. Previously this defaulted to on.
+- A **timer** asks "Don't delete after firing", defaulting to **off** — unchanged
+  behaviour (the timer still deletes itself), stated in the polarity that reads
+  naturally for a timer.
+
+Each mode keeps its own value, so switching between the Alarm and Timer tabs no longer
+overwrites what you set on the other one. Selecting repeat-days hides the row and forces
+the flag off (a recurring alarm can't self-destruct); clearing the days again restores
+your choice instead of silently resetting it.
+
+**Fixed: a missed timer ignored "Don't delete after firing".** If a timer's fire time
+passed while the phone was off, boot recovery deleted the row unconditionally instead of
+honouring the setting. All three dismiss routes — live ring, pre-unlock lock-screen
+dismiss, and missed-during-downtime — now share one decision function.
 
 ---
 

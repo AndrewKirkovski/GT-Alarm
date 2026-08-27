@@ -44,11 +44,13 @@
     <string name="field_snooze_minutes">稍后提醒时长</string>
     <string name="field_snooze_minutes_value">%1$d 分钟</string>
     <string name="field_self_destruct">响起后删除</string>
+    <string name="field_keep_after_firing">响起后不删除</string>
     <string name="delete">删除</string>
     <string name="cancel">取消</string>
     <string name="add_alarm">添加闹钟</string>
     <string name="no_alarms">没有闹钟</string>
-    <string name="no_alarms_hint">点击 + 添加闹钟</string>
+    <string name="no_alarms_hint">您的闹钟将显示在这里</string>
+    <string name="empty_alarms_body">创建您的第一个闹钟</string>
     <string name="no_enabled_alarms_hint">开启一个，或点击 + 添加闹钟</string>
     <string name="no_enabled_alarms">所有闹钟均已关闭。</string>
 
@@ -72,7 +74,6 @@
     <string name="day_sat_short">六</string>
 
     <string name="widget_next_alarm_none">没有闹钟安排</string>
-    <string name="permission_exact_alarm_rationale">精确闹钟已禁用,请在系统设置中允许。</string>
 
     <string name="repeats_once">一次</string>
     <string name="repeats_every_day">每天</string>

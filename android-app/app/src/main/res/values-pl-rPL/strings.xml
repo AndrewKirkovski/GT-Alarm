@@ -44,6 +44,7 @@
     <string name="field_snooze_minutes">Czas drzemki</string>
     <string name="field_snooze_minutes_value">%1$d min</string>
     <string name="field_self_destruct">Usuń po zadzwonieniu</string>
+    <string name="field_keep_after_firing">Nie usuwaj po zadzwonieniu</string>
     <string name="list_relative_in_min">za %1$d min</string>
     <string name="list_relative_in_hr">za %1$s godz.</string>
     <string name="list_relative_in_sec">za %1$d s</string>
@@ -55,7 +56,8 @@
     <string name="cancel">Anuluj</string>
     <string name="add_alarm">Dodaj alarm</string>
     <string name="no_alarms">Brak alarmów</string>
-    <string name="no_alarms_hint">Stuknij +, aby dodać alarm</string>
+    <string name="no_alarms_hint">Twoje alarmy pojawią się tutaj</string>
+    <string name="empty_alarms_body">Utwórz swój pierwszy alarm</string>
     <string name="no_enabled_alarms_hint">Włącz jeden lub stuknij +, aby dodać alarm</string>
     <string name="no_enabled_alarms">Wszystkie alarmy są wyłączone.</string>
     <string name="screen_list_hero_alarm_in_hr">Alarm za %1$s godz.</string>
@@ -71,7 +73,6 @@
     <string name="day_sat_short">So</string>
 
     <string name="widget_next_alarm_none">Brak zaplanowanych alarmów</string>
-    <string name="permission_exact_alarm_rationale">Dokładne alarmy są wyłączone. Otwórz ustawienia systemowe, aby je włączyć.</string>
 
     <string name="repeats_once">Raz</string>
     <string name="repeats_every_day">Codziennie</string>
