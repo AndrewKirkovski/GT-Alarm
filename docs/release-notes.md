@@ -6,6 +6,7 @@ leaves the other's unchanged. The integer release codes are **per-app**.
 
 | versionName | phone code | watch code | tag | date |
 |---|---|---|---|---|
+| 1.0.9 | 9 | 1000008 | `v1.0.9` | 2026-08-29 |
 | 1.0.8 | 8 | 1000007 (unchanged — phone-only release) | `v1.0.8` | 2026-08-27 |
 | 1.0.7 | 7 | 1000007 | `v1.0.7` | 2026-06-25 |
 | 1.0.6 | 6 | 1000006 | `v1.0.6` | 2026-06-24 (REJECTED — startup crash; superseded by 1.0.7) |
@@ -16,6 +17,44 @@ leaves the other's unchanged. The integer release codes are **per-app**.
 Apps:
 - **Phone** — `com.kirkouski.gtwake.companion` (Android, Google Play + AppGallery + direct APK at `gtwake.kirkouski.com/download`), `versionCode` in `android-app/app/build.gradle.kts`. All three channels ship the **same signing cert** (`95F6…`), so users can move between them without uninstalling.
 - **Watch** — `com.kirkouski.gtwatch.watch` (HarmonyOS Lite Wearable, AppGallery only), `version.code` in `watch-app/entry/src/main/config.json`.
+
+---
+
+## 1.0.9 — 2026-08-29
+phone `versionCode 9` · watch `code 1000008` · tag `v1.0.9`
+
+**Both apps ship in this release.** The watch changes are the substantive ones.
+
+**Watch: the alarm no longer snoozes itself.** Raising your wrist to look at a ringing
+alarm — or simply letting the always-on display take over — used to be read as a
+side-button press and snoozed the alarm. Measured on a GT 6 Pro: the ring screen was
+being hidden 3.1 seconds in, with no user action, and the alarm silently snoozed. The
+watch now holds its screen on for the duration of the ring, and a hide with no explicit
+tap does nothing at all. For an alarm clock the safe direction is to keep ringing — a
+missed snooze gesture costs one tap, a phantom snooze can make you miss a wake-up.
+
+**Watch: dismissing from the phone now reaches the watch reliably.** An inbound
+`alarm_dismissed` arriving while the watch sat on its list screen threw a JavaScript error
+inside the message handler, so the watch never acknowledged it. The phone then burned both
+retry rounds and gave up, leaving the ring UI stuck in "waiting for watch" until it timed
+out.
+
+**Phone: the app can now tell you when its alarm screen never appeared.** An alarm can
+ring without taking over the screen — Android shows a banner instead when another
+full-screen alert already owns the display. That used to be completely invisible in logs.
+Each ring now records whether the alarm screen reached the foreground, was covered, or
+never appeared at all.
+
+**Phone: new help entry** explaining that case, and that tapping the banner opens the full
+alarm screen (which also restores the watch's ability to dismiss). Localized in all six
+languages.
+
+**Known limitations, documented rather than fixed.** Three defects are recorded as TODOs
+in the source with their evidence and a safe procedure, deliberately not patched in this
+release: alarms that overlap can lose the second alarm's full-screen UI; a second alarm
+firing over a first leaves the first one's state unfinished; and the first alarm's audio
+player is not stopped when that happens. All three sit in the most failure-sensitive path
+in the app and none has been reproduced on real hardware yet.
 
 ---
 

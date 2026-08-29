@@ -3,8 +3,8 @@
         "bundleName": "com.kirkouski.gtwatch.watch",
         "vendor": "kirkouski",
         "version": {
-            "code": 1000007,
-            "name": "1.0.7"
+            "code": 1000008,
+            "name": "1.0.9"
         }
     },
     "deviceConfig": {},
