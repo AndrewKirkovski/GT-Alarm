@@ -29,6 +29,46 @@ object AlarmNotifications {
     // and we delete the legacy id below in ensureChannel.
     const val CHANNEL_ID = "alarm_ringing_v2"
     private const val LEGACY_CHANNEL_ID = "alarm_ringing"
+    // TODO(parked 2026-08-29): give each ring its own notification id.
+    //
+    // WHY IT IS A PROBLEM. This constant is reused for every ring. When alarm 2
+    // fires while alarm 1 is STILL RINGING, its notification carries the same
+    // StatusBarNotification key (userId|pkg|id|tag|uid), so SystemUI receives it
+    // as an UPDATE rather than an ADD. Confirmed in AOSP android16-release
+    // (commit 99b01a65): the full-screen intent is evaluated ONLY from
+    // HeadsUpCoordinator.onEntryAdded and a DND-rescue branch of
+    // onRankingApplied — `onEntryUpdated` contains no FSI code at all. So the
+    // second alarm's FSI is not suppressed, it is never considered, and
+    // AlarmActivity never launches. With no Activity in the task the Wear
+    // Engine receive path has no anchor, so the watch cannot dismiss.
+    //
+    // Device-measured on an API 36 emulator: alarm 2 while alarm 1's id-42
+    // notification was live -> ring UI absent (0 AlarmActivity records).
+    // Dismiss alarm 1 first so the id is free, device still awake -> ring UI
+    // appears. Interactivity held constant; the id was the only variable.
+    //
+    // WHY IT IS PARKED, NOT FIXED. Medium risk in the most fragile path we
+    // have. memory/android_alarm_lockscreen_pattern.md records a device-verified
+    // Samsung regression caused by posting id 42 twice in quick succession
+    // (placeholder -> FSI upgrade), which muted sound, vibration AND the FSI
+    // launch. A per-ring id is NOT that pattern (one post per ring, distinct
+    // keys) but it is adjacent to it, and this is a foreground-service
+    // notification: changing the id means startForeground() with a new id plus
+    // cancelling the old one, with a window where both or neither exist.
+    // Nobody has reproduced the overlapping-alarm case on real hardware.
+    //
+    // ALSO NOTE: this does NOT explain the separate, unexplained failure where
+    // alarms fired in rapid succession alternate pass/fail 8/8 even with a
+    // force-stopped clean start and no prior notification. Do not expect this
+    // change to fix that.
+    //
+    // TO DO IT SAFELY: (1) reproduce overlapping alarms on the S24 first;
+    // (2) derive the id as NOTIFICATION_ID or (alarmId and 0x00FF_FFFF), the
+    // same shape MISSED_NOTIFICATION_BASE already uses below; (3) cancel the
+    // previous ring's id when a new ring takes over; (4) re-run the alternation
+    // test and confirm no NEW failure mode appears; (5) verify on Samsung
+    // specifically, since the prior regression was One UI-only.
+    // See docs/acceptance-criteria.md -> "Losing the ring UI".
     const val NOTIFICATION_ID = 42
 
     // Separate low-priority channel for "missed during reboot" notifications.

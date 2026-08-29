@@ -53,6 +53,19 @@ function queryDevice(cb) {
                 var h = (info && (info.windowHeight || info.screenHeight)) || 466;
                 var shape = (info && info.screenShape) || 'circle';
                 cached = { W: w, H: h, shape: shape };
+                // Log the watch's own OS/firmware identity alongside the metrics.
+                // We had an incident (2026-08-28) where ring behaviour changed on
+                // hardware with our watch code byte-identical since 1.0.6, and the
+                // leading hypothesis was a GT 6 firmware update — but nothing in
+                // the phone-relayed logs recorded the watch's firmware, so it could
+                // not be confirmed or refuted. getInfo() already runs on every
+                // launch; these fields are free. All optional: absent on some
+                // builds, so read defensively and never let this throw.
+                Logger.i('device os=' + ((info && info.osVersion) || '?') +
+                    ' api=' + ((info && info.apiVersion) || '?') +
+                    ' model=' + ((info && info.deviceModel) || '?') +
+                    ' brand=' + ((info && info.brand) || '?') +
+                    ' release=' + ((info && info.releaseType) || '?'));
                 Logger.i('screen ' + w + 'x' + h + ' ' + shape);
                 if (cb) cb(cached);
             },

@@ -451,6 +451,35 @@ private fun LateAlarmHelp(
             )
         }
         BrandTipsCard()
+        FaqNote(
+            titleRes = R.string.help_faq_no_fullscreen_title,
+            bodyRes = R.string.help_faq_no_fullscreen_body,
+        )
+    }
+}
+
+/**
+ * A plain question/answer block for behaviour we cannot fix and the user would
+ * otherwise read as a bug.
+ *
+ * The first entry documents the full-screen-intent decline: when another
+ * full-screen alert already made the device interactive, Android shows us as a
+ * banner instead of taking over the screen (AOSP `NO_FSI_EXPECTED_TO_HUN`). The
+ * alarm still sounds, so without this note the app looks broken rather than
+ * constrained. See docs/acceptance-criteria.md → "Losing the ring UI to a
+ * competing full-screen intent".
+ */
+@Composable
+private fun FaqNote(titleRes: Int, bodyRes: Int) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = stringResource(titleRes),
+            style = MaterialTheme.typography.titleSmall,
+        )
+        Text(
+            text = stringResource(bodyRes),
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
 

@@ -205,6 +205,90 @@ is an Android-16 device behaviour affecting all apps, not a target-gated change.
 is also what Wear Engine P2P receive depends on. Re-verify on real hardware and, if it reproduces,
 design a replacement backup before relying on the current one.
 
+### Losing the ring UI to a competing full-screen intent — KNOWN LIMITATION
+
+🟠 **PARTIAL.** There are **three distinct failure modes** here with different causes and
+different prognoses. An earlier version of this section collapsed them into one mechanism
+("the device is interactive, so Android declines us"); that single-mechanism claim was
+**falsified by our own measurements** and must not be reinstated — see mode B.
+
+Evidence classes below are explicit on purpose: `MEASURED` = observed on a device,
+`SOURCE` = read in AOSP `android16-release` (commit `99b01a65`), `UNKNOWN` = neither.
+
+**A — Another app's full-screen intent owns the screen. NOT FIXABLE.**
+`MEASURED`: with Google Clock's alarm Activity foregrounded we log `FSI-fire … canFsi=true`
+and produce **zero** AlarmActivity records. Repeated across sessions.
+`SOURCE`: `FullScreenIntentDecisionProvider.makeDecisionWithoutDnd()` has 14 ordered
+branches; ours falls to *(10)* `couldHeadsUp → NO_FSI_EXPECTED_TO_HUN` or *(14)*
+`NO_FSI_NO_HUN_OR_KEYGUARD`. Both degrade to heads-up, never to an Activity. Nothing to
+fix — this is the platform's intended contract while the user is using the device.
+Re-posting cannot help: `setAlarmClock` confers no background-activity-start privilege
+(`AlarmManagerService` calls `setPendingIntentBackgroundActivityLaunchAllowed(false)`), and
+the `pi.send` backup is BAL-blocked on Android 16 (see the section above).
+
+**B — Two of OUR alarms overlap (alarm 2 fires while alarm 1 still rings). FIXABLE.**
+`SOURCE`: the FSI is evaluated only from `HeadsUpCoordinator.onEntryAdded` and a DND-rescue
+branch of `onRankingApplied`; **`onEntryUpdated` contains no FSI code**. Add-vs-update is
+keyed on `StatusBarNotification.key` = `userId|pkg|id|tag|uid`. Because
+`AlarmNotifications.NOTIFICATION_ID` is the constant 42, the second ring is an UPDATE and
+its full-screen intent is **never evaluated** — not suppressed, never considered.
+`MEASURED`: alarm 2 with id 42 still live → no ring UI; dismiss alarm 1 to free the id,
+**device still awake** → ring UI appears. Interactivity was held constant across that pair,
+which is exactly what falsifies the old "device interactive" explanation.
+Parked, not fixed — see the TODO on `AlarmNotifications.NOTIFICATION_ID` for why and for
+the safe procedure.
+
+**C — Alarms in rapid succession alternate pass/fail. CAUSE UNKNOWN.**
+`MEASURED`: 8/8 perfect alternation (`FAIL OK FAIL OK FAIL OK FAIL OK`) with a
+force-stopped clean start, no prior notification, verified-asleep preconditions, confirmed
+by Activity counts (0 vs 19) rather than by our own log line.
+`UNKNOWN`: not explained by mode B (each post was an ADD) and **not** explained by the
+notification rate limiter — `SOURCE`: AOSP's `NotificationAttentionHelper` gates only
+sound/vibration/LED and has no path to SystemUI's FSI decision. Leading untested candidate
+is branch *(10)*: if `couldHeadsUp` flips between rings, the FSI flips inversely.
+**Caveat:** measured on one emulator that had been heavily abused (~40 alarms, several
+reboots, clock jumped across days). May be an artifact. Not reproduced on hardware.
+Next step: read SystemUI's own FSI decision log, which records a reason string per
+notification, instead of inferring.
+
+**What still works when this happens:** the FGS keeps running, audio keeps playing
+(`USAGE_ALARM`, no audio focus requested, so nothing can duck it), and the heads-up carries
+real Dismiss/Snooze actions. `setContentIntent(fullScreenIntent)` means **tapping the
+notification is a documented BAL exemption** — it launches the Activity and restores the
+Wear Engine anchor.
+
+**What breaks:** with no Activity in the task there is no Wear Engine receive anchor, so
+watch dismiss/snooze cannot come back and `preArmWatch` burns its full `PREARM_TIMEOUT_MS`
+on a reply that structurally cannot arrive. The watch still *rings* (sending needs no
+Activity); only the return path is lost.
+
+**Detection (1.0.9):** `AlarmRingService.scheduleRingUiAudit` logs one line per ring —
+`ringUiAudit id=N outcome=FOREGROUND | LAUNCHED_THEN_COVERED | NEVER_LAUNCHED`. This
+previously had **no signal at all**: `PendingIntent.send()` does not throw on `BAL_BLOCK`,
+so `runCatching` reported success for a launch that never happened, and SystemUI declines
+silently. Device-verified 2026-08-28, **all three outcomes**, and cross-checked against
+actual AlarmActivity counts rather than trusting itself: every `NEVER_LAUNCHED` was
+corroborated by 0 records, every `FOREGROUND` by 19. `onCreate` lands ~50 ms after
+`FSI-fire` even from a sleeping locked device, so the 2 s audit window is ample and does
+not produce late-arrival false positives.
+
+This is the instrument that separated modes A/B/C above; it does **not** by itself explain
+the "2nd alarm in a row sometimes misses" report noted in `startForegroundOnly`. That
+report is still unattributed — it matches mode B (if the alarms overlap) or mode C (if they
+are merely close together), and the two need different fixes.
+
+**Rejected: suppressing the competing notification.** Not mechanically possible, from AOSP
+source: `INotificationListener` is `oneway` (a listener can never block or veto a post);
+SystemUI is itself a listener and launches the FSI as the first statement of
+`HeadsUpCoordinator.onEntryAdded`, so there is no ordering guarantee to exploit; cancelling
+never touches `ActivityTaskManager`, so a launched Activity cannot be un-launched; and
+`cancelNotificationFromListenerLocked` hardcodes `mustNotHaveFlags = FLAG_ONGOING_EVENT`,
+so a competing alarm's ongoing notification cannot be cancelled at all. DND-based
+suppression skips `bypassDnd`/`CATEGORY_ALARM` records (missing every real alarm app) and
+`NotificationAssistantService` is gated by `checkCallerIsSystemOrSystemUiOrShell()`.
+Independently of mechanism it would breach Play's notification-access policy and would mean
+silencing other people's medication reminders. **Do not revisit.**
+
 **Runtime checks on cold start (`MainActivity.onCreate`):**
 - 🟡 `NotificationManager.canUseFullScreenIntent()` (API 34+); if false, surface a non-blocking card linking to `Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT`
 - 🟡 FSI auto-deeplink on first launch when `PermissionAudit.checkFullScreenIntent` (AppOps `MODE_ALLOWED` — bypasses Samsung's `MODE_DEFAULT` silent-drop) reports DENIED. One-shot via `OnboardingState.fsiPromptShown()` (SharedPreferences, `commit=true` so the marker survives the deeplink). Subsequent launches rely on the in-app Setup banner. (Phase 5a+, 2026-05-14, addresses #73.)

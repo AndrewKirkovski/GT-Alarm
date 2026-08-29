@@ -4,6 +4,7 @@
 // by the `screen` data field. No router: the fragmentation and
 // context-teardown of the old 3-page design is gone.
 import app from '@system.app';
+import brightness from '@system.brightness';
 import storage from '@system.storage';
 import file from '@system.file';
 import vibrator from '@system.vibrator';
@@ -18,7 +19,7 @@ import ConnectionStore from '../../common/connectionStore.js';
 
 // Bump per hardware-test build so the on-screen tag confirms the new
 // HAP actually replaced the old one.
-var BUILD_TAG = 'audio-removed-clean';
+var BUILD_TAG = 'ringfix-screenlock-live';
 
 // Startup sequence (deterministic): get size → set responsive dims → show
 // splash (bg + centred hourglass) → load the rest (i18n/privacy/connection/
@@ -100,13 +101,6 @@ var TERMINATE_RETRY_CAP_MS = 11000;
 var TERMINATE_AFTER_ACK_MS = 1400;
 var _terminateScheduled = false;
 var _terminateTimer = null;
-// Side-button-during-ring guard: set by the peer-ended handler so the
-// page's onHide does not boomerang an implicit snooze back to a phone
-// that already ended the alarm. One bundle now — a plain module var,
-// no @system.storage round-trip needed.
-var _peerEndedAtMs = 0;
-var PEER_END_WINDOW_MS = 2500;
-
 // Crown-to-snooze (ring screen). The crown only drives a focused
 // <list>'s scroll — raw rotation is not exposed — so a hidden, always-
 // scrollable <list> on the ring screen turns the crown into a stream of
@@ -157,6 +151,28 @@ function cancelTerminate() {
         _terminateTimer = null;
     }
     _terminateScheduled = false;
+}
+
+// ACELite populates `$refs` only for refs that are CURRENTLY rendered. Every
+// ref on this page lives inside an `if=`-gated screen block, so while a screen
+// that renders none of them is up, `this.$refs` is `undefined` — NOT an empty
+// object. JerryScript throws on a property read off undefined, and because the
+// ref sites sit on the teardown path (`_disarmCrownGesture`, reached from
+// onPeerEnded / onHide) that throw escapes the inbound-message handler and
+// takes the page down.
+//
+// Observed on device 2026-08-28: `alarm_dismissed` arriving while the watch was
+// back on the list screen logged "index.handle Cannot read property 'crownList'
+// of undefined", so the watch never sent its app-level ack, the phone burned
+// both retry rounds (`no app-ack within 4000ms round=1/2`) and gave up with
+// `acked=false`, leaving AlarmActivity in "waiting for watch" until it timed out.
+//
+// Guard the container, not just the entry. Same class of bug as the orphaned
+// `len` read — see memory:watch_inbound_len_orphan_bug.
+function safeRef(vm, name) {
+    var refs = vm.$refs;
+    if (!refs) return null;
+    return refs[name] || null;
 }
 
 function pad2(n) {
@@ -990,27 +1006,26 @@ export default {
         }
         this.stopVibrate();
         this._disarmCrownGesture();
-        // Side-button-while-ringing = implicit snooze. Only when the ring
-        // screen is up, no explicit Dismiss/Snooze tap happened, the alarm
-        // is snoozable, and the phone did not just peer-end the alarm.
-        if (this.screen === 'ring' && !this._explicitAction && this.ringSnoozeEnabled) {
-            var ageMs = Date.now() - _peerEndedAtMs;
-            if (_peerEndedAtMs > 0 && ageMs >= 0 && ageMs < PEER_END_WINDOW_MS) {
-                Logger.i('index.onHide peer-ended — suppress implicit snooze');
-            } else {
-                var idNum = Number(this._alarmId);
-                if (isFinite(idNum) && idNum > 0) {
-                    Logger.i('index.onHide implicit-snooze id=' + idNum);
-                    try {
-                        WearBridge.notifySnoozed(idNum, function (ok, reason) {
-                            Logger.i('index.onHide-snooze ack ok=' + ok + ' r=' + reason);
-                        });
-                    } catch (e) {
-                        Logger.err('index.onHide snooze', e);
-                    }
-                }
-            }
-        }
+        // NO implicit snooze on hide. This used to treat "ring page hidden
+        // without an explicit Dismiss/Snooze tap" as a side-button press and
+        // snooze the alarm. The page has no way to tell a deliberate press
+        // from a system-initiated hide, so a plain screen timeout silently
+        // snoozed the user's alarm — measured on a GT 6 Pro 2026-08-28:
+        //   index.enterRing id=3  (snoozeAllowed=true)
+        //   +3.1s  index.onHide screen=ring explicit=null
+        //   +3.1s  index.onHide implicit-snooze id=3
+        //          AlarmRepo: snoozeAt id=3 +5min count=1
+        // — an alarm that snoozed itself three seconds in, with no user
+        // action at all.
+        //
+        // For an alarm clock the fail-safe direction is to KEEP RINGING: a
+        // spurious snooze can make someone miss a wake-up, while a missed
+        // snooze gesture costs one extra tap on a phone that is still
+        // audibly ringing. Dismiss and Snooze remain available as explicit
+        // taps on the ring UI (onDismiss / onSnooze), and the phone stays
+        // in charge of the alarm until one of those, or its own timeout,
+        // ends it. Do not reintroduce a gesture that infers user intent
+        // from a lifecycle callback.
         Logger.flushNow();
     },
 
@@ -1056,7 +1071,7 @@ export default {
             if (self.screen === 'list' && rows.length > 0) {
                 setTimeout(function () {
                     if (self.screen !== 'list') { return; }
-                    var listEl = self.$refs.alarmList;
+                    var listEl = safeRef(self, 'alarmList');
                     if (listEl && listEl.rotation) {
                         try {
                             listEl.rotation({ focus: true });
@@ -1224,7 +1239,7 @@ export default {
         this._crownCommitted = false;
         this._crownIgnoreScroll = true;
         this._clearCrownTimers();
-        var el = this.$refs.crownList;
+        var el = safeRef(this, 'crownList');
         if (el) {
             try {
                 el.scrollTo({ index: CROWN_MID_INDEX });
@@ -1239,12 +1254,43 @@ export default {
             self._crownIgnoreScroll = false;
         }, CROWN_SETTLE_MS);
     },
+    // Hold the watch screen on for the duration of the ring, and release it
+    // the moment the ring is over.
+    //
+    // Without this the ring is bounded by the watch's own screen timeout, not
+    // by the alarm: measured on a GT 6 Pro 2026-08-28, `enterRing` at T+0 was
+    // followed by `onHide screen=ring explicit=null` at T+6.6s and the app was
+    // torn down — the user sees the alarm appear and then the watch drop
+    // straight back to the always-on clock while the phone is still ringing.
+    //
+    // `@system.brightness.setKeepScreenOn` is the Lite Wearable API for this
+    // (confirmed in the canonical FA-model reference, espinr/litewearable
+    // pages/index/index.js). Failure is non-fatal: we still ring, we just ring
+    // for as long as the system allows.
+    _setKeepScreenOn: function (on) {
+        try {
+            brightness.setKeepScreenOn({
+                keepScreenOn: on,
+                success: function () {},
+                fail: function (data, code) {
+                    Logger.w('index.keepScreenOn ' + on + ' failed c=' + code);
+                },
+            });
+        } catch (e) {
+            Logger.err('index.keepScreenOn', e);
+        }
+    },
     // Called when the ring is torn down (action taken / peer-ended /
-    // page hidden) — stop the gesture machine and release crown focus.
+    // page hidden) — stop the gesture machine, release crown focus, and
+    // drop the screen-on hold. This is the one function every ring-end path
+    // already funnels through (onDismiss / onSnooze / onPeerEnded / onHide),
+    // which is why the screen release lives here rather than being repeated
+    // at all five `screen = 'list'` assignments.
     _disarmCrownGesture: function () {
         this._clearCrownTimers();
         this._crownActive = false;
-        var el = this.$refs.crownList;
+        this._setKeepScreenOn(false);
+        var el = safeRef(this, 'crownList');
         if (el) {
             try {
                 el.rotation({ focus: false });
@@ -1332,6 +1378,11 @@ export default {
         this.ringWatchVibrationEnabled = true;
         cancelTerminate();
         this.screen = 'ring';
+        // Hold the screen on for the ring. Paired with the release in
+        // _disarmCrownGesture, which every ring-end path funnels through.
+        // Without this the ring lives only as long as the watch's display
+        // timeout — measured at 3.1 s on a GT 6 Pro 2026-08-28.
+        this._setKeepScreenOn(true);
         // Ring gates on `sized` only — it shows the instant dims are known
         // (waits for size to avoid the flicker, but NOT for the ~2 s i18n;
         // ringTime + buttons render now, ringTitle fills in when loadStrings
@@ -1577,7 +1628,6 @@ export default {
             return;
         }
         this._explicitAction = 'peer-ended';
-        _peerEndedAtMs = Date.now();
         this.ended = true;
         setTimeout(function () {
             self.screen = 'list';

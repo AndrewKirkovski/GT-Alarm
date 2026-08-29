@@ -181,6 +181,8 @@
     <string name="help_reliability_ready_body">所需的闹钟权限均已就绪，无需修正。</string>
     <string name="help_section_late_alarm">如果闹钟延迟</string>
     <string name="help_section_late_alarm_intro">仅在闹钟延迟、被某种手机模式静音或手表错过同步时才需要这些步骤。它们属于故障排查步骤，并非必需设置。</string>
+    <string name="help_faq_no_fullscreen_title">闹钟响了，但没有全屏显示</string>
+    <string name="help_faq_no_fullscreen_body">如果屏幕上已有其他全屏提醒——日历提醒、来电或另一个闹钟——Android 会将 GT Wake 显示为横幅通知，而不是接管屏幕。闹钟仍会响，横幅上也有「关闭」和「稍后提醒」。点击横幅即可打开完整的闹钟界面。在此之前，手表能显示闹钟但无法关闭它，请用手机关闭，或先点击横幅。</string>
     <string name="help_section_voice">语音设置（Hey Google）</string>
 
     <string name="setup_banner_title">需要设置</string>

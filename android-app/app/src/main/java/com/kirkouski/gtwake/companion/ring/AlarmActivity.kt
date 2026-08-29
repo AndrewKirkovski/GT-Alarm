@@ -57,6 +57,9 @@ class AlarmActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Stamp BEFORE any work that could throw — the audit needs to know we
+        // got here at all, even if setup later fails.
+        lastCreatedElapsedMs.set(android.os.SystemClock.elapsedRealtime())
         configureWindow()
 
         val alarmId = intent.getLongExtra(AlarmRingService.EXTRA_ALARM_ID, -1L)
@@ -217,6 +220,26 @@ class AlarmActivity : ComponentActivity() {
         // animates a visible "second screen sliding in" over the first.
         val isVisible: java.util.concurrent.atomic.AtomicBoolean =
             java.util.concurrent.atomic.AtomicBoolean(false)
+
+        /**
+         * `SystemClock.elapsedRealtime()` of the most recent [onCreate], or 0
+         * if this Activity has never been created in this process.
+         *
+         * Exists because [isVisible] cannot tell "the ring UI never appeared"
+         * apart from "it appeared and was then covered" — both read false. That
+         * distinction is the whole diagnosis when GT Wake loses the screen to a
+         * competing full-screen intent, and until now we had no signal for it
+         * at all: `PendingIntent.send()` does NOT throw on `BAL_BLOCK`, so the
+         * `runCatching` around it reports success for a launch that never
+         * happened, and SystemUI declines a full-screen intent silently
+         * (`NO_FSI_EXPECTED_TO_HUN`) whenever the device is already interactive.
+         *
+         * Compared against the fire timestamp by
+         * `AlarmRingService.scheduleRingUiAudit`. Monotonic, so it is immune to
+         * wall-clock changes; process-scoped, which is all the audit needs.
+         */
+        val lastCreatedElapsedMs: java.util.concurrent.atomic.AtomicLong =
+            java.util.concurrent.atomic.AtomicLong(0L)
 
         // Hard cap on the post-tap "waiting for watch" state. Must exceed
         // the service's BROADCAST_AWAIT_MS (12 s) plus margin so the normal

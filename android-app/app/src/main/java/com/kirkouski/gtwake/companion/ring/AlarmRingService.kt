@@ -64,6 +64,19 @@ class AlarmRingService : Service() {
     private var currentAlarmId: Long = -1L
     private var autoStopRunnable: Runnable? = null
 
+    /** Ring-UI audit (see [scheduleRingUiAudit]). */
+    private var ringUiAuditRunnable: Runnable? = null
+
+    /**
+     * `elapsedRealtime()` captured just before the FSI-carrying notification is
+     * posted. The audit compares `AlarmActivity.lastCreatedElapsedMs` against
+     * THIS, not against audio start: a successful FSI launches the Activity at
+     * notification-post time, which can be up to `PREARM_TIMEOUT_MS` (10 s)
+     * before `startRingingAudioAndUi` runs, so comparing against audio start
+     * would misreport every healthy ring as NEVER_LAUNCHED.
+     */
+    private var ringStartedElapsedMs: Long = 0L
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -112,6 +125,27 @@ class AlarmRingService : Service() {
             stopForegroundAndSelf()
             return
         }
+        // TODO(parked 2026-08-29): a second ACTION_RING silently takes over the
+        // first alarm, and the first one is never finished properly.
+        //
+        // `currentAlarmId` is a single field, so this assignment discards the
+        // previous alarm's identity. scheduleAutoStop() then removes the first
+        // alarm's auto-stop runnable, and the auto-stop that eventually fires
+        // reads `currentAlarmId` — i.e. the SECOND alarm. Net effect: the first
+        // alarm never runs dismissAction, so a one-shot stays enabled as though
+        // it never rang, and a self-destruct row is never deleted.
+        //
+        // Found by source review 2026-08-29, NOT observed on a device. Parked
+        // because the fix is a semantic decision, not a patch: when two alarms
+        // overlap, should the second queue behind the first, merge into one
+        // ring, or take over and finalise the first? The service is
+        // single-alarm throughout (one player, one FGS, one notification), so
+        // any answer touches the whole ring lifecycle.
+        //
+        // Reproduce first: two alarms ~60 s apart, do not dismiss the first,
+        // then check the first alarm's row state after the second is dismissed.
+        // Related: the notification-id TODO in AlarmNotifications.kt (same
+        // overlapping-alarm scenario, different symptom).
         currentAlarmId = alarmId
 
         // STEP 1: SYNCHRONOUS Room read + startForeground with the REAL
@@ -142,6 +176,7 @@ class AlarmRingService : Service() {
             stopForegroundAndSelf()
             return
         }
+        ringStartedElapsedMs = android.os.SystemClock.elapsedRealtime()
         startForegroundOnly(alarm)
 
         serviceScope.launch {
@@ -324,6 +359,23 @@ class AlarmRingService : Service() {
         // stopForegroundAndSelf for a release() call. Otherwise the
         // exception bubbles up through handleRing's catch and the
         // MediaPlayer leaks until GC.
+        // TODO(parked 2026-08-29): the previous player is never stopped.
+        //
+        // On a second ring this overwrites `player` with a new instance while
+        // the old AlarmAudioPlayer is still looping. The old one becomes
+        // unreachable, so nothing can stop() or release() it — stopForegroundAndSelf
+        // only ever sees the newest instance. Two alarm tones can end up playing
+        // at once, and the orphan survives until the process dies.
+        //
+        // Found by source review 2026-08-29, NOT observed on a device. The fix
+        // looks like a one-liner (stop the old player before replacing it) but
+        // is deliberately parked with the takeover TODO in handleRing above:
+        // both are the same unresolved question of what overlapping alarms
+        // should DO, and fixing the audio in isolation would leave the row-state
+        // half of the bug in place while making the overlap look handled.
+        //
+        // Reproduce first: two alarms ~60 s apart, do not dismiss the first,
+        // listen for a doubled tone.
         val p = AlarmAudioPlayer(applicationContext)
         player = p
         // Pre-unlock: SAF/system-default URIs return null; use bundled tone.
@@ -335,6 +387,11 @@ class AlarmRingService : Service() {
             forceBundledFallback = !isUserUnlocked,
             phoneVibrationEnabled = alarm.phoneVibrationEnabled,
         )
+
+        // Scheduled here so it covers BOTH launch paths — including the
+        // isVisible early-return below, where FSI already brought the Activity
+        // up and we skip PI.send.
+        scheduleRingUiAudit(alarm.id, ringStartedElapsedMs)
 
         // CANONICAL Huawei Wear Engine compliance path: ensure AlarmActivity
         // is in the task at fire time. Huawei P2P receive REQUIRES an Activity
@@ -395,6 +452,57 @@ class AlarmRingService : Service() {
             .onFailure { Log.w(TAG, "AlarmActivity PI.send() failed: ${it.message}") }
     }
 
+    /**
+     * Report, once per ring, whether the ring UI actually reached the user.
+     *
+     * Neither launch path tells us this on its own. SystemUI declines a
+     * full-screen intent *silently* when the device is already interactive
+     * (`NO_FSI_EXPECTED_TO_HUN` — a competing alarm/calendar FSI calls
+     * `wakeUpForFullScreenIntent()` first, which creates exactly that
+     * condition), and `PendingIntent.send()` does not throw on `BAL_BLOCK`, so
+     * the `runCatching` above logs success for a launch that never happened.
+     * Measured on an API 36 emulator: with another app's alarm Activity in the
+     * foreground we log `FSI-fire … canFsi=true` and then produce zero
+     * AlarmActivity records, with no error anywhere.
+     *
+     * That silence matters beyond the missing UI: with no Activity in the task
+     * the Wear Engine receive path has no anchor, so the watch cannot deliver
+     * dismiss/snooze back and the pre-arm await burns its full timeout on a
+     * reply that structurally cannot arrive. See docs/acceptance-criteria.md
+     * → "Losing the foreground to a competing full-screen intent".
+     *
+     * Audit only — it changes no behaviour. Retrying the FSI would not help:
+     * the decline is driven by the device being interactive, which does not
+     * stop being true while a competing alarm is up.
+     */
+    private fun scheduleRingUiAudit(alarmId: Long, firedAtElapsedMs: Long) {
+        ringUiAuditRunnable?.let { mainHandler.removeCallbacks(it) }
+        val r = Runnable {
+            val createdAt = AlarmActivity.lastCreatedElapsedMs.get()
+            val launched = createdAt >= firedAtElapsedMs
+            val visible = AlarmActivity.isVisible.get()
+            when {
+                launched && visible ->
+                    Log.i(TAG, "ringUiAudit id=$alarmId outcome=FOREGROUND")
+                launched ->
+                    Log.w(TAG, "ringUiAudit id=$alarmId outcome=LAUNCHED_THEN_COVERED")
+                else -> Log.w(
+                    TAG,
+                    "ringUiAudit id=$alarmId outcome=NEVER_LAUNCHED — the ring UI " +
+                        "never appeared. Audio is still playing via the FGS and the " +
+                        "notification remains actionable, but there is NO Activity in " +
+                        "the task, so watch dismiss/snooze cannot be received. Usual " +
+                        "cause: another app's full-screen intent already made the " +
+                        "device interactive, so SystemUI declined ours. Also check " +
+                        "USE_FULL_SCREEN_INTENT (appop may be MODE_DEFAULT) and " +
+                        "POST_NOTIFICATIONS.",
+                )
+            }
+        }
+        ringUiAuditRunnable = r
+        mainHandler.postDelayed(r, RING_UI_AUDIT_DELAY_MS)
+    }
+
     private fun scheduleAutoStop() {
         autoStopRunnable?.let { mainHandler.removeCallbacks(it) }
         val r = Runnable {
@@ -436,6 +544,8 @@ class AlarmRingService : Service() {
         player = null
         autoStopRunnable?.let { mainHandler.removeCallbacks(it) }
         autoStopRunnable = null
+        ringUiAuditRunnable?.let { mainHandler.removeCallbacks(it) }
+        ringUiAuditRunnable = null
 
         if (!isUserUnlocked) {
             // Pre-unlock: Room locked, transport-only watch send; serviceScope
@@ -504,6 +614,8 @@ class AlarmRingService : Service() {
         player = null
         autoStopRunnable?.let { mainHandler.removeCallbacks(it) }
         autoStopRunnable = null
+        ringUiAuditRunnable?.let { mainHandler.removeCallbacks(it) }
+        ringUiAuditRunnable = null
 
         if (!isUserUnlocked) {
             // Pre-unlock: schedule directly via AlarmManager (direct-boot
@@ -599,6 +711,8 @@ class AlarmRingService : Service() {
     private fun stopForegroundAndSelf() {
         autoStopRunnable?.let { mainHandler.removeCallbacks(it) }
         autoStopRunnable = null
+        ringUiAuditRunnable?.let { mainHandler.removeCallbacks(it) }
+        ringUiAuditRunnable = null
         player?.stop()
         player = null
         // Signal the AlarmActivity to finish itself. Critical for the
@@ -633,6 +747,13 @@ class AlarmRingService : Service() {
         const val EXTRA_FROM_PEER = "from_peer"
         const val EXTRA_RESCHEDULE_EPOCH = "reschedule_epoch"
         private const val AUTO_STOP_MS = 5L * 60_000L
+
+        // Grace before auditing whether the ring UI appeared. Must outlast the
+        // window-transition + Activity onCreate that a successful FSI still has
+        // to finish after audio starts, or a healthy ring reports a false
+        // NEVER_LAUNCHED. 2 s is comfortably past the ~200 ms observed on an
+        // API 36 emulator while staying well inside the 5 min auto-stop.
+        private const val RING_UI_AUDIT_DELAY_MS = 2_000L
         // Max time to wait for the watch to confirm alarm_fired delivery
         // before starting phone audio. Trades up to PREARM_TIMEOUT_MS of
         // silence for both devices ringing in sync.
