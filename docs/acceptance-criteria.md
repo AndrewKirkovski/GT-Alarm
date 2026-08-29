@@ -545,7 +545,17 @@ i18n is not "wrap a few strings"; it's an end-to-end contract. Both apps must en
 - [ ] Install: build LiteWearable HAP via Hvigor → copy to phone → App Debug Assistant push → confirm install green
 - [ ] Pure-logic tests in Node/jest: `.local/jest-lite/` covers LwwResolver, Tombstones, IncomingMessageHandler core
 - [ ] Manual UI: launch app on watch, scroll alarm list, toggle a row, long-press delete confirmation, all surfaces render
-- [ ] Manual ring: simulate `alarm_fired` (post-Wear-Engine approval) → ring page mounts within 500 ms, vibration starts, Dismiss/Snooze taps work
+- [x] Manual ring: simulate `alarm_fired` (post-Wear-Engine approval) → ring page mounts within 500 ms, vibration starts, Dismiss/Snooze taps work
+  — ✅ **verified on GT 6 Pro 2026-08-29** with watch 1.0.9 / code 1000008. Two alarms:
+  `preArmWatch ready=true` (2884 ms / 1903 ms — the watch JS replied, which is the path the
+  `$refs` throw previously killed), `ringUiAudit outcome=FOREGROUND` both, and both rings
+  ended `onHide … explicit=dismiss` from a real tap rather than the old `explicit=null`
+  system hide. **No `implicit-snooze`, no `crownList` error.** Decisive case: the second
+  alarm had `snoozeAllowed=true → snoozeEnabled=true`, exactly the state that used to
+  self-snooze at 3.1 s, and did not.
+  🟠 **Screen-hold only PARTIALLY verified** — both rings lasted 5–6 s before the user
+  dismissed. That clears the 3.1 s failure point but does not prove a long (30 s+)
+  undismissed ring survives AOD. Re-test before treating that as settled.
 - [ ] Persistence: add alarm via phone, observe sync to watch list; reboot watch; confirm `AlarmStore` restored from `@system.storage`
 - [ ] Locale switch: change watch language → list time format and day labels reflow
 
