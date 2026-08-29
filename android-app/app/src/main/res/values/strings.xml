@@ -254,7 +254,7 @@
     <string tools:ignore="MissingTranslation" name="help_section_late_alarm">If alarms are late</string>
     <string tools:ignore="MissingTranslation" name="help_section_late_alarm_intro">Use these only if alarms are delayed, silenced by a phone mode, or the watch misses sync. They are troubleshooting steps, not required setup.</string>
     <string name="help_faq_no_fullscreen_title">Alarm sounded but didn\'t open full screen</string>
-    <string name="help_faq_no_fullscreen_body">If another full-screen alert is already on screen — a calendar reminder, a call, or another alarm — Android shows GT Wake as a banner instead of taking over the screen. The alarm still sounds, and the banner has Dismiss and Snooze. Tap the banner to open the full alarm screen. Until you do, your watch can show the alarm but cannot dismiss it, so dismiss from the phone or tap the banner first.</string>
+    <string name="help_faq_no_fullscreen_body">If another full-screen alert is already on screen — a calendar reminder, a call, or another alarm — Android shows GT Wake as a banner instead of taking over the screen. GT Wake cannot override this. The alarm still sounds, and the banner has Dismiss and Snooze. While this happens, dismissing from your watch will not work.</string>
     <string tools:ignore="MissingTranslation" name="help_section_voice">Voice setup (Hey Google)</string>
 
     <!-- Home-screen banner that auto-shows when any reliability check is red. -->

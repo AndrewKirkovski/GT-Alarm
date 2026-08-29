@@ -179,7 +179,7 @@
     <string name="help_section_late_alarm">Jeśli alarmy się spóźniają</string>
     <string name="help_section_late_alarm_intro">Używaj ich tylko, jeśli alarmy są opóźnione, wyciszone przez tryb telefonu lub zegarek pomija synchronizację. To kroki rozwiązywania problemów, a nie wymagana konfiguracja.</string>
     <string name="help_faq_no_fullscreen_title">Alarm zadzwonił, ale nie otworzył się na pełnym ekranie</string>
-    <string name="help_faq_no_fullscreen_body">Jeśli na ekranie jest już inne pełnoekranowe powiadomienie — przypomnienie z kalendarza, połączenie lub inny alarm — Android pokazuje GT Wake jako baner zamiast przejmować ekran. Dźwięk nadal gra, a baner ma przyciski Odrzuć i Drzemka. Stuknij baner, aby otworzyć pełny ekran alarmu. Dopóki to baner, zegarek pokazuje alarm, ale nie może go wyłączyć — wyłącz z telefonu lub najpierw stuknij baner.</string>
+    <string name="help_faq_no_fullscreen_body">Jeśli na ekranie jest już inne pełnoekranowe powiadomienie — przypomnienie z kalendarza, połączenie lub inny alarm — Android pokazuje GT Wake jako baner zamiast przejmować ekran. GT Wake nie może tego zmienić. Dźwięk nadal gra, a baner ma przyciski Odrzuć i Drzemka. W tym czasie wyłączenie alarmu z zegarka nie zadziała.</string>
     <string name="help_section_voice">Konfiguracja głosowa (Hey Google)</string>
 
     <string name="setup_banner_title">Wymagana konfiguracja</string>
