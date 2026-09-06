@@ -41,7 +41,8 @@
         "privacy_consent_decline": "不同意",
         "privacy_qr": "https://gtwake.kirkouski.com/privacy/zh",
         "onboarding_get_app_title": "设置 GT Wake",
-        "onboarding_get_app_hint": "在手机上安装 GT Wake 以添加闹钟",
-        "onboarding_scan": "扫码获取手机应用"
+        "onboarding_get_app_hint": "在 Android 手机上安装 GT Wake",
+        "onboarding_scan": "扫码获取手机应用",
+        "onboarding_qr": "https://gtwake.kirkouski.com/download"
     }
 }

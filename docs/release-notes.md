@@ -6,7 +6,7 @@ leaves the other's unchanged. The integer release codes are **per-app**.
 
 | versionName | phone code | watch code | tag | date |
 |---|---|---|---|---|
-| 1.0.9 | 9 | 1000008 | `v1.0.9` | 2026-08-29 |
+| 1.0.9 | 9 | 1000009 (watch resubmission; 1000008 rejected) | `v1.0.9` | 2026-08-29 |
 | 1.0.8 | 8 | 1000007 (unchanged — phone-only release) | `v1.0.8` | 2026-08-27 |
 | 1.0.7 | 7 | 1000007 | `v1.0.7` | 2026-06-25 |
 | 1.0.6 | 6 | 1000006 | `v1.0.6` | 2026-06-24 (REJECTED — startup crash; superseded by 1.0.7) |
@@ -21,9 +21,33 @@ Apps:
 ---
 
 ## 1.0.9 — 2026-08-29
-phone `versionCode 9` · watch `code 1000008` · tag `v1.0.9`
+phone `versionCode 9` · watch `code 1000009` · tag `v1.0.9`
 
 **Both apps ship in this release.** The watch changes are the substantive ones.
+
+### Watch resubmission — 2026-09-05 (`code 1000009`)
+
+AppGallery rejected watch `code 1000008` under review rule 3.1: the reviewer scanned the
+onboarding QR and could not install the phone app from it. `versionName` stays **1.0.9** —
+1000008 never reached users — and only the store release code moves.
+
+**Cause.** AppGallery serves two web URL shapes and the QR encoded the wrong one.
+`appgallery.huawei.com/app/detail?id=<package-name>` answers *"This app is only available in
+the HarmonyOS 5 version or later of AppGallery"* in any browser and never renders the listing;
+the same wall appears for Huawei's own `com.huawei.hmos.vmall`, so the package-name lookup is
+simply not served to browsers. The `app/C<agcAppId>` form works. Nothing was wrong with the
+listing itself — GT Wake Companion is live on AppGallery at 1.0.9.
+
+**Fix.** The QR now encodes `https://gtwake.kirkouski.com/download` through a new per-locale
+i18n key `onboarding_qr`, so a store destination can change without another watch release. That
+page picks the store from the user agent — AppGallery unless the UA reads as a non-Huawei
+Android phone, with desktop, iOS and unrecognised UAs defaulting to AppGallery. Detection only
+orders the buttons; both stores and the direct APK stay reachable however it guesses.
+
+**Also in this build.** The onboarding hint names the requirement explicitly — "Install GT Wake
+on your Android phone", in all six locales. The companion is an Android app, so HarmonyOS 5
+(NEXT) phones cannot run it; that limitation is now stated in the watch listing copy, on
+`/download`, and on the watch itself.
 
 **Watch: the alarm no longer snoozes itself.** Raising your wrist to look at a ringing
 alarm — or simply letting the always-on display take over — used to be read as a

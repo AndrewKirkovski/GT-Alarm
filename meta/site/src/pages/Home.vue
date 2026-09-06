@@ -13,13 +13,15 @@ import {
   LayoutGrid,
 } from 'lucide-vue-next'
 
-// AppGallery uses the package-name URL form (verified to resolve) — no C-number
-// needed. These go live once the apps pass review. NOTE: the watch app can't be
-// installed from a web link; it's installed on the watch via Huawei Health, so
-// the watch URL is an info page and the copy below explains the real steps.
-const PLAY_URL = 'https://play.google.com/store/apps/details?id=com.kirkouski.gtwake.companion'
-const APPGALLERY_PHONE = 'https://appgallery.huawei.com/app/detail?id=com.kirkouski.gtwake.companion'
-const APPGALLERY_WATCH = 'https://appgallery.huawei.com/app/detail?id=com.kirkouski.gtwatch.watch'
+// Store links live in @/data/stores — see the note there on why the AppGallery
+// *web* URL is never used as an install path. The watch app has no web install
+// path at all (it goes on via Huawei Health), so the copy below spells out the
+// steps instead of offering a link that would dead-end.
+import { PLAY_URL, APPGALLERY_PHONE_WEB, detectPhone, preferAppGallery } from '@/data/stores'
+
+// Same store-ordering rule as /download, so the two pages never disagree.
+const appGalleryFirst = preferAppGallery(detectPhone())
+
 const CONTACT = 'mailto:andrew.kirkovski@gmail.com'
 
 const features = [
@@ -52,12 +54,23 @@ const features = [
         and lets you snooze or dismiss from whichever is closer.
       </p>
       <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
-        <Button as="a" :href="PLAY_URL" variant="brand" size="lg">Get it on Google Play</Button>
-        <Button as="a" :href="APPGALLERY_PHONE" variant="outline" size="lg">Phone · AppGallery</Button>
-        <Button as="a" :href="APPGALLERY_WATCH" variant="outline" size="lg">Watch · AppGallery</Button>
+        <Button
+          as="a"
+          :href="appGalleryFirst ? APPGALLERY_PHONE_WEB : PLAY_URL"
+          variant="brand"
+          size="lg"
+        >{{ appGalleryFirst ? 'Get it on AppGallery' : 'Get it on Google Play' }}</Button>
+        <Button
+          as="a"
+          :href="appGalleryFirst ? PLAY_URL : APPGALLERY_PHONE_WEB"
+          variant="outline"
+          size="lg"
+        >{{ appGalleryFirst ? 'Phone · Google Play' : 'Phone · AppGallery' }}</Button>
       </div>
       <p class="mt-4 text-sm text-muted-foreground">
-        The watch app needs the Companion on your phone and a watch paired through Huawei Health.
+        The watch app needs the Companion on an <strong>Android phone</strong> and a watch paired
+        through Huawei Health. Put it on the watch from
+        <strong>Huawei Health → Devices → your watch → AppGallery</strong> — no web link installs it.
       </p>
       <p class="mt-2 text-sm text-muted-foreground">
         No Google Play or AppGallery on your phone?
@@ -96,7 +109,6 @@ const features = [
           </p>
           <div class="mt-6 flex flex-wrap gap-3">
             <Button as="a" :href="CONTACT" variant="brand">Help test more watches</Button>
-            <Button as="a" :href="APPGALLERY_WATCH" variant="outline">Get the watch app</Button>
           </div>
         </div>
         <div class="relative grid place-items-center">

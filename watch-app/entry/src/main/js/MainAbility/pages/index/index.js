@@ -372,9 +372,11 @@ export default {
 
         // --- onboarding (empty / never-connected) ---
         // hasConnected drives the empty-state copy: never-connected shows
-        // "install the companion" + an AppGallery QR; connected-but-empty
+        // "install the companion" + the download-page QR; connected-but-empty
         // shows the plain "add alarms on the phone" hint. Both show the QR.
+        // onbQr is the encoded URL, i18n'd so a locale can point elsewhere.
         onbScan: '',
+        onbQr: '',
         hasConnected: false,
 
         // --- background photo ---
@@ -796,7 +798,7 @@ export default {
     },
 
     // Empty-state copy: never-connected → "set up GT Wake" + onboarding hint;
-    // connected-but-empty → plain "no alarms". Both render the AppGallery QR.
+    // connected-but-empty → plain "no alarms". Both render the download QR.
     _applyEmptyCopy: function () {
         if (this.hasConnected) {
             this.emptyText = this._noAlarms;
@@ -858,6 +860,7 @@ export default {
         this.privacyDecline = this.$t('strings.privacy_consent_decline');
         this.privacyQr = this.$t('strings.privacy_qr');
         this.onbScan = this.$t('strings.onboarding_scan');
+        this.onbQr = this.$t('strings.onboarding_qr');
         this._noAlarms = this.$t('strings.no_alarms');
         this._noAlarmsHint = this.$t('strings.no_alarms_hint');
         this._onbTitle = this.$t('strings.onboarding_get_app_title');

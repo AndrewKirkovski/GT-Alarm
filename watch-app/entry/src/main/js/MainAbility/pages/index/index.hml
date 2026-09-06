@@ -129,12 +129,18 @@
 
         <!-- Empty / onboarding state. Copy switches on hasConnected
              (computed in index.js): never-connected shows "set up" wording,
-             connected-but-empty shows "no alarms". Both render the QR to the
-             companion's AppGallery listing so the watch self-explains setup. -->
+             connected-but-empty shows "no alarms". Both render the QR to our
+             own /download page (i18n'd onbQr), which picks the store from the
+             phone's UA — AppGallery unless it is clearly a non-Huawei Android.
+             Routing through a page we control means a store link can change
+             without re-releasing the watch. Do NOT point it at an AppGallery
+             /app/detail?id=<pkg> URL: that form is not served to browsers and
+             scanning it was a dead end on every phone (AppGallery review
+             finding, 2026-09). See meta/store-listings.md § F. -->
         <div class="empty" if="{{alarms.length === 0}}" style="width:{{screenW}}px; height:{{emptyH}}px;">
             <text class="empty-title" style="width:{{titleW}}px;">{{emptyText}}</text>
             <text class="empty-hint" style="width:{{titleW}}px;">{{emptyHint}}</text>
-            <qrcode class="onb-qr" value="https://appgallery.huawei.com/app/detail?id=com.kirkouski.gtwake.companion"></qrcode>
+            <qrcode class="onb-qr" value="{{onbQr}}"></qrcode>
             <text class="onb-scan" style="width:{{titleW}}px;">{{onbScan}}</text>
         </div>
         </div>

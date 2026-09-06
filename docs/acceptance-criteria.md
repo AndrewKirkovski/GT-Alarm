@@ -602,6 +602,45 @@ phone cert. A channel signed with a different key would silently lose both.
 - 📋 Google's sideload developer-verification regime (Sept 2026 BR/ID/SG/TH, global 2027) — revisit
   before the global phase; no effect on EU users today
 
+### AppGallery web URLs — the package-name form is not served (2026-09-05)
+
+AppGallery has two web URL shapes and only one is served to browsers:
+
+- ❌ `https://appgallery.huawei.com/app/detail?id=<package-name>` renders *"This app is only
+  available in the HarmonyOS 5 version or later of AppGallery"* and never shows the listing.
+  **Measured:** the same wall appears for Huawei's own `com.huawei.hmos.vmall`, so the package-name
+  lookup is not served to browsers at all. This supersedes the 2026-06-11 "verified to resolve" note
+  in `meta/store-listings.md`, which only checked that the URL loaded *a* page.
+- ✅ `https://appgallery.huawei.com/app/C117892565` (`C` + the AGC app id — the form AppGallery's own
+  share button produces) **renders the full listing with an Install button** in a plain desktop
+  browser. **The phone companion is confirmed live on AppGallery: version 1.0.9, updated
+  2026-09-03, EU region.**
+
+- ❌ **Cost the watch app an AppGallery rule-3.1 rejection.** The watch onboarding QR encoded that
+  URL; the reviewer scanned it from two phones and could install nothing. On a HarmonyOS ≤ 4 phone
+  the browser showed the wall; on a HarmonyOS 5 phone AppGallery reported the app cannot be
+  installed on that device — correct, because the companion is an Android APK.
+- ✅ **Fixed 2026-09-05 (unreleased):** the QR now encodes `https://gtwake.kirkouski.com/download`
+  via the per-locale i18n key `onboarding_qr`. Routing through a page we control means a store link
+  can change without re-releasing the watch app (otherwise a full AppGallery review cycle per
+  change). `/download` picks the store from the UA — **AppGallery unless the UA reads as a
+  non-Huawei Android phone**; desktop, iOS and unrecognised UAs default to AppGallery. Detection
+  only *orders* the buttons and gates the HarmonyOS 5 notice; both stores and the APK stay
+  reachable however it guesses. Store buttons are the visually primary action, the APK secondary.
+  🟠 **Residual risk:** the QR sends a reviewer to a page that also offers a direct APK. Mitigated
+  by ranking, not eliminated — if review objects to off-store distribution, switch `onboarding_qr`
+  to `https://appgallery.huawei.com/app/C117892565` (one i18n value, six files).
+- 🟠 **HarmonyOS 5 (NEXT) phones cannot run the companion at all** — no AOSP layer, and there is no
+  HarmonyOS phone build. The watch app is therefore Android-companion-only. Now declared in the
+  watch listing copy (`meta/store-listings.md` § B2, all six languages), on `/download`, and in the
+  on-watch onboarding hint. **Not yet accepted by review** — rule 3.1 does not say whether a
+  companion-app prerequisite is a permitted exception, so this is an argued position, not a
+  settled one.
+- ✅ **Companion confirmed published on AppGallery** (2026-09-05, via the working C-number listing):
+  GT Wake 1.0.9, updated 2026-09-03, installable from the EU region.
+- 📋 **Still open:** confirm in AGC that the companion's distribution countries are a superset of the
+  watch app's, and that the registered signing cert reads `95F6…` (see the 🟠 above).
+
 ## KNOWN GAPS TO CLOSE NEXT
 
 ### Android

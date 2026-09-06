@@ -213,8 +213,9 @@ Features
 • A custom background image per alarm
 • Light on the battery
 
-Requirements: the GT Wake Companion app on your phone, and your watch paired
-through Huawei Health.
+Requirements: an Android phone running the GT Wake Companion app, with your
+watch paired through Huawei Health. GT Wake Companion is an Android app — it
+does not run on HarmonyOS 5 (NEXT) phones.
 
 Made for the Huawei Watch GT 6 series.
 ```
@@ -236,8 +237,9 @@ GT Wake переносит будильники вашего телефона н
 • Своё фоновое изображение для каждого будильника
 • Бережно к батарее
 
-Требования: приложение GT Wake Companion на телефоне и часы, сопряжённые через
-Huawei Health.
+Требования: телефон Android с приложением GT Wake Companion и часы, сопряжённые
+через Huawei Health. GT Wake Companion — приложение для Android, оно не работает
+на телефонах с HarmonyOS 5 (NEXT).
 
 Создано для линейки Huawei Watch GT 6.
 ```
@@ -259,8 +261,9 @@ GT Wake пераносіць будзільнікі вашага тэлефон�
 • Сваё фонавае выява для кожнага будзільніка
 • Беражліва да батарэі
 
-Патрабаванні: прыкладанне GT Wake Companion на тэлефоне і гадзіннік, спараваны
-праз Huawei Health.
+Патрабаванні: тэлефон Android з прыкладаннем GT Wake Companion і гадзіннік,
+спараваны праз Huawei Health. GT Wake Companion — прыкладанне для Android, яно
+не працуе на тэлефонах з HarmonyOS 5 (NEXT).
 
 Створана для лінейкі Huawei Watch GT 6.
 ```
@@ -282,8 +285,9 @@ GT Wake переносить будильники вашого телефона 
 • Власне фонове зображення для кожного будильника
 • Дбайливо до батареї
 
-Вимоги: застосунок GT Wake Companion на телефоні та годинник, спарований через
-Huawei Health.
+Вимоги: телефон Android із застосунком GT Wake Companion та годинник, спарований
+через Huawei Health. GT Wake Companion — застосунок для Android, він не працює
+на телефонах із HarmonyOS 5 (NEXT).
 
 Створено для лінійки Huawei Watch GT 6.
 ```
@@ -304,8 +308,9 @@ Funkcje
 • Własne tło dla każdego alarmu
 • Oszczędny dla baterii
 
-Wymagania: aplikacja GT Wake Companion na telefonie oraz zegarek sparowany przez
-Huawei Health.
+Wymagania: telefon z Androidem z aplikacją GT Wake Companion oraz zegarek
+sparowany przez Huawei Health. GT Wake Companion to aplikacja na Androida — nie
+działa na telefonach z HarmonyOS 5 (NEXT).
 
 Stworzone dla serii Huawei Watch GT 6.
 ```
@@ -325,7 +330,8 @@ GT Wake 把手机的闹钟带到你的手腕上。闹钟响起时，华为 Watch
 • 每个闹钟可设单独的背景图
 • 省电
 
-要求：手机上安装 GT Wake Companion 应用，并通过华为运动健康完成手表配对。
+要求：一部安装了 GT Wake Companion 应用的 Android 手机，并通过华为运动健康完成手表配对。
+GT Wake Companion 是 Android 应用，无法在 HarmonyOS 5（NEXT）手机上运行。
 
 专为华为 Watch GT 6 系列打造。
 ```
@@ -414,15 +420,36 @@ screen is the natural place) so Huawei §7.1's in-app-link requirement is met.
 ## F. Cross-link URLs (for the listings / in-app "get the other app")
 
 - **Phone on Google Play:** `https://play.google.com/store/apps/details?id=com.kirkouski.gtwake.companion`
-- **Phone on AppGallery:** `https://appgallery.huawei.com/app/detail?id=com.kirkouski.gtwake.companion`
-  (package-name form — verified 2026-06-11 to resolve, no post-publish C-number needed)
+- **Phone on AppGallery — use the C-number form, NOT the package-name form.**
+  There are two web URL shapes and only one is served to browsers:
+  - ❌ `https://appgallery.huawei.com/app/detail?id=<package-name>` renders
+    *"This app is only available in the HarmonyOS 5 version or later of AppGallery"* and never
+    shows the listing. **Measured 2026-09-05:** the same wall appears for Huawei's own
+    `com.huawei.hmos.vmall`, so the package-name lookup is simply not served to browsers. (This
+    supersedes the 2026-06-11 "verified to resolve" note, which only checked that the URL loaded
+    *a* page.) Using it in the watch onboarding QR cost the watch app an AppGallery rule-3.1
+    rejection.
+  - ✅ **`https://appgallery.huawei.com/app/C117892565`** — the form AppGallery's own share button
+    produces (`C` + the AGC app id). **Verified 2026-09-05:** renders the full GT Wake listing with
+    an Install button in a plain desktop browser, EU region, showing version 1.0.9.
+  - Deep link for a device with AppGallery installed:
+    `appmarket://details?id=com.kirkouski.gtwake.companion`. Never the only route — it is inert
+    where AppGallery is absent.
+  - **The phone app is confirmed live on AppGallery** (1.0.9, updated 2026-09-03, developer
+    Andrei Kirkouski).
 - **Watch on AppGallery:** `https://appgallery.huawei.com/app/detail?id=com.kirkouski.gtwatch.watch`
-  — info page only; the watch app installs via **Huawei Health → Devices → (watch) → AppGallery**, never from a web link.
+  — same web-endpoint caveat as above; the watch app installs via
+  **Huawei Health → Devices → (watch) → AppGallery**, never from a web link.
 - **Phone, direct APK:** `https://gtwake.kirkouski.com/download`
   — self-hosted third channel, for phones with neither store. Signed with the **same certificate Play
   uses** (`95F6…`), so it installs over a Play build as an in-place update and still pairs with the
   watch. Page publishes the file SHA-256 + cert fingerprint; regenerated by `npm run deploy` in `meta/site`.
 - **phone → watch:** always the AppGallery URL (watch is AppGallery-only).
-- **watch → phone:** the phone could be on either store → use a **neutral landing
-  page on your domain** that redirects HMS→AppGallery, GMS→Play. Lets you fill in
-  the real C-numbers post-publish without re-releasing either app.
+- **watch → phone:** `https://gtwake.kirkouski.com/download` — **implemented 2026-09-05** in the
+  watch onboarding QR (`onboarding_qr`, per-locale i18n key, so a locale can diverge without a code
+  change). Routing through a page we control means a store link can change without re-releasing the
+  watch app, which otherwise costs a full AppGallery review cycle. The page picks the store from the
+  UA: **AppGallery unless the UA reads as a non-Huawei Android phone** — desktop, iOS and anything
+  unrecognised default to AppGallery, since a visitor arriving from the watch is almost certainly in
+  Huawei's ecosystem. Detection only orders the buttons; both stores and the APK stay reachable.
+  Before this the QR hardcoded the package-name form and was a dead end on every phone.

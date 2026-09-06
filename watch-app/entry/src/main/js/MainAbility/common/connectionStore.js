@@ -1,6 +1,6 @@
 // Tracks whether the watch has ever connected to the phone companion, and
 // which companion version it last saw. Drives the onboarding screen: a
-// never-connected watch shows a QR to install the companion (AppGallery);
+// never-connected watch shows a QR to install the companion (/download);
 // a connected-but-empty watch shows the normal "add alarms on the phone"
 // hint.
 //

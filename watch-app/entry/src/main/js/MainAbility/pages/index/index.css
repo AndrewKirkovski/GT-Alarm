@@ -302,7 +302,7 @@
     text-align: center;
 }
 
-/* Onboarding QR (companion AppGallery listing) + scan hint. Shown on the
+/* Onboarding QR (our /download page, which routes to a store) + scan hint. Shown on the
    empty state so the watch self-explains how to get the phone app — the QR
    PNG carries its own white quiet zone, so it reads on the dark background. */
 .onb-qr {

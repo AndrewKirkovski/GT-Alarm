@@ -2,12 +2,21 @@
 import { Button } from '@/components/ui/button'
 import { RouterLink } from 'vue-router'
 import { download, formatMiB, formatBytes, colonize, androidRelease } from '@/data/download'
+import {
+  PLAY_URL,
+  APPGALLERY_PHONE_DEEPLINK,
+  APPGALLERY_PHONE_WEB,
+  detectPhone,
+  preferAppGallery,
+} from '@/data/stores'
 
-// Same constants as Home.vue. Duplicated rather than extracted: two usages is
-// under the threshold where a shared module earns its keep.
-const PLAY_URL = 'https://play.google.com/store/apps/details?id=com.kirkouski.gtwake.companion'
-const APPGALLERY_PHONE = 'https://appgallery.huawei.com/app/detail?id=com.kirkouski.gtwake.companion'
-const APPGALLERY_WATCH = 'https://appgallery.huawei.com/app/detail?id=com.kirkouski.gtwatch.watch'
+// Sniffed once. It only orders the store buttons and gates the HarmonyOS 5
+// note — every destination stays reachable whatever it returns. This page is
+// the watch onboarding QR's target, so most arrivals are Huawei-ecosystem
+// users; preferAppGallery() encodes that default.
+const platform = detectPhone()
+const appGalleryFirst = preferAppGallery(platform)
+
 const REPO = 'https://github.com/AndrewKirkovski/GT-Alarm'
 </script>
 
@@ -22,6 +31,15 @@ const REPO = 'https://github.com/AndrewKirkovski/GT-Alarm'
       <strong>Requires:</strong> Android {{ androidRelease(download.minSdk) }} or newer
     </p>
 
+    <div v-if="platform === 'harmony-next'" class="rounded-2xl border border-border bg-card p-5">
+      <strong>This phone runs HarmonyOS 5</strong>
+      <p>
+        GT Wake Companion is an Android app, and HarmonyOS 5 (NEXT) dropped Android app support, so
+        it cannot be installed here. GT Wake on the watch needs the Companion running on an
+        <strong>Android phone</strong> paired through Huawei Health.
+      </p>
+    </div>
+
     <div class="rounded-2xl border border-border bg-card p-5">
       <strong>Use a store if you can</strong>
       <p>
@@ -29,15 +47,30 @@ const REPO = 'https://github.com/AndrewKirkovski/GT-Alarm'
         direct download is for phones where neither store is available.
       </p>
       <div class="mt-4 flex flex-wrap gap-3">
-        <Button as="a" :href="PLAY_URL" variant="outline" size="sm">Google Play</Button>
-        <Button as="a" :href="APPGALLERY_PHONE" variant="outline" size="sm">AppGallery</Button>
+        <Button
+          as="a"
+          :href="appGalleryFirst ? APPGALLERY_PHONE_WEB : PLAY_URL"
+          variant="brand"
+          size="sm"
+        >{{ appGalleryFirst ? 'AppGallery' : 'Google Play' }}</Button>
+        <Button
+          as="a"
+          :href="appGalleryFirst ? PLAY_URL : APPGALLERY_PHONE_WEB"
+          variant="outline"
+          size="sm"
+        >{{ appGalleryFirst ? 'Google Play' : 'AppGallery' }}</Button>
       </div>
+      <p class="text-sm">
+        On a Huawei phone the AppGallery button hands off to the AppGallery app. If it does not,
+        <a :href="APPGALLERY_PHONE_DEEPLINK">open the listing directly</a>, or open AppGallery and
+        search <strong>GT Wake</strong>.
+      </p>
     </div>
 
     <template v-if="download.available">
       <h2>Download</h2>
       <div class="mt-3 flex flex-wrap items-center gap-4">
-        <Button as="a" :href="download.url" :download="download.fileName" variant="brand" size="lg">
+        <Button as="a" :href="download.url" :download="download.fileName" variant="outline" size="lg">
           Download {{ download.fileName }}
         </Button>
         <span class="text-sm text-muted-foreground">
@@ -91,10 +124,10 @@ const REPO = 'https://github.com/AndrewKirkovski/GT-Alarm'
         kept.
       </p>
       <p>
-        <strong>The watch app is not on this page.</strong> It cannot be sideloaded from a file — it
-        installs onto the watch from
-        <a :href="APPGALLERY_WATCH" target="_blank" rel="noopener">AppGallery</a>, through the Huawei
-        Health app on your phone.
+        <strong>The watch app is not on this page.</strong> It cannot be sideloaded from a file, and
+        no web link installs it. It reaches the watch through
+        <strong>Huawei Health → Devices → your watch → AppGallery</strong>, then a search for
+        <strong>GT Wake</strong>.
       </p>
 
       <h2>Updates</h2>
@@ -109,8 +142,8 @@ const REPO = 'https://github.com/AndrewKirkovski/GT-Alarm'
       <h2>Download</h2>
       <p>
         The direct download is being refreshed. Please install from
-        <a :href="PLAY_URL" target="_blank" rel="noopener">Google Play</a> or
-        <a :href="APPGALLERY_PHONE" target="_blank" rel="noopener">AppGallery</a> for now.
+        <a :href="PLAY_URL" target="_blank" rel="noopener">Google Play</a> for now, or open
+        AppGallery and search <strong>GT Wake</strong>.
       </p>
     </template>
 

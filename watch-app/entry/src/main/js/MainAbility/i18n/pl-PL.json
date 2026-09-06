@@ -41,7 +41,8 @@
         "privacy_consent_decline": "Odrzuć",
         "privacy_qr": "https://gtwake.kirkouski.com/privacy",
         "onboarding_get_app_title": "Skonfiguruj GT Wake",
-        "onboarding_get_app_hint": "Zainstaluj GT Wake na telefonie, aby dodać alarmy",
-        "onboarding_scan": "Zeskanuj, aby pobrać aplikację"
+        "onboarding_get_app_hint": "Zainstaluj GT Wake na telefonie z Androidem",
+        "onboarding_scan": "Zeskanuj, aby pobrać aplikację",
+        "onboarding_qr": "https://gtwake.kirkouski.com/download"
     }
 }

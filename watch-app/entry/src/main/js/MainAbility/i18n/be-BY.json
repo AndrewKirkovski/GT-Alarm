@@ -41,7 +41,8 @@
         "privacy_consent_decline": "Адхіліць",
         "privacy_qr": "https://gtwake.kirkouski.com/privacy",
         "onboarding_get_app_title": "Наладзіць GT Wake",
-        "onboarding_get_app_hint": "Усталюйце GT Wake на тэлефон, каб дадаваць будзільнікі",
-        "onboarding_scan": "Сканіруйце, каб атрымаць праграму для тэлефона"
+        "onboarding_get_app_hint": "Усталюйце GT Wake на тэлефон Android",
+        "onboarding_scan": "Сканіруйце, каб атрымаць праграму для тэлефона",
+        "onboarding_qr": "https://gtwake.kirkouski.com/download"
     }
 }

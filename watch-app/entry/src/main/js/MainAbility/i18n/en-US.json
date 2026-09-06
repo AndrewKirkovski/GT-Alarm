@@ -41,7 +41,8 @@
         "privacy_consent_decline": "Decline",
         "privacy_qr": "https://gtwake.kirkouski.com/privacy",
         "onboarding_get_app_title": "Set up GT Wake",
-        "onboarding_get_app_hint": "Install GT Wake on your phone to add alarms",
-        "onboarding_scan": "Scan to get the phone app"
+        "onboarding_get_app_hint": "Install GT Wake on your Android phone",
+        "onboarding_scan": "Scan to get the phone app",
+        "onboarding_qr": "https://gtwake.kirkouski.com/download"
     }
 }
