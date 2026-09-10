@@ -652,8 +652,21 @@ The reviewer did NOT get `PeerAppMissing`, so the HAP installed and then never r
 - Cause: `config.json` had **no `distroFilter`**, and Huawei distributes a Lite Wearable HAP to
   every watch shape unless one is declared. We were shipping to Watch D and the whole FIT family on
   hardware we have never run.
-- ✅ **Fixed:** `module.distroFilter.screenShape = include ["circle"]`. See
-  [`watch-resolutions.md`](watch-resolutions.md).
+- ✅ **Fixed:** `module.distroFilter` now whitelists the modelled resolutions —
+  `screenShape` include `[circle, rect]` plus `screenWindow` include
+  `["466*466","454*454","390*390","408*480","336*480"]`. Round GT and FIT 2/3/4/5 stay in;
+  280×456 (Watch D, early FIT) and 194×368 (Band, FIT mini) are out. `screenWindow` accepts only
+  `policy: "include"` per the SDK schema, so a whitelist is the only way to express this.
+  See [`watch-resolutions.md`](watch-resolutions.md).
+- 🟠 **The whitelist is exact-match** — any unlisted resolution loses distribution silently,
+  including a future round model. Revisit when a new watch ships.
+- ✅ **Layout floor:** `applyScreen` clamps `timeW` to ≥ 60 px. Supported profiles are unchanged
+  (466→204, 408→174, 336→102); the clamp only guards resolutions we do not ship to, where the fixed
+  186 px row budget drove the value to 46 px at 280 and **−40 px at 194**.
+- ✅ **Wake budget split by caller:** the manual "Sync now" tap gets `FORCE_SYNC_WAKE_TIMEOUT_MS`
+  (25 s) while the alarm-fire path keeps `PING_WAKE_TIMEOUT_MS` (10 s). 10 s was tuned on a GT 6 Pro
+  and a cold launch on other hardware may simply be slower — but a late alarm is worse than a late
+  watch mirror, so only the path where the user is watching a spinner waits longer.
 - 🟠 Residual: whatever makes the app hang at 201 on a square watch is **still unknown and unfixed**.
   It is now out of distribution, not repaired. Supporting square watches again needs real hardware —
   Huawei's resolution table includes 280 × 456 and 194 × 368, which our layout never modelled.

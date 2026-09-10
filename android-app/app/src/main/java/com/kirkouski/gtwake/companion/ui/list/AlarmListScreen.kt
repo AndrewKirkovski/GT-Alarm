@@ -143,16 +143,23 @@ fun AlarmListScreen(
     val settings by vm.settings.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    // Capability probe, not an OS sniff — see WatchSupport. A cheap
+    // PackageManager lookup, re-run on resume: the unsupported card tells the
+    // user to install Huawei Health, so the app has to notice when they come
+    // back having done it. Held in `remember` alone it would only recover on a
+    // full teardown (a tab switch or a process restart), which made the
+    // recovery contract accidental rather than intended.
+    var watchSupport by remember { mutableStateOf(WatchSupport.state(context)) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) vm.refreshWatchAuthorization()
+            if (event == Lifecycle.Event.ON_RESUME) {
+                vm.refreshWatchAuthorization()
+                watchSupport = WatchSupport.state(context)
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    // Capability probe, not an OS sniff — see WatchSupport. Cheap PackageManager
-    // lookup, cached for the composition.
-    val watchSupport = remember(context) { WatchSupport.state(context) }
     val showSetupBanner = remember(alarms.size, showBatteryOptCard, canExact) {
         com.kirkouski.gtwake.companion.ui.help.hasUnresolvedSetup(context)
     }

@@ -28,11 +28,21 @@ Addresses the AppGallery rule-3.1 rejection of watch `code 1000009`, which faile
 findings. The Wear Engine code was unchanged from 1.0.7, which had passed review — what differed was
 the reviewer's hardware: a square watch, and a phone on HarmonyOS 5.
 
-**Watch distribution is now round-screen only.** `config.json` gained
-`distroFilter.screenShape = include ["circle"]`. Without a filter, AppGallery distributes a Lite
-Wearable HAP to every watch shape, so the app was reaching Watch D and the whole FIT family on
-hardware it had never run — the reviewer's square watch installed it and then never reached the
-RUNNING state. Round GT-series watches are what the listing claims and what has been verified.
+**Watch distribution is now limited to the resolutions the layout was built for.** `config.json`
+gained a `distroFilter` whitelisting `466*466`, `454*454`, `390*390` (round GT) and `408*480`,
+`336*480` (FIT 2/3/4/5). Without a filter, AppGallery distributes a Lite Wearable HAP to every watch
+shape and size, so the app was also reaching Watch D and the early FIT models at 280×456 and the
+Band profile at 194×368 — resolutions the responsive math was never designed for, where the fixed
+row budget leaves 46 px for the time display and goes negative respectively. The reviewer's square
+watch installed the app and then never reached the RUNNING state.
+
+`applyScreen` now also clamps that value to a 60 px floor, so a malformed width cannot reach the
+renderer even if an unlisted device somehow installs.
+
+**A manual sync waits longer for the watch to wake.** The 10-second ping-wake budget was tuned on a
+GT 6 Pro; a cold launch on other watch hardware may simply be slower, which is one explanation for
+the reviewer's timeout. The user-initiated "Sync now" tap now allows 25 seconds. The alarm-fire path
+deliberately keeps the short budget — a late alarm is worse than a late watch mirror.
 
 **HarmonyOS 5 phones are now handled explicitly instead of failing silently.** The Wear Engine
 Android SDK reaches the watch through the *Android* Huawei Health app; HarmonyOS 5 has no Android

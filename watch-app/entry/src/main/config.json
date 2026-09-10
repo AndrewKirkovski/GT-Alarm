@@ -16,7 +16,18 @@
             "screenShape": {
                 "policy": "include",
                 "value": [
-                    "circle"
+                    "circle",
+                    "rect"
+                ]
+            },
+            "screenWindow": {
+                "policy": "include",
+                "value": [
+                    "466*466",
+                    "454*454",
+                    "390*390",
+                    "408*480",
+                    "336*480"
                 ]
             }
         },

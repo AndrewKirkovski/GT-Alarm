@@ -368,7 +368,11 @@ export default {
 
         // --- privacy consent screen (first launch; rule 7.5) ---
         privacyTitle: '', privacyBody: '', privacyScan: '',
-        privacyAgree: '', privacyDecline: '', privacyQr: '',
+        privacyAgree: '', privacyDecline: '',
+        // Fallback, overwritten by $t('strings.privacy_qr') in _loadStrings4.
+        // NOT '' — the reveal-safety timeout can paint this screen before
+        // i18n loads, and an empty <qrcode> renders a blank white square.
+        privacyQr: 'https://gtwake.kirkouski.com/privacy',
 
         // --- onboarding (empty / never-connected) ---
         // hasConnected drives the empty-state copy: never-connected shows
@@ -376,7 +380,9 @@ export default {
         // shows the plain "add alarms on the phone" hint. Both show the QR.
         // onbQr is the encoded URL, i18n'd so a locale can point elsewhere.
         onbScan: '',
-        onbQr: '',
+        // Fallback, overwritten by $t('strings.onboarding_qr'). Same reason
+        // as privacyQr above: never leave a <qrcode> bound to ''.
+        onbQr: 'https://gtwake.kirkouski.com/download',
         hasConnected: false,
 
         // --- background photo ---
@@ -731,7 +737,15 @@ export default {
         this.rowW = rowW;
         this.rowMargin = Math.round((w - rowW) / 2);
         // 186 = dot(12)+dotMargin(12) + padLeft(18)+padRight(18) + dayGrid(126).
-        this.timeW = rowW - 186;
+        // 186 = dot(12)+dotMargin(12) + padLeft(18)+padRight(18) + dayGrid(126),
+        // a FIXED budget. Below ~280px wide it exceeds the whole row and this
+        // goes to zero or negative: at Huawei's 194x368 profile (Band, FIT mini)
+        // rowW is 146, so the raw result is -40. A negative width is undefined
+        // behaviour in ACELite and can blank the page. Those profiles are
+        // excluded from distribution via distroFilter, so this is a floor, not
+        // a layout: it keeps a malformed value away from the renderer if one
+        // ever reports a screen we did not model.
+        this.timeW = Math.max(60, rowW - 186);
         // Rebuild any already-rendered rows so they pick up the new per-row
         // geometry immediately (getInfo is async; rows may have first rendered
         // with the 466 defaults before this ran). No-op cost on the GT6.

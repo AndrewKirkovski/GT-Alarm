@@ -47,7 +47,7 @@
   .empty { display:flex; flex-direction:column; align-items:center; justify-content:center; }
   .empty-title { color:#F1F5F9; font-size:42px; margin-bottom:6px; text-align:center; }
   .empty-hint { color:#AEB8CC; font-size:26px; margin-bottom:12px; text-align:center; }
-  /* Onboarding QR (companion AppGallery listing) + scan hint. */
+  /* Onboarding QR (our /download page, which routes to a store) + scan hint. */
   .onb-qr { width:154px; height:154px; margin-bottom:8px; }
   /* The watch uses a NATIVE <qrcode value="url"> (ArkUI.Lite) rendered on-device;
      the browser can't render it, so these placeholders stand in at the same size. */
@@ -112,7 +112,9 @@ function dims(W, H, shape) {
     rowItemW: W,
     rowW: rowW,
     rowMargin: Math.round((W - rowW) / 2),
-    timeW: rowW - 186,
+    // Mirrors the clamp in applyScreen(): the fixed 186px budget exceeds the
+    // row below ~280px wide and would go negative at 194px.
+    timeW: Math.max(60, rowW - 186),
   };
 }
 
@@ -181,7 +183,7 @@ function onboardingScreen(d) {
   return '<div class="content" style="width:' + d.W + 'px;height:' + d.H + 'px;">'
     + '<div class="empty" style="width:' + d.W + 'px;height:' + d.emptyH + 'px;">'
     + '<div class="empty-title" style="width:' + d.titleW + 'px;">Set up GT Wake</div>'
-    + '<div class="empty-hint" style="width:' + d.titleW + 'px;">Install GT Wake on your phone to add alarms</div>'
+    + '<div class="empty-hint" style="width:' + d.titleW + 'px;">Install GT Wake on your Android phone</div>'
     + '<div class="onb-qr qr-ph">QR<br>(native)</div>'
     + '<div class="onb-scan" style="width:' + d.titleW + 'px;">Scan to get the phone app</div>'
     + '</div></div>';

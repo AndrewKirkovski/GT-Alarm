@@ -80,7 +80,9 @@ const CONTACT = 'mailto:andrew.kirkovski@gmail.com?subject=GT%20Wake%20on%20Harm
     </p>
     <div class="mt-6 flex flex-wrap gap-3">
       <Button as="a" :href="CONTACT" variant="brand">Get in touch about HarmonyOS</Button>
-      <Button as="a" href="/download" variant="outline">Download for Android</Button>
+      <Button as-child variant="outline">
+        <RouterLink to="/download">Download for Android</RouterLink>
+      </Button>
     </div>
 
     <h2>The watch app</h2>

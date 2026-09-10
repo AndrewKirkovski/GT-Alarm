@@ -936,7 +936,11 @@ class HuaweiWearBridge @Inject constructor(
     // Result is cached in `lastConfirmedRunningAtMs` so a burst of sends
     // (forceSync, sync-on-fire) only pays the ping cost once.
     @Suppress("TooGenericExceptionCaught", "ReturnCount")
-    private suspend fun ensurePeerAppRunning(device: Device, force: Boolean = false): Boolean {
+    private suspend fun ensurePeerAppRunning(
+        device: Device,
+        force: Boolean = false,
+        timeoutMs: Long = PING_WAKE_TIMEOUT_MS,
+    ): Boolean {
         // Fast-path cache check (lock-free): if a recent caller confirmed
         // running, skip the mutex + poll entirely. The `>= 0` explicit check
         // matters because System.currentTimeMillis() can move BACKWARDS
@@ -951,7 +955,7 @@ class HuaweiWearBridge @Inject constructor(
         // the lock is released and almost always short-circuit.
         return wakeMutex.withLock {
             if (!force && cacheHit()) return@withLock true
-            pollUntilRunning(device)
+            pollUntilRunning(device, timeoutMs)
         }
     }
 
@@ -970,8 +974,8 @@ class HuaweiWearBridge @Inject constructor(
     // p2p-error / unexpected) with its own log line; collapsing them would
     // smear diagnostically-useful cases into one path.
     @Suppress("TooGenericExceptionCaught", "ReturnCount")
-    private suspend fun pollUntilRunning(device: Device): Boolean {
-        val deadline = System.currentTimeMillis() + PING_WAKE_TIMEOUT_MS
+    private suspend fun pollUntilRunning(device: Device, timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
         var iteration = 0
         while (true) {
             iteration++
@@ -991,7 +995,7 @@ class HuaweiWearBridge @Inject constructor(
                     if (System.currentTimeMillis() >= deadline) {
                         Log.w(
                             TAG,
-                            "pollUntilRunning: TIMEOUT after ${PING_WAKE_TIMEOUT_MS}ms — " +
+                            "pollUntilRunning: TIMEOUT after ${timeoutMs}ms — " +
                                 "watch app stuck at 201 (not running). Cold launch failed.",
                         )
                         return false
@@ -1321,7 +1325,13 @@ class HuaweiWearBridge @Inject constructor(
         if (pingCode == PING_APP_NOT_INSTALLED) {
             return ForceSyncResult.PeerAppMissing(pingCode)
         }
-        if (!ensurePeerAppRunning(device, force = true)) {
+        // A user-initiated sync gets a longer wake budget than the alarm path.
+        // 10 s was tuned on a GT 6 Pro; a cold launch on other watch hardware
+        // may simply be slower, and an AppGallery reviewer on a square watch
+        // hit this timeout (rule 3.1, 2026-09). Waiting is free here — the user
+        // is watching a spinner — whereas the alarm path keeps the short budget
+        // because a late alarm is worse than a missed watch mirror.
+        if (!ensurePeerAppRunning(device, force = true, timeoutMs = FORCE_SYNC_WAKE_TIMEOUT_MS)) {
             return ForceSyncResult.PeerAppNotRunning
         }
         // Phone-initiated, model-gated screen fetch — reuses the wake above
@@ -1696,6 +1706,9 @@ class HuaweiWearBridge @Inject constructor(
         // 400 ms poll delay catches the 201→202 transition within ~one
         // extra poll.
         const val PING_WAKE_TIMEOUT_MS = 10_000L
+
+        // Wake budget for the manual "Sync now" tap only — see forceSync.
+        const val FORCE_SYNC_WAKE_TIMEOUT_MS = 25_000L
         const val PING_WAKE_POLL_DELAY_MS = 400L
 
         // Cache "peer is 202 RUNNING" for this long so the dismiss / snooze

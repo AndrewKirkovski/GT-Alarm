@@ -111,9 +111,9 @@ const features = [
           </p>
           <div class="mt-6 flex flex-wrap gap-3">
             <Button as="a" :href="CONTACT" variant="brand">Help test more devices</Button>
-            <RouterLink to="/harmony">
-              <Button variant="outline">HarmonyOS support</Button>
-            </RouterLink>
+            <Button as-child variant="outline">
+              <RouterLink to="/harmony">HarmonyOS support</RouterLink>
+            </Button>
           </div>
         </div>
         <div class="relative grid place-items-center">

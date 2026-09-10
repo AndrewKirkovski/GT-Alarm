@@ -79,8 +79,11 @@ Then add the custom domain **gtwake.kirkouski.com** to the `gtwake-site` Pages p
 `public/_redirects` handles SPA fallback so `/privacy` resolves on refresh.
 
 ## Before publishing — edit
-- `src/pages/Home.vue` — `CONTACT`. The AppGallery URLs use the package-name form
-  (`/app/detail?id=<pkg>`, verified to resolve) so they need no post-publish C-numbers; they go
-  live when the apps pass review. The watch URL is an info page — the watch app installs via
-  Huawei Health, not a web link.
+- `src/pages/Home.vue` — `CONTACT`. Store links live in `src/data/stores.ts`, not in the pages.
+  **The AppGallery link must stay the C-number form** (`/app/C117892565`). The package-name form
+  (`/app/detail?id=<pkg>`) is NOT served to browsers — it renders "This app is only available in
+  the HarmonyOS 5 version or later of AppGallery" and never shows the listing, measured 2026-09-05
+  against Huawei's own `com.huawei.hmos.vmall`. Using it in the watch onboarding QR cost an
+  AppGallery rule-3.1 rejection. The watch app has no web install path at all; it goes on via
+  Huawei Health → Devices → your watch → AppGallery.
 - `src/pages/Privacy.vue` — `CONTACT`.

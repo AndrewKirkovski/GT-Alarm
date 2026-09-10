@@ -28,14 +28,30 @@ tested us on a **Watch FIT 5 Pro**, so the AGConnect `liteWearable` distribution
 | **Round 466** | GT 3 / GT 3 Pro, GT 4 (41 & 46 mm), GT 5 / GT 5 Pro, **GT 6 / GT 6 Pro**, GT Runner / Runner 2, GT Cyber, GT 2022 Collector | **466 × 466** | circle | ✅ primary (our dev device) |
 | Round 454 (legacy) | GT 2 / GT 2 Pro (46 mm) | 454 × 454 | circle | 🟡 not on current store list; layout still adapts |
 | Round 390 (legacy) | GT / GT 2 (42 mm) | 390 × 390 | circle | 🟡 not on current store list; layout still adapts |
-| **Rect FIT (tall)** | **Watch FIT 3 / FIT 4 / FIT 5 / FIT 5 Pro** | **408 × 480** (portrait) | rect | ⛔ excluded by `distroFilter`; no hardware on hand, and unverified layout twice failed review |
-| Rect FIT 2 | Watch FIT 2 | 336 × 480 (portrait) | rect | ⛔ excluded by `distroFilter` since 2026-09-10 |
-| **Rect FIT / D (short)** | **Watch FIT 1/2 gen, Watch D** | **280 × 456** | rect | ⛔ excluded; **never modelled — our layout was never designed for it** |
-| Band / FIT mini | Band 6–10, Watch FIT mini | 194 × 368 | rect | ⛔ excluded; never modelled |
+| **Rect FIT (tall)** | **Watch FIT 3 / FIT 4 / FIT 5 / FIT 5 Pro** | **408 × 480** (portrait) | rect | 🟠 distributed; layout modelled + eyeballed in the mockup, **no hardware on hand** |
+| Rect FIT 2 | Watch FIT 2 | 336 × 480 (portrait) | rect | 🟠 distributed; narrowest supported — time box is 102 px, the tightest profile |
+| **Rect FIT / D (short)** | **Watch FIT 1/2 gen, Watch D** | **280 × 456** | rect | ⛔ **excluded by `distroFilter`** — never modelled; the row budget leaves only 46 px for the time |
+| Band / FIT mini | Band 6–10, Watch FIT mini | 194 × 368 | rect | ⛔ **excluded by `distroFilter`** — never modelled; raw `timeW` math goes **negative** here |
 
-## Distribution is filtered to round screens (2026-09-10)
+## Distribution is filtered to the resolutions we have modelled (2026-09-10)
 
-`config.json` → `module.distroFilter.screenShape = {policy: "include", value: ["circle"]}`.
+```json
+"screenShape":  { "policy": "include", "value": ["circle", "rect"] },
+"screenWindow": { "policy": "include",
+                  "value": ["466*466","454*454","390*390","408*480","336*480"] }
+```
+
+**`screenWindow` is a whitelist and only accepts `policy: "include"`** — the SDK schema
+(`configSchema_lite.json`) pins that enum to a single value, so "everything except these two" is not
+expressible. Listing every supported resolution, round and rect together, achieves the same result in
+one module and avoids Huawei's second-entry-module pattern for square adaptation.
+
+The value pattern is `^([1-9][0-9]*)\*([1-9][0-9]*)$` — asterisk, **no spaces**. Huawei's own
+square-adaptation page writes `"408 * 480"`, which would fail schema validation.
+
+⚠️ **The whitelist is exact-match, and that is now a maintenance obligation.** A watch reporting a
+resolution not on the list gets no distribution at all — including a future round model at a new
+size. That is the safe direction to fail, but it will not announce itself.
 
 Huawei: *"During app release, AppGallery distributes the app to the square and round lite wearables
 based on the `distroFilter` attribute."* Until this was set we had **no** filter, so the HAP was

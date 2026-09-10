@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Button } from '@/components/ui/button'
 import { RouterLink } from 'vue-router'
-import { download, formatMiB, formatBytes, colonize, androidRelease } from '@/data/download'
+import { download, formatMiB, colonize, androidRelease } from '@/data/download'
 import {
   PLAY_URL,
   APPGALLERY_PHONE_DEEPLINK,
