@@ -173,8 +173,16 @@ interface WearBridgeService {
      * required (the dialog is rendered by Huawei Health, not us). User-driven
      * — wired to the "Authorize watch access" buttons in HelpScreen and the
      * WatchSyncCard, NOT auto-fired on launch.
+     *
+     * [onResult] fires for EVERY outcome including the no-dialog-shown case,
+     * and may arrive on a background thread. Callers must surface it: the
+     * grant flow has no observable side effect otherwise, and relying on
+     * ON_RESUME to notice a grant fails when no dialog was ever presented.
      */
-    fun requestPermissionFromActivity(activity: android.app.Activity)
+    fun requestPermissionFromActivity(
+        activity: android.app.Activity,
+        onResult: (WearPermissionOutcome) -> Unit,
+    )
 
     /**
      * Tri-state check of whether the app currently holds Wear Engine

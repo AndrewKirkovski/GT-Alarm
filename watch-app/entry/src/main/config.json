@@ -3,8 +3,8 @@
         "bundleName": "com.kirkouski.gtwatch.watch",
         "vendor": "kirkouski",
         "version": {
-            "code": 1000009,
-            "name": "1.0.9"
+            "code": 1000010,
+            "name": "1.0.10"
         }
     },
     "deviceConfig": {},
@@ -12,6 +12,14 @@
         "deviceType": [
             "liteWearable"
         ],
+        "distroFilter": {
+            "screenShape": {
+                "policy": "include",
+                "value": [
+                    "circle"
+                ]
+            }
+        },
         "distro": {
             "deliveryWithInstall": true,
             "moduleName": "entry",

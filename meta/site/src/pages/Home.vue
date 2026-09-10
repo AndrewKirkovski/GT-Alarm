@@ -104,11 +104,16 @@ const features = [
             Made for the <span class="text-brand-gradient">Huawei Watch GT 6 series</span>
           </h2>
           <p class="mt-4 text-muted-foreground">
-            GT Wake is made for the Huawei Watch GT 6 series. Got a different Huawei watch and want
-            GT Wake on it? You can help — donate a device, or just get in touch.
+            GT Wake is made for the round Huawei Watch GT 6 series. Got a different Huawei watch,
+            or a phone on HarmonyOS 5? You can help — donate or lend a device, or just get in touch.
+            Every feature here was verified on real hardware, and we will not ship a version we have
+            never run.
           </p>
           <div class="mt-6 flex flex-wrap gap-3">
-            <Button as="a" :href="CONTACT" variant="brand">Help test more watches</Button>
+            <Button as="a" :href="CONTACT" variant="brand">Help test more devices</Button>
+            <RouterLink to="/harmony">
+              <Button variant="outline">HarmonyOS support</Button>
+            </RouterLink>
           </div>
         </div>
         <div class="relative grid place-items-center">

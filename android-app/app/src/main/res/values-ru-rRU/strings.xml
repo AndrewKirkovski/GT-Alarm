@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">GT Wake Companion</string>
     <string name="widget_label">Следующий будильник</string>
 
@@ -154,8 +154,8 @@
     <string name="swipe_delete_confirm_body_unlabeled">Удалить этот будильник?</string>
 
     <!-- Watch sync card. -->
-    <string name="watch_status_card_needs_auth">Нет авторизации — нажмите на ключ, чтобы предоставить доступ к часам</string>
-    <string name="watch_status_card_authorize">Авторизовать доступ к часам</string>
+    <string name="watch_status_card_needs_auth">Нет доступа — нажмите ключ, чтобы разрешить доступ к часам</string>
+    <string name="watch_status_card_authorize">Разрешить доступ к часам</string>
 
     <string name="action_open_settings">Настройки</string>
 
@@ -230,4 +230,20 @@
     <string name="setup_oem_keep_oneplus">Если будильники опаздывают на OxygenOS, проверьте настройки батареи приложения.\n\n  •  Настройки → Батарея → Доп. настройки → Управление батареей приложений → GT Wake.\n  •  Разрешите активность на переднем плане/в фоне для ночного теста будильника.</string>
     <string name="setup_oem_keep_huawei">Телефоны Huawei могут блокировать запуск в фоне, если приложением не управлять вручную.\n\n  •  Диспетчер телефона → Запуск приложений → GT Wake → Управлять вручную.\n  •  Включите автозапуск, дополнительный запуск и работу в фоне.\n  •  Сделайте то же для Huawei Health, если синхронизация с часами нестабильна.</string>
     <string name="setup_oem_keep_other">Если на вашем телефоне есть Диспетчер телефона / приложение безопасности, найдите «Защищённые приложения», «Автозапуск» или «Фоновую активность».\n\n  •  Добавьте туда GT Wake, только если будильники опаздывают после прохождения обязательных проверок.</string>
+    <string name="force_sync_already" tools:ignore="PluralsCandidate">На часах уже актуальные данные (%1$d)</string>
+    <string name="force_sync_disconnected">Часы вне зоны действия. Поднесите их ближе и повторите.</string>
+    <string name="force_sync_error">Не удалось синхронизировать. Повторите попытку позже.</string>
+    <string name="force_sync_no_device">Часы не сопряжены. Подключите их в Huawei Health и повторите.</string>
+    <string name="force_sync_not_authorized">Сначала разрешите доступ к часам — нажмите значок ключа на карточке синхронизации.</string>
+    <string name="force_sync_ok" tools:ignore="PluralsCandidate">Синхронизировано будильников на часы: %1$d</string>
+    <string name="force_sync_peer_app_missing">GT Wake ещё не установлен на часах. Установите его: Huawei Health → Устройства → ваши часы → AppGallery.</string>
+    <string name="force_sync_peer_not_running">Откройте GT Wake на часах и нажмите синхронизацию ещё раз.</string>
+    <string name="watch_authorize_cancelled">Доступ к часам не предоставлен. Нажмите значок ключа, чтобы повторить.</string>
+    <string name="watch_authorize_granted">Доступ к часам разрешён.</string>
+    <string name="watch_authorize_unavailable">Не удалось открыть экран разрешений Huawei Health. Обновите Huawei Health и HMS Core и повторите.</string>
+    <string name="watch_status_card_force_sync">Синхронизировать</string>
+    <string name="watch_unsupported_donate">Хотите GT Wake на HarmonyOS? Помогите этому случиться →</string>
+    <string name="watch_unsupported_harmony">GT Wake Companion — приложение для Android, и на HarmonyOS 5 оно не может связаться с часами. Возможно, оно вам и не нужно: ваш телефон уже умеет звонить своими будильниками на сопряжённых часах. Откройте Huawei Health, выберите часы, нажмите «Будильник» и включите синхронизацию будильников телефона. Будильники на этом телефоне продолжают работать как обычно.</string>
+    <string name="watch_unsupported_no_health">Для синхронизации с часами нужно приложение Huawei Health, но оно не установлено. Установите Huawei Health и откройте GT Wake заново. Будильники на этом телефоне продолжают работать как обычно.</string>
+    <string name="watch_unsupported_title">Синхронизация с часами недоступна на этом телефоне</string>
 </resources>

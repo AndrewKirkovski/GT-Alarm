@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">GT Wake Companion</string>
     <string name="widget_label">Наступний будильник</string>
 
@@ -152,8 +152,8 @@
     <string name="swipe_delete_confirm_body_unlabeled">Видалити цей будильник?</string>
 
     <!-- Watch sync card auth. -->
-    <string name="watch_status_card_needs_auth">Не авторизовано — натисніть ключ, щоб надати доступ до годинника</string>
-    <string name="watch_status_card_authorize">Авторизувати доступ до годинника</string>
+    <string name="watch_status_card_needs_auth">Немає доступу — натисніть ключ, щоб дозволити доступ до годинника</string>
+    <string name="watch_status_card_authorize">Дозволити доступ до годинника</string>
 
     <!-- Settings screen. -->
     <string name="action_open_settings">Налаштування</string>
@@ -221,4 +221,20 @@
     <string name="setup_oem_keep_oneplus">Якщо будильники запізнюються на OxygenOS, перевірте налаштування батареї застосунку.\n\n  •  Налаштування → Батарея → Додаткові налаштування → Керування батареєю застосунків → GT Wake.\n  •  Дозвольте фонову/передпланову активність для нічних тестів будильника.</string>
     <string name="setup_oem_keep_huawei">Телефони Huawei можуть блокувати фоновий запуск, якщо ви не керуєте застосунком вручну.\n\n  •  Phone Manager → Запуск застосунків → GT Wake → Керувати вручну.\n  •  Увімкніть автозапуск, вторинний запуск і роботу у фоні.\n  •  Зробіть те саме для Huawei Health, якщо синхронізація з годинником ненадійна.</string>
     <string name="setup_oem_keep_other">Якщо на вашому телефоні є Phone Manager / застосунок безпеки, знайдіть «Захищені застосунки», «Автозапуск» або «Фонова активність».\n\n  •  Додавайте туди GT Wake, лише якщо будильники запізнюються після проходження обов\'язкових перевірок.</string>
+    <string name="force_sync_already" tools:ignore="PluralsCandidate">На годиннику вже актуальні дані (%1$d)</string>
+    <string name="force_sync_disconnected">Годинник поза зоною дії. Піднесіть його ближче та повторіть.</string>
+    <string name="force_sync_error">Не вдалося синхронізувати. Повторіть спробу згодом.</string>
+    <string name="force_sync_no_device">Годинник не спарований. Підключіть його в Huawei Health і повторіть.</string>
+    <string name="force_sync_not_authorized">Спочатку дозвольте доступ до годинника — натисніть значок ключа на картці синхронізації.</string>
+    <string name="force_sync_ok" tools:ignore="PluralsCandidate">Синхронізовано будильників на годинник: %1$d</string>
+    <string name="force_sync_peer_app_missing">GT Wake ще не встановлено на годиннику. Установіть: Huawei Health → Пристрої → ваш годинник → AppGallery.</string>
+    <string name="force_sync_peer_not_running">Відкрийте GT Wake на годиннику та натисніть синхронізацію ще раз.</string>
+    <string name="watch_authorize_cancelled">Доступ до годинника не надано. Натисніть значок ключа, щоб повторити.</string>
+    <string name="watch_authorize_granted">Доступ до годинника дозволено.</string>
+    <string name="watch_authorize_unavailable">Не вдалося відкрити екран дозволів Huawei Health. Оновіть Huawei Health і HMS Core та повторіть.</string>
+    <string name="watch_status_card_force_sync">Синхронізувати</string>
+    <string name="watch_unsupported_donate">Хочете GT Wake на HarmonyOS? Допоможіть цьому статися →</string>
+    <string name="watch_unsupported_harmony">GT Wake Companion — застосунок для Android, і на HarmonyOS 5 він не може зв’язатися з годинником. Можливо, він вам і не потрібен: ваш телефон уже вміє дзвонити своїми будильниками на спареному годиннику. Відкрийте Huawei Health, виберіть годинник, натисніть «Будильник» і увімкніть синхронізацію будильників телефона. Будильники на цьому телефоні працюють як звичайно.</string>
+    <string name="watch_unsupported_no_health">Для синхронізації з годинником потрібен застосунок Huawei Health, але його не встановлено. Установіть Huawei Health і відкрийте GT Wake знову. Будильники на цьому телефоні працюють як звичайно.</string>
+    <string name="watch_unsupported_title">Синхронізація з годинником недоступна на цьому телефоні</string>
 </resources>

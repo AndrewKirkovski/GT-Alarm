@@ -151,8 +151,8 @@
     <string name="battery_opt_card_dismiss">Not now</string>
 
     <string name="watch_status_card_title">Watch sync</string>
-    <string name="watch_status_card_needs_auth" tools:ignore="MissingTranslation">Not authorized — tap the key to grant watch access</string>
-    <string name="watch_status_card_authorize" tools:ignore="MissingTranslation">Authorize watch access</string>
+    <string name="watch_status_card_needs_auth">Not authorized — tap the key to allow watch access</string>
+    <string name="watch_status_card_authorize">Allow watch access</string>
 
     <string name="voice_alarm_set">Alarm set for %1$s</string>
     <string name="voice_alarm_failed">Couldn\'t set alarm</string>
@@ -230,18 +230,26 @@
     <string name="privacy_consent_agree">Agree &amp; continue</string>
     <string name="privacy_consent_disagree">Disagree</string>
 
-    <!-- WatchSyncCard + Force-sync — debug/diagnostic UI, English-only. -->
-    <string name="watch_status_card_force_sync" translatable="false">Force sync</string>
-    <!-- reason: Debug-only English-only diagnostic toast. PluralsCandidate
-         lint warning is irrelevant for a debug string we'll only ever see
-         in English during hardware testing. -->
-    <string name="force_sync_ok" translatable="false" tools:ignore="PluralsCandidate">Synced %1$d alarm(s) to watch</string>
-    <string name="force_sync_already" translatable="false" tools:ignore="PluralsCandidate">Already in sync (%1$d alarm(s))</string>
-    <string name="force_sync_no_device" translatable="false">No bonded watch found in Huawei Health</string>
-    <string name="force_sync_not_authorized" translatable="false">Wear Engine permission not granted — tap the key on Watch sync</string>
-    <string name="force_sync_disconnected" translatable="false">Watch is bonded but currently disconnected</string>
-    <string name="force_sync_peer_app_missing" translatable="false">Watch app not installed or not launched yet (ping=%1$d)</string>
-    <string name="force_sync_error" translatable="false">Force sync failed: %1$s</string>
+    <!-- WatchSyncCard + sync outcomes. These were English-only "diagnostic"
+         strings until 2026-09, when an AppGallery reviewer quoted two of them
+         verbatim in a rule-3.1 rejection. They are primary user-facing UI on
+         the main screen, not debug output: every one names a remedy, and none
+         carries a raw SDK message or a millisecond count. -->
+    <string name="watch_status_card_force_sync">Sync now</string>
+    <string name="force_sync_ok" tools:ignore="PluralsCandidate">Synced %1$d alarm(s) to your watch</string>
+    <string name="force_sync_already" tools:ignore="PluralsCandidate">Your watch is already up to date (%1$d alarm(s))</string>
+    <string name="force_sync_no_device">No watch paired. Pair one in Huawei Health, then try again.</string>
+    <string name="force_sync_not_authorized">Allow watch access first — tap the key icon on the Watch sync card.</string>
+    <string name="force_sync_disconnected">Your watch is out of range. Bring it closer and try again.</string>
+    <string name="force_sync_peer_app_missing">GT Wake is not installed on your watch yet. Add it from Huawei Health → Devices → your watch → AppGallery.</string>
+    <string name="force_sync_peer_not_running">Open GT Wake on your watch, then tap sync again.</string>
+    <string name="force_sync_error">Sync failed. Try again in a moment.</string>
+
+    <!-- Outcomes of the watch-card key icon. Every branch reports, including
+         the one where Huawei Health never renders a dialog. -->
+    <string name="watch_authorize_granted">Watch access allowed.</string>
+    <string name="watch_authorize_cancelled">Watch access was not allowed. Tap the key icon to try again.</string>
+    <string name="watch_authorize_unavailable">Could not open the Huawei Health permission screen. Update Huawei Health and HMS Core, then try again.</string>
 
     <!-- ===== Setup checklist + OEM tips (Help screen, merged 2026-05-12). =====
          tools:ignore="MissingTranslation" while copy is still iterating. -->
@@ -294,4 +302,8 @@
     <string tools:ignore="MissingTranslation" name="setup_oem_keep_xiaomi">If alarms are late on Xiaomi / HyperOS, check background autostart.\n\n  •  Settings → Apps → Permissions → Background autostart → GT Wake → On.\n  •  If available, allow background activity for GT Wake.</string>
     <string tools:ignore="MissingTranslation" name="setup_oem_keep_oneplus">If alarms are late on OxygenOS, check the app\'s battery settings.\n\n  •  Settings → Battery → More settings → App battery management → GT Wake.\n  •  Allow foreground/background activity for overnight alarm testing.</string>
     <string tools:ignore="MissingTranslation" name="setup_oem_keep_huawei">Huawei phones can block background launch unless you manage the app manually.\n\n  •  Phone Manager → App launch → GT Wake → Manage manually.\n  •  Turn on Auto-launch, Secondary launch, and Run in background.\n  •  Do the same for Huawei Health if watch sync is unreliable.</string>
-    <string tools:ignore="MissingTranslation" name="setup_oem_keep_other">If your phone has a Phone Manager / Security app, look for Protected apps, Autostart, or Background activity.\n\n  •  Add GT Wake there only if alarms are late after the required checks pass.</string></resources>
+    <string tools:ignore="MissingTranslation" name="setup_oem_keep_other">If your phone has a Phone Manager / Security app, look for Protected apps, Autostart, or Background activity.\n\n  •  Add GT Wake there only if alarms are late after the required checks pass.</string>    <string name="watch_unsupported_donate">Want GT Wake on HarmonyOS? Help make it happen →</string>
+    <string name="watch_unsupported_harmony">GT Wake Companion is an Android app and cannot reach your watch on HarmonyOS 5. You may not need it: your phone already rings its own alarms on a paired watch. Open Huawei Health, go to your watch, tap Alarm, and turn on phone alarm sync. Your alarms still ring on this phone as normal.</string>
+    <string name="watch_unsupported_no_health">Watch sync needs the Huawei Health app, which is not installed. Install Huawei Health and reopen GT Wake. Your alarms still ring on this phone as normal.</string>
+    <string name="watch_unsupported_title">Watch sync is not available on this phone</string>
+</resources>

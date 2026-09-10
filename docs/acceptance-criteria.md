@@ -641,6 +641,81 @@ AppGallery has two web URL shapes and only one is served to browsers:
 - 📋 **Still open:** confirm in AGC that the companion's distribution countries are a superset of the
   watch app's, and that the registered signing cert reads `95F6…` (see the 🟠 above).
 
+### AppGallery rule-3.1 rejection — watch sync (2026-09-10)
+
+Rejected watch `code 1000009` on two findings, both quoting our own strings back at us. The Wear
+Engine code was **byte-identical to 1.0.7, which passed** (`git diff v1.0.7..HEAD` over `wear/` is
+empty) — what changed was the reviewer's hardware, not our code.
+
+**(1) Square watch — "the watch app is not in the RUNNING state within 10,000 ms".**
+The reviewer did NOT get `PeerAppMissing`, so the HAP installed and then never reached ping 202.
+- Cause: `config.json` had **no `distroFilter`**, and Huawei distributes a Lite Wearable HAP to
+  every watch shape unless one is declared. We were shipping to Watch D and the whole FIT family on
+  hardware we have never run.
+- ✅ **Fixed:** `module.distroFilter.screenShape = include ["circle"]`. See
+  [`watch-resolutions.md`](watch-resolutions.md).
+- 🟠 Residual: whatever makes the app hang at 201 on a square watch is **still unknown and unfixed**.
+  It is now out of distribution, not repaired. Supporting square watches again needs real hardware —
+  Huawei's resolution table includes 280 × 456 and 194 × 368, which our layout never modelled.
+
+**(2) HarmonyOS 5 phone — permission granted but "the phone app does not respond".**
+- ❌ **Not fixable.** The Wear Engine **Android** SDK supports "Android 6.0–14.0" and Huawei phones
+  on "EMUI 4.1/HarmonyOS 2.0 or later"; HarmonyOS 5 is absent. It reaches Huawei Health over **AIDL**,
+  and NEXT has no Android Health app. The sanctioned replacement, **Wear Engine Kit** (ArkTS), is
+  "supported only in the Chinese mainland" for phones — our account is EU. No rewrite reaches this
+  reviewer. See `memory/wear_engine_platform_boundaries.md`.
+- ✅ **Our contribution to it, fixed:** the string read "tap the key on **Watch sync**" (our own key
+  icon). Huawei documents **no watch-side key press** — the grant UI is a phone-side Huawei Health
+  screen. The reviewer pressed a button on the watch because our copy told them to.
+- ✅ **Fixed:** `requestPermissionFromActivity` now reports **every** outcome via
+  `WearPermissionOutcome` (granted / cancelled / SDK-threw). Previously all three only wrote to
+  logcat, and the key icon — the app's **only** authorization entry point — could be tapped with no
+  visible effect whatsoever. `onOk` also refreshes the card directly instead of relying on
+  `ON_RESUME`, which never fires when no dialog was shown.
+- 📋 **Check before resubmitting:** Huawei's FAQ lists **app ID / package / signature not matching
+  AGC** as a cause of the auth screen never displaying — on *any* phone. `memory/keystore_path.md`
+  still records "AGConnect phone-entry fingerprint must move 69DB34→95F6 (manual)" as open. Finding
+  (2) hit **both** square and round watches, which points at the phone/account side. Verify the AGC
+  phone entry reads `95F6…`.
+
+**(3) Also fixed:** all nine watch-sync strings were `translatable="false"` and commented
+"debug/diagnostic UI, English-only" while being primary UI on the main screen — two were quoted
+verbatim in the rejection. Now translated into ru/be/uk/pl/zh, and neither the raw SDK message nor
+the ping code reaches the user (both stay in logcat).
+
+### HarmonyOS 5 is declared unsupported, in code (2026-09-10)
+
+**AC: either a clear in-app message that the combination is unsupported, or denial at the manifest
+level.** Met by the message path — see the note on manifests below for why denial is not available.
+
+- ✅ **Phone — capability probe, not an OS sniff.** `wear/WatchSupport.kt` keys on whether the
+  **Android Huawei Health package** is installed, because Wear Engine reaches the watch *through*
+  that app over AIDL: no Android Health, no sync, whatever the OS claims to be. HarmonyOS detection
+  (`ohos.utils.system.SystemCapability`) is used **only to pick wording**, never to gate behaviour.
+  Rationale: on HarmonyOS 5 an APK runs inside a third-party compatibility container, and what such
+  a container reports for `Build.*` is undocumented — asking "can I do the thing" is sound where
+  asking "what OS is this" is not.
+- ✅ **The sync card is replaced, not left to fail.** `WatchUnsupportedCard` states the limit, says
+  plainly that **alarms on the phone still work**, and — only in the HarmonyOS case — links to
+  `gtwake.kirkouski.com/harmony`. All strings localized to the full six.
+- ✅ **Watch side** already names the requirement in its onboarding hint ("Install GT Wake on your
+  Android phone", six locales). The watch cannot detect the phone's OS itself; with no companion it
+  shows the never-connected onboarding, which now names Android explicitly.
+- ✅ **Donation ask is off-store.** `/harmony` on the site carries it, per the standing rule that
+  device-donation solicitations must never appear in store listings or in-app (AppGallery §3.4/§1.6
+  rejection risk). The app links out; it does not ask.
+- 📋 **Manifest denial is NOT available**, so the message path is the operative half of the AC:
+  - Android has no manifest attribute expressing "not for HarmonyOS". `<uses-feature>` and
+    `uses-sdk` describe Android capabilities and API levels, neither of which distinguishes a
+    HarmonyOS container from an ordinary phone.
+  - AGC offers **device types and countries only** — no OS filter for an Android app, and device
+    types can be added but never removed after release.
+  - The one real filter we do have is the watch-side `distroFilter` (screen shape), already set.
+  - 🟠 **Unverified:** whether a HarmonyOS 5 container reports anything that would let the probe
+    fire correctly there. The Huawei Health check is sound in principle — the Android package cannot
+    be present on a system with no Android — but it has not been run on a HarmonyOS 5 device,
+    because we do not have one.
+
 ## KNOWN GAPS TO CLOSE NEXT
 
 ### Android

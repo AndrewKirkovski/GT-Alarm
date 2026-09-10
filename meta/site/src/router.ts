@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Home from '@/pages/Home.vue'
 import Download from '@/pages/Download.vue'
+import Harmony from '@/pages/Harmony.vue'
 import Privacy from '@/pages/Privacy.vue'
 import PrivacyZh from '@/pages/PrivacyZh.vue'
 
@@ -9,6 +10,7 @@ export const router = createRouter({
   routes: [
     { path: '/', name: 'home', component: Home },
     { path: '/download', name: 'download', component: Download },
+    { path: '/harmony', name: 'harmony', component: Harmony },
     { path: '/privacy', name: 'privacy', component: Privacy },
     { path: '/privacy/zh', name: 'privacy-zh', component: PrivacyZh },
     // A stale APK link (old version pruned on release) has no asset to serve,

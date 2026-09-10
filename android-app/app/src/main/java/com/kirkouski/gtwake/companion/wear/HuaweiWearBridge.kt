@@ -1322,7 +1322,7 @@ class HuaweiWearBridge @Inject constructor(
             return ForceSyncResult.PeerAppMissing(pingCode)
         }
         if (!ensurePeerAppRunning(device, force = true)) {
-            return ForceSyncResult.Error("Watch app didn't reach RUNNING within ${PING_WAKE_TIMEOUT_MS}ms")
+            return ForceSyncResult.PeerAppNotRunning
         }
         // Phone-initiated, model-gated screen fetch — reuses the wake above
         // (never an extra ping) and only fires when the bonded model differs
@@ -1607,22 +1607,31 @@ class HuaweiWearBridge @Inject constructor(
     // date — degrade silently so the host activity isn't crashed by a
     // missing-vendor case.
     @Suppress("TooGenericExceptionCaught")
-    override fun requestPermissionFromActivity(activity: android.app.Activity) {
+    override fun requestPermissionFromActivity(
+        activity: android.app.Activity,
+        onResult: (WearPermissionOutcome) -> Unit,
+    ) {
         try {
             HiWear.getAuthClient(activity).requestPermission(
                 object : AuthCallback {
                     override fun onOk(grantedPermissions: Array<out Permission>?) {
                         Log.i(TAG, "Wear Engine permission granted: ${grantedPermissions?.size ?: 0}")
                         scope.launch { ensureReceiverRegistered() }
+                        onResult(WearPermissionOutcome.Granted)
                     }
                     override fun onCancel() {
                         Log.w(TAG, "Wear Engine permission cancelled by user")
+                        onResult(WearPermissionOutcome.Cancelled)
                     }
                 },
                 Permission.DEVICE_MANAGER,
             )
         } catch (e: RuntimeException) {
+            // No dialog was ever shown. Reporting this is the whole point:
+            // the callback lets the UI say so instead of leaving the user
+            // tapping a button that appears inert.
             Log.w(TAG, "requestPermission threw: ${e.message}", e)
+            onResult(WearPermissionOutcome.Unavailable(e.message.orEmpty()))
         }
     }
 

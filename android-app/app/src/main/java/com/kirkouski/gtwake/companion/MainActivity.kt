@@ -61,8 +61,10 @@ class MainActivity : ComponentActivity() {
     // sample defers requestPermission(...) to a user button click; doing it on
     // every cold launch (a) hijacks first-launch UX with a Huawei Health popup
     // before the user understands what the app does, and (b) re-prompts users
-    // who previously denied. The "Pair watch" button in HelpScreen is the
-    // user-driven entry point — wired below into the HelpScreen composable.
+    // who previously denied. The key icon on the watch card in AlarmListScreen
+    // is the single user-driven entry point — wired below via onAuthorizeWatch.
+    // Because it is the ONLY entry point, its every outcome must be reported;
+    // see WearPermissionOutcome.
     @Inject lateinit var wearBridge: WearBridgeService
     @Inject lateinit var alarmRepository: AlarmRepository
     @Inject lateinit var onboardingState: OnboardingState
@@ -139,8 +141,8 @@ class MainActivity : ComponentActivity() {
                                 onEdit = { id -> navController.navigate(Routes.edit(id)) },
                                 onOpenBatteryOptSettings = { openBatteryOptSettings() },
                                 onOpenHelp = { navController.switchTab(Routes.HELP) },
-                                onAuthorizeWatch = {
-                                    wearBridge.requestPermissionFromActivity(this@MainActivity)
+                                onAuthorizeWatch = { onResult ->
+                                    wearBridge.requestPermissionFromActivity(this@MainActivity, onResult)
                                 },
                             )
                         }

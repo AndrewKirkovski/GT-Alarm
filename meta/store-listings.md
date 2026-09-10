@@ -52,6 +52,19 @@ Features
 
 Made for the Huawei Watch GT 6 series. No ads, no account, no tracking.
 
+Who it is for. On a Huawei phone, EMUI and HarmonyOS already ring your phone's
+alarms on a paired watch. On any other Android phone — Samsung, Pixel, Xiaomi
+and the rest — they do not: your Huawei watch stays silent when a phone alarm
+goes off, and Huawei Health only lets you set a separate alarm that lives on the
+watch alone. GT Wake closes that gap.
+
+One alarm in two places: set it once on the phone, it rings on both, and
+snoozing or dismissing on either device settles it everywhere. Your alarms are
+also listed on the watch, which the built-in reminder does not do.
+
+Works with any Android phone, including Huawei phones on EMUI and HarmonyOS 4
+or earlier. Not supported on HarmonyOS 5 (NEXT).
+
 Note: ringing on the watch requires the free GT Wake app installed on your
 watch and a watch paired through Huawei Health.
 ```
@@ -76,6 +89,19 @@ GT Wake Companion — это понятный и надёжный будильн
 • English, Русский, Беларуская, Українська, Polski, 中文
 
 Создано для линейки Huawei Watch GT 6. Без рекламы, без аккаунта, без слежки.
+
+Для кого это. На телефонах Huawei EMUI и HarmonyOS уже умеют звонить будильником
+телефона на сопряжённых часах. На любом другом телефоне Android — Samsung, Pixel,
+Xiaomi и прочих — этого нет: часы Huawei молчат, когда звонит будильник телефона,
+а Huawei Health позволяет поставить лишь отдельный будильник, живущий только на
+часах. GT Wake закрывает этот пробел.
+
+Один будильник сразу в двух местах: поставьте его на телефоне, он звонит на обоих
+устройствах, а откладывание или выключение на любом из них действует везде. Плюс
+список будильников виден на часах — встроенное напоминание этого не умеет.
+
+Работает с любым телефоном Android, включая телефоны Huawei на EMUI и
+HarmonyOS 4 и старше. HarmonyOS 5 (NEXT) не поддерживается.
 
 Примечание: для звонка на часах нужно установить бесплатное приложение GT Wake
 на часы и сопрячь часы через Huawei Health.
@@ -102,6 +128,19 @@ GT Wake Companion — зразумелы і надзейны будзільні�
 
 Створана для лінейкі Huawei Watch GT 6. Без рэкламы, без акаўнта, без сачэння.
 
+Для каго гэта. На тэлефонах Huawei EMUI і HarmonyOS ужо ўмеюць званіць
+будзільнікам тэлефона на спараваным гадзінніку. На любым іншым тэлефоне Android —
+Samsung, Pixel, Xiaomi і іншых — гэтага няма: гадзіннік Huawei маўчыць, калі
+звоніць будзільнік тэлефона, а Huawei Health дазваляе паставіць толькі асобны
+будзільнік, які жыве выключна на гадзінніку. GT Wake закрывае гэты прабел.
+
+Адзін будзільнік адразу ў двух месцах: пастаўце яго на тэлефоне, ён звоніць на
+абодвух прыладах, а адкладванне або выключэнне на любой з іх дзейнічае ўсюды.
+Плюс спіс будзільнікаў відаць на гадзінніку — убудаванае напаміну гэтага не ўмее.
+
+Працуе з любым тэлефонам Android, уключаючы тэлефоны Huawei на EMUI і
+HarmonyOS 4 і старэй. HarmonyOS 5 (NEXT) не падтрымліваецца.
+
 Заўвага: для званка на гадзінніку трэба ўсталяваць бясплатнае прыкладанне
 GT Wake на гадзіннік і спарыць гадзіннік праз Huawei Health.
 ```
@@ -126,6 +165,19 @@ GT Wake Companion — це зрозумілий і надійний будиль
 • English, Русский, Беларуская, Українська, Polski, 中文
 
 Створено для лінійки Huawei Watch GT 6. Без реклами, без облікового запису, без стеження.
+
+Для кого це. На телефонах Huawei EMUI і HarmonyOS уже вміють дзвонити будильником
+телефона на спареному годиннику. На будь-якому іншому телефоні Android — Samsung,
+Pixel, Xiaomi та інших — цього немає: годинник Huawei мовчить, коли дзвонить
+будильник телефона, а Huawei Health дозволяє поставити лише окремий будильник, що
+живе тільки на годиннику. GT Wake закриває цю прогалину.
+
+Один будильник одразу у двох місцях: поставте його на телефоні, він дзвонить на
+обох пристроях, а відкладання або вимкнення на будь-якому з них діє всюди. Плюс
+список будильників видно на годиннику — вбудоване нагадування цього не вміє.
+
+Працює з будь-яким телефоном Android, зокрема з телефонами Huawei на EMUI та
+HarmonyOS 4 і старіше. HarmonyOS 5 (NEXT) не підтримується.
 
 Примітка: для дзвінка на годиннику потрібно встановити безкоштовний застосунок
 GT Wake на годинник і спарувати годинник через Huawei Health.
@@ -152,6 +204,19 @@ Funkcje
 
 Stworzone dla serii Huawei Watch GT 6. Bez reklam, bez konta, bez śledzenia.
 
+Dla kogo to jest. Na telefonach Huawei systemy EMUI i HarmonyOS już dzwonią
+alarmem telefonu na sparowanym zegarku. Na każdym innym telefonie z Androidem —
+Samsung, Pixel, Xiaomi i pozostałych — tego nie ma: zegarek Huawei milczy, gdy
+dzwoni alarm telefonu, a Huawei Health pozwala ustawić tylko osobny alarm żyjący
+wyłącznie na zegarku. GT Wake wypełnia tę lukę.
+
+Jeden alarm w dwóch miejscach naraz: ustaw go na telefonie, zadzwoni na obu
+urządzeniach, a drzemka lub wyłączenie na którymkolwiek z nich działa wszędzie.
+Do tego lista alarmów widoczna na zegarku — wbudowane przypomnienie tego nie ma.
+
+Działa z każdym telefonem z Androidem, w tym z telefonami Huawei na EMUI oraz
+HarmonyOS 4 i starszym. HarmonyOS 5 (NEXT) nie jest obsługiwany.
+
 Uwaga: dzwonienie na zegarku wymaga bezpłatnej aplikacji GT Wake na zegarku
 oraz zegarka sparowanego przez Huawei Health.
 ```
@@ -176,6 +241,16 @@ GT Wake Companion 是一款简洁可靠的手机闹钟，还能在你的华为 W
 
 专为华为 Watch GT 6 系列打造。无广告、无需账号、
 不收集数据。
+
+适合谁使用。在华为手机上，EMUI 与 HarmonyOS 已经可以让手机闹钟在配对的手表上响起。
+但在其他任何 Android 手机上——三星、Pixel、小米等——并没有这项功能：手机闹钟响起时
+华为手表毫无反应，而华为运动健康只能设置一个仅存在于手表上的独立闹钟。GT Wake 填补了这一空白。
+
+同一个闹钟同时存在于两处：在手机上设置一次，手机和手表一起响铃，在任意一台设备上
+小睡或关闭，另一台也随之生效。此外手表上还能看到闹钟列表——系统自带的提醒做不到这一点。
+
+支持任何 Android 手机，包括运行 EMUI 与 HarmonyOS 4 及更早版本的华为手机。
+不支持 HarmonyOS 5（NEXT）。
 
 注意：要在手表上响铃，需要在手表上安装免费的 GT Wake 应用，并通过华为运动健康完成配对。
 ```
@@ -213,9 +288,16 @@ Features
 • A custom background image per alarm
 • Light on the battery
 
+Most useful with a non-Huawei phone. Huawei phones already ring their alarms on
+a paired watch; Samsung, Pixel, Xiaomi and other Android phones do not, and
+Huawei Health can only add a separate alarm that lives on the watch alone.
+GT Wake shows the alarms you already set on your phone, rings in lock-step with
+it, and lets you settle one from either device.
+
 Requirements: an Android phone running the GT Wake Companion app, with your
-watch paired through Huawei Health. GT Wake Companion is an Android app — it
-does not run on HarmonyOS 5 (NEXT) phones.
+watch paired through Huawei Health — including Huawei phones on EMUI and
+HarmonyOS 4 or earlier. GT Wake Companion is an Android app and does not run on
+HarmonyOS 5 (NEXT).
 
 Made for the Huawei Watch GT 6 series.
 ```
@@ -237,9 +319,16 @@ GT Wake переносит будильники вашего телефона н
 • Своё фоновое изображение для каждого будильника
 • Бережно к батарее
 
+Наиболее полезно с телефоном не Huawei. Телефоны Huawei уже звонят своими
+будильниками на сопряжённых часах; Samsung, Pixel, Xiaomi и другие Android-телефоны
+— нет, а Huawei Health умеет добавить лишь отдельный будильник, живущий только на
+часах. GT Wake показывает будильники, которые вы уже поставили на телефоне, звонит
+синхронно с ним и даёт выключить один и тот же будильник с любого устройства.
+
 Требования: телефон Android с приложением GT Wake Companion и часы, сопряжённые
-через Huawei Health. GT Wake Companion — приложение для Android, оно не работает
-на телефонах с HarmonyOS 5 (NEXT).
+через Huawei Health, — включая телефоны Huawei на EMUI и HarmonyOS 4 и старше.
+GT Wake Companion — приложение для Android, оно не работает на телефонах с
+HarmonyOS 5 (NEXT).
 
 Создано для линейки Huawei Watch GT 6.
 ```
@@ -261,9 +350,17 @@ GT Wake пераносіць будзільнікі вашага тэлефон�
 • Сваё фонавае выява для кожнага будзільніка
 • Беражліва да батарэі
 
+Найбольш карысна з тэлефонам не Huawei. Тэлефоны Huawei ужо звоняць сваімі
+будзільнікамі на спараваным гадзінніку; Samsung, Pixel, Xiaomi і іншыя
+Android-тэлефоны — не, а Huawei Health умее дадаць толькі асобны будзільнік, які
+жыве выключна на гадзінніку. GT Wake паказвае будзільнікі, якія вы ўжо паставілі
+на тэлефоне, звоніць сінхронна з ім і дазваляе выключыць адзін і той жа будзільнік
+з любой прылады.
+
 Патрабаванні: тэлефон Android з прыкладаннем GT Wake Companion і гадзіннік,
-спараваны праз Huawei Health. GT Wake Companion — прыкладанне для Android, яно
-не працуе на тэлефонах з HarmonyOS 5 (NEXT).
+спараваны праз Huawei Health, — уключаючы тэлефоны Huawei на EMUI і HarmonyOS 4
+і старэй. GT Wake Companion — прыкладанне для Android, яно не працуе на
+тэлефонах з HarmonyOS 5 (NEXT).
 
 Створана для лінейкі Huawei Watch GT 6.
 ```
@@ -285,9 +382,16 @@ GT Wake переносить будильники вашого телефона 
 • Власне фонове зображення для кожного будильника
 • Дбайливо до батареї
 
+Найкорисніше з телефоном не Huawei. Телефони Huawei уже дзвонять своїми
+будильниками на спареному годиннику; Samsung, Pixel, Xiaomi та інші
+Android-телефони — ні, а Huawei Health може додати лише окремий будильник, що живе
+тільки на годиннику. GT Wake показує будильники, які ви вже поставили на телефоні,
+дзвонить синхронно з ним і дає вимкнути той самий будильник з будь-якого пристрою.
+
 Вимоги: телефон Android із застосунком GT Wake Companion та годинник, спарований
-через Huawei Health. GT Wake Companion — застосунок для Android, він не працює
-на телефонах із HarmonyOS 5 (NEXT).
+через Huawei Health, — зокрема телефони Huawei на EMUI та HarmonyOS 4 і старіше.
+GT Wake Companion — застосунок для Android, він не працює на телефонах із
+HarmonyOS 5 (NEXT).
 
 Створено для лінійки Huawei Watch GT 6.
 ```
@@ -308,9 +412,16 @@ Funkcje
 • Własne tło dla każdego alarmu
 • Oszczędny dla baterii
 
+Najbardziej przydatne z telefonem innym niż Huawei. Telefony Huawei już dzwonią
+swoimi alarmami na sparowanym zegarku; Samsung, Pixel, Xiaomi i inne telefony z
+Androidem — nie, a Huawei Health potrafi dodać jedynie osobny alarm żyjący
+wyłącznie na zegarku. GT Wake pokazuje alarmy, które już masz w telefonie, dzwoni
+równo z nim i pozwala wyłączyć ten sam alarm z dowolnego urządzenia.
+
 Wymagania: telefon z Androidem z aplikacją GT Wake Companion oraz zegarek
-sparowany przez Huawei Health. GT Wake Companion to aplikacja na Androida — nie
-działa na telefonach z HarmonyOS 5 (NEXT).
+sparowany przez Huawei Health — w tym telefony Huawei na EMUI oraz HarmonyOS 4 i
+starszym. GT Wake Companion to aplikacja na Androida i nie działa na telefonach
+z HarmonyOS 5 (NEXT).
 
 Stworzone dla serii Huawei Watch GT 6.
 ```
@@ -330,8 +441,14 @@ GT Wake 把手机的闹钟带到你的手腕上。闹钟响起时，华为 Watch
 • 每个闹钟可设单独的背景图
 • 省电
 
-要求：一部安装了 GT Wake Companion 应用的 Android 手机，并通过华为运动健康完成手表配对。
-GT Wake Companion 是 Android 应用，无法在 HarmonyOS 5（NEXT）手机上运行。
+搭配非华为手机时最有用。华为手机已经可以让自己的闹钟在配对的手表上响起；三星、
+Pixel、小米等其他 Android 手机则不能，而华为运动健康只能新增一个仅存在于手表上的
+独立闹钟。GT Wake 显示你已经在手机上设置好的闹钟，与手机同步响铃，并让你在任意
+一台设备上关掉同一个闹钟。
+
+要求：一部安装了 GT Wake Companion 应用的 Android 手机，并通过华为运动健康完成手表配对，
+包括运行 EMUI 与 HarmonyOS 4 及更早版本的华为手机。GT Wake Companion 是 Android 应用，
+无法在 HarmonyOS 5（NEXT）手机上运行。
 
 专为华为 Watch GT 6 系列打造。
 ```

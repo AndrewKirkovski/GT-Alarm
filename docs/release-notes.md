@@ -6,6 +6,7 @@ leaves the other's unchanged. The integer release codes are **per-app**.
 
 | versionName | phone code | watch code | tag | date |
 |---|---|---|---|---|
+| 1.0.10 | 10 | 1000010 | `v1.0.10` | 2026-09-10 |
 | 1.0.9 | 9 | 1000009 (watch resubmission; 1000008 rejected) | `v1.0.9` | 2026-08-29 |
 | 1.0.8 | 8 | 1000007 (unchanged — phone-only release) | `v1.0.8` | 2026-08-27 |
 | 1.0.7 | 7 | 1000007 | `v1.0.7` | 2026-06-25 |
@@ -19,6 +20,55 @@ Apps:
 - **Watch** — `com.kirkouski.gtwatch.watch` (HarmonyOS Lite Wearable, AppGallery only), `version.code` in `watch-app/entry/src/main/config.json`.
 
 ---
+
+## 1.0.10 — 2026-09-10
+phone `versionCode 10` · watch `code 1000010` · tag `v1.0.10`
+
+Addresses the AppGallery rule-3.1 rejection of watch `code 1000009`, which failed on two sync
+findings. The Wear Engine code was unchanged from 1.0.7, which had passed review — what differed was
+the reviewer's hardware: a square watch, and a phone on HarmonyOS 5.
+
+**Watch distribution is now round-screen only.** `config.json` gained
+`distroFilter.screenShape = include ["circle"]`. Without a filter, AppGallery distributes a Lite
+Wearable HAP to every watch shape, so the app was reaching Watch D and the whole FIT family on
+hardware it had never run — the reviewer's square watch installed it and then never reached the
+RUNNING state. Round GT-series watches are what the listing claims and what has been verified.
+
+**HarmonyOS 5 phones are now handled explicitly instead of failing silently.** The Wear Engine
+Android SDK reaches the watch through the *Android* Huawei Health app; HarmonyOS 5 has no Android
+layer and a rebuilt native Health, so sync cannot work there. The app now detects that it cannot
+reach Wear Engine at all — by checking for the Huawei Health package rather than sniffing the OS
+string — and replaces the sync card with a plain explanation. On a Huawei phone that message points
+users at the built-in alternative: Huawei's own phone-alarm sync has covered this natively since
+EMUI 8.1 / HarmonyOS 2, and on HarmonyOS 5 it just needs the toggle in
+Huawei Health → your watch → Alarm.
+
+**Every authorization outcome now reaches the user.** The key icon on the watch card is the app's
+only Wear Engine entry point, and three of its paths previously produced no visible result at all:
+the SDK throwing (documented when Huawei Health is missing or out of date), the user cancelling, and
+a successful grant that arrived without an activity resume to notice it. All three now report, and a
+grant refreshes the card directly.
+
+**Sync messages are user-facing copy, not diagnostics.** They had been marked English-only and
+"debug"; two were quoted verbatim in the rejection. A watch that is installed but not running now
+says "Open GT Wake on your watch, then tap sync again" rather than naming a millisecond timeout, raw
+SDK text and ping codes stay in logcat, and all nine strings are translated across the six locales.
+One of them had told users to "tap the key on Watch sync", meaning the app's own key icon — Huawei
+documents no watch-side key press for Wear Engine, and the reviewer pressed a button on the watch
+because the copy said so.
+
+**Store listings say who the app is for.** Both descriptions now name the real market: Huawei phones
+already ring their alarms on a paired watch, while Samsung, Pixel, Xiaomi and other Android phones do
+not, and Huawei Health can only add a separate alarm that lives on the watch alone. Support is stated
+as a version boundary rather than a brand one — any Android phone including Huawei on EMUI and
+HarmonyOS 4 or earlier, not HarmonyOS 5.
+
+**Site.** New `/harmony` page covering which phones work, why HarmonyOS 5 cannot, and the native
+alternative. Device-donation asks live there and on the home page, never in the app or the listings.
+
+> Not verified on hardware: no square watch and no HarmonyOS 5 phone are available, so the
+> unsupported-platform path and the square-watch exclusion are reasoned from Huawei's documentation
+> rather than observed. The square-watch RUNNING failure is excluded from distribution, not fixed.
 
 ## 1.0.9 — 2026-08-29
 phone `versionCode 9` · watch `code 1000009` · tag `v1.0.9`

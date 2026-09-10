@@ -104,6 +104,10 @@ import com.kirkouski.gtwake.companion.util.TimeFormatter
 import com.kirkouski.gtwake.companion.util.rememberOrderedDayBits
 import com.kirkouski.gtwake.companion.util.shortLabelResForDayBit
 import com.kirkouski.gtwake.companion.wear.ForceSyncResult
+import androidx.core.net.toUri
+import com.kirkouski.gtwake.companion.wear.WatchSupport
+import com.kirkouski.gtwake.companion.wear.WatchSupportState
+import com.kirkouski.gtwake.companion.wear.WearPermissionOutcome
 import com.kirkouski.gtwake.companion.wear.PairedDeviceInfo
 import com.kirkouski.gtwake.companion.wear.WatchSyncStatus
 
@@ -123,7 +127,10 @@ fun AlarmListScreen(
     onEdit: (Long) -> Unit,
     onOpenBatteryOptSettings: () -> Unit,
     onOpenHelp: () -> Unit,
-    onAuthorizeWatch: () -> Unit,
+    // Takes a callback: the Wear Engine grant request reports asynchronously,
+    // and every outcome — including "no dialog was ever shown" — has to reach
+    // the user. See WearPermissionOutcome.
+    onAuthorizeWatch: ((WearPermissionOutcome) -> Unit) -> Unit,
     vm: AlarmListViewModel = hiltViewModel(),
 ) {
     val alarms by vm.alarms.collectAsStateWithLifecycle()
@@ -143,6 +150,9 @@ fun AlarmListScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    // Capability probe, not an OS sniff — see WatchSupport. Cheap PackageManager
+    // lookup, cached for the composition.
+    val watchSupport = remember(context) { WatchSupport.state(context) }
     val showSetupBanner = remember(alarms.size, showBatteryOptCard, canExact) {
         com.kirkouski.gtwake.companion.ui.help.hasUnresolvedSetup(context)
     }
@@ -150,6 +160,11 @@ fun AlarmListScreen(
         vm.forceSyncEvents.collect { result ->
             val msg = forceSyncToast(context, result)
             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+        }
+    }
+    LaunchedEffect(Unit) {
+        vm.authEvents.collect { outcome ->
+            Toast.makeText(context, authorizeToast(context, outcome), Toast.LENGTH_LONG).show()
         }
     }
 
@@ -233,14 +248,23 @@ fun AlarmListScreen(
                     }
                 }
                 item(key = "watch-sync") {
-                    WatchSyncCard(
-                        status = watchStatus,
-                        pairedDevice = pairedDevice,
-                        forceSyncRunning = forceSyncRunning,
-                        needsAuthorization = needsWatchAuth,
-                        onForceSync = { vm.onForceSync() },
-                        onAuthorize = onAuthorizeWatch,
-                    )
+                    // On a phone that cannot drive Wear Engine at all, the sync
+                    // card is replaced outright rather than left to fail: an
+                    // AppGallery reviewer on HarmonyOS 5 read a failing sync
+                    // button as a broken app (rule 3.1, 2026-09). Alarms are
+                    // unaffected, and the card says so.
+                    if (watchSupport == WatchSupportState.Supported) {
+                        WatchSyncCard(
+                            status = watchStatus,
+                            pairedDevice = pairedDevice,
+                            forceSyncRunning = forceSyncRunning,
+                            needsAuthorization = needsWatchAuth,
+                            onForceSync = { vm.onForceSync() },
+                            onAuthorize = { onAuthorizeWatch(vm::onAuthorizeOutcome) },
+                        )
+                    } else {
+                        WatchUnsupportedCard(state = watchSupport)
+                    }
                 }
             }
 
@@ -453,6 +477,60 @@ private fun EmptyAlarmsCard(onAdd: (AlarmMode) -> Unit) {
 // reason: LongMethod — one linear Row tree; the status/device strings and
 // the spin transition are derived inline so the layout reads top-to-bottom.
 @Suppress("LongMethod")
+// Shown in place of WatchSyncCard when Wear Engine cannot work on this phone.
+// States the limit plainly, reassures that alarms still work, and routes the
+// "I want this on HarmonyOS" ask to the website — never an in-app or in-store
+// solicitation, which AppGallery review treats as a listing violation.
+@Composable
+private fun WatchUnsupportedCard(state: WatchSupportState) {
+    val context = LocalContext.current
+    val body = when (state) {
+        WatchSupportState.UnsupportedHarmonyOs -> stringResource(R.string.watch_unsupported_harmony)
+        else -> stringResource(R.string.watch_unsupported_no_health)
+    }
+    Card(
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = stringResource(R.string.watch_unsupported_title),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = body,
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            if (state == WatchSupportState.UnsupportedHarmonyOs) {
+                Text(
+                    text = stringResource(R.string.watch_unsupported_donate),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(top = 12.dp)
+                        .clickable {
+                            runCatching {
+                                context.startActivity(
+                                    android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        HARMONY_INFO_URL.toUri(),
+                                    ),
+                                )
+                            }
+                        },
+                )
+            }
+        }
+    }
+}
+
+private const val HARMONY_INFO_URL = "https://gtwake.kirkouski.com/harmony"
+
 @Composable
 private fun WatchSyncCard(
     status: WatchSyncStatus,
@@ -550,6 +628,17 @@ private fun WatchSyncActionButton(
     )
 }
 
+private fun authorizeToast(
+    context: android.content.Context,
+    outcome: WearPermissionOutcome,
+): String = when (outcome) {
+    WearPermissionOutcome.Granted -> context.getString(R.string.watch_authorize_granted)
+    WearPermissionOutcome.Cancelled -> context.getString(R.string.watch_authorize_cancelled)
+    // The SDK text is deliberately not shown — it is untranslated and names
+    // internal components. The user needs the remedy, not the exception.
+    is WearPermissionOutcome.Unavailable -> context.getString(R.string.watch_authorize_unavailable)
+}
+
 private fun forceSyncToast(
     context: android.content.Context,
     result: ForceSyncResult,
@@ -560,9 +649,12 @@ private fun forceSyncToast(
     ForceSyncResult.NoDevice -> context.getString(R.string.force_sync_no_device)
     ForceSyncResult.NotAuthorized -> context.getString(R.string.force_sync_not_authorized)
     ForceSyncResult.Disconnected -> context.getString(R.string.force_sync_disconnected)
-    is ForceSyncResult.PeerAppMissing ->
-        context.getString(R.string.force_sync_peer_app_missing, result.pingCode)
-    is ForceSyncResult.Error -> context.getString(R.string.force_sync_error, result.message)
+    ForceSyncResult.PeerAppNotRunning -> context.getString(R.string.force_sync_peer_not_running)
+    // The ping code and the SDK message are deliberately NOT interpolated:
+    // both are untranslated vendor diagnostics, and a reviewer quoting one
+    // verbatim is what failed review in 2026-09. They stay in logcat.
+    is ForceSyncResult.PeerAppMissing -> context.getString(R.string.force_sync_peer_app_missing)
+    is ForceSyncResult.Error -> context.getString(R.string.force_sync_error)
 }
 
 @Composable

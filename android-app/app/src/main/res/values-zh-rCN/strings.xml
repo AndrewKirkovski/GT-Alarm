@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">GT Wake Companion</string>
     <string name="widget_label">下一个闹钟</string>
 
@@ -99,8 +99,8 @@
     <string name="battery_opt_card_dismiss">暂不</string>
 
     <string name="watch_status_card_title">手表同步</string>
-    <string name="watch_status_card_needs_auth">未授权 — 点击钥匙图标以授予手表访问权限</string>
-    <string name="watch_status_card_authorize">授权手表访问</string>
+    <string name="watch_status_card_needs_auth">未授权——点按钥匙以允许访问手表</string>
+    <string name="watch_status_card_authorize">允许访问手表</string>
 
     <string name="voice_alarm_set">闹钟已设置为 %1$s</string>
     <string name="voice_alarm_failed">无法设置闹钟</string>
@@ -213,4 +213,20 @@
     <string name="setup_oem_keep_oneplus">如果闹钟在 OxygenOS 上延迟，请检查应用的电池设置。\n\n  •  设置 → 电池 → 更多设置 → 应用电池管理 → GT Wake。\n  •  在夜间闹钟测试期间允许前台/后台活动。</string>
     <string name="setup_oem_keep_huawei">华为手机可能会阻止后台启动，除非您手动管理应用。\n\n  •  手机管家 → 应用启动管理 → GT Wake → 手动管理。\n  •  开启「允许自启动」「允许关联启动」和「允许后台活动」。\n  •  如果手表同步不稳定，对华为运动健康执行相同操作。</string>
     <string name="setup_oem_keep_other">如果您的手机带有手机管家 / 安全应用，请查找「受保护的应用」「自启动」或「后台活动」。\n\n  •  仅在必需项检查通过后闹钟仍延迟时，才将 GT Wake 添加到其中。</string>
+    <string name="force_sync_already" tools:ignore="PluralsCandidate">手表已是最新状态（%1$d 个闹钟）</string>
+    <string name="force_sync_disconnected">手表不在范围内。请靠近后重试。</string>
+    <string name="force_sync_error">同步失败，请稍后重试。</string>
+    <string name="force_sync_no_device">未配对手表。请在华为运动健康中完成配对后重试。</string>
+    <string name="force_sync_not_authorized">请先允许访问手表——点按同步卡片上的钥匙图标。</string>
+    <string name="force_sync_ok" tools:ignore="PluralsCandidate">已向手表同步 %1$d 个闹钟</string>
+    <string name="force_sync_peer_app_missing">手表上尚未安装 GT Wake。请通过华为运动健康 → 设备 → 你的手表 → 应用市场安装。</string>
+    <string name="force_sync_peer_not_running">请在手表上打开 GT Wake，然后再次点按同步。</string>
+    <string name="watch_authorize_cancelled">未授予手表访问权限。点按钥匙图标可重试。</string>
+    <string name="watch_authorize_granted">已允许访问手表。</string>
+    <string name="watch_authorize_unavailable">无法打开华为运动健康的权限页面。请更新华为运动健康和 HMS Core 后重试。</string>
+    <string name="watch_status_card_force_sync">立即同步</string>
+    <string name="watch_unsupported_donate">希望 GT Wake 支持 HarmonyOS？欢迎助力 →</string>
+    <string name="watch_unsupported_harmony">GT Wake Companion 是 Android 应用，在 HarmonyOS 5 上无法连接手表。你可能并不需要它：你的手机已经可以让自己的闹钟在配对的手表上响起。请打开华为运动健康，选择你的手表，点击“闹钟”，并开启手机闹钟同步提醒。此手机上的闹钟仍照常响铃。</string>
+    <string name="watch_unsupported_no_health">手表同步需要华为运动健康应用，但尚未安装。请安装华为运动健康后重新打开 GT Wake。此手机上的闹钟仍照常响铃。</string>
+    <string name="watch_unsupported_title">此手机不支持手表同步</string>
 </resources>

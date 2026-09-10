@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">GT Wake Companion</string>
     <string name="widget_label">Następny alarm</string>
 
@@ -98,8 +98,8 @@
     <string name="battery_opt_card_dismiss">Nie teraz</string>
 
     <string name="watch_status_card_title">Synchronizacja zegarka</string>
-    <string name="watch_status_card_needs_auth">Brak autoryzacji — stuknij klucz, aby przyznać dostęp do zegarka</string>
-    <string name="watch_status_card_authorize">Autoryzuj dostęp do zegarka</string>
+    <string name="watch_status_card_needs_auth">Brak dostępu — dotknij klucza, aby zezwolić na dostęp do zegarka</string>
+    <string name="watch_status_card_authorize">Zezwól na dostęp do zegarka</string>
 
     <string name="voice_alarm_set">Alarm ustawiony na %1$s</string>
     <string name="voice_alarm_failed">Nie udało się ustawić alarmu</string>
@@ -210,4 +210,20 @@
     <string name="setup_oem_keep_oneplus">Jeśli alarmy się spóźniają na OxygenOS, sprawdź ustawienia baterii aplikacji.\n\n  •  Ustawienia → Bateria → Więcej ustawień → Zarządzanie baterią aplikacji → GT Wake.\n  •  Zezwól na aktywność na pierwszym planie/w tle do nocnego testowania alarmów.</string>
     <string name="setup_oem_keep_huawei">Telefony Huawei mogą blokować uruchamianie w tle, chyba że zarządzasz aplikacją ręcznie.\n\n  •  Menedżer telefonu → Uruchamianie aplikacji → GT Wake → Zarządzaj ręcznie.\n  •  Włącz Autouruchamianie, Uruchamianie pośrednie i Działanie w tle.\n  •  Zrób to samo dla Huawei Health, jeśli synchronizacja zegarka jest zawodna.</string>
     <string name="setup_oem_keep_other">Jeśli Twój telefon ma Menedżera telefonu / aplikację zabezpieczającą, poszukaj Chronionych aplikacji, Autostartu lub Aktywności w tle.\n\n  •  Dodaj tam GT Wake tylko, jeśli alarmy się spóźniają po przejściu wymaganych kontroli.</string>
+    <string name="force_sync_already" tools:ignore="PluralsCandidate">Zegarek jest już aktualny (%1$d)</string>
+    <string name="force_sync_disconnected">Zegarek jest poza zasięgiem. Zbliż go i spróbuj ponownie.</string>
+    <string name="force_sync_error">Synchronizacja nie powiodła się. Spróbuj ponownie za chwilę.</string>
+    <string name="force_sync_no_device">Brak sparowanego zegarka. Sparuj go w Huawei Health i spróbuj ponownie.</string>
+    <string name="force_sync_not_authorized">Najpierw zezwól na dostęp do zegarka — dotknij ikony klucza na karcie synchronizacji.</string>
+    <string name="force_sync_ok" tools:ignore="PluralsCandidate">Zsynchronizowano alarmy z zegarkiem: %1$d</string>
+    <string name="force_sync_peer_app_missing">GT Wake nie jest jeszcze zainstalowany na zegarku. Zainstaluj: Huawei Health → Urządzenia → Twój zegarek → AppGallery.</string>
+    <string name="force_sync_peer_not_running">Otwórz GT Wake na zegarku, a potem dotknij synchronizacji ponownie.</string>
+    <string name="watch_authorize_cancelled">Nie przyznano dostępu do zegarka. Dotknij ikony klucza, aby spróbować ponownie.</string>
+    <string name="watch_authorize_granted">Dostęp do zegarka przyznany.</string>
+    <string name="watch_authorize_unavailable">Nie udało się otworzyć ekranu uprawnień Huawei Health. Zaktualizuj Huawei Health i HMS Core, a potem spróbuj ponownie.</string>
+    <string name="watch_status_card_force_sync">Synchronizuj</string>
+    <string name="watch_unsupported_donate">Chcesz GT Wake na HarmonyOS? Pomóż to zrealizować →</string>
+    <string name="watch_unsupported_harmony">GT Wake Companion to aplikacja na Androida i na HarmonyOS 5 nie połączy się z zegarkiem. Możesz jej nie potrzebować: Twój telefon już dzwoni własnymi alarmami na sparowanym zegarku. Otwórz Huawei Health, wybierz zegarek, dotknij „Alarm” i włącz synchronizację alarmów telefonu. Alarmy na tym telefonie działają normalnie.</string>
+    <string name="watch_unsupported_no_health">Synchronizacja z zegarkiem wymaga aplikacji Huawei Health, która nie jest zainstalowana. Zainstaluj Huawei Health i otwórz GT Wake ponownie. Alarmy na tym telefonie działają normalnie.</string>
+    <string name="watch_unsupported_title">Synchronizacja z zegarkiem jest niedostępna na tym telefonie</string>
 </resources>

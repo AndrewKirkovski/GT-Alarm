@@ -34,6 +34,19 @@ sealed class ForceSyncResult {
      */
     data class PeerAppMissing(val pingCode: Int) : ForceSyncResult()
 
+    /**
+     * The watch app is installed but never reported RUNNING inside the wake
+     * window. Distinct from [PeerAppMissing] (not installed at all) and from
+     * [Error] (which carries an untranslated SDK string): this one is
+     * actionable by the user — open the app on the watch and sync again.
+     *
+     * Kept as its own case rather than an Error("didn't reach RUNNING in
+     * 10000ms") so the UI can show localized guidance instead of a developer
+     * diagnostic. An AppGallery reviewer saw that raw string on a square watch
+     * and filed it as a rule-3.1 failure (2026-09).
+     */
+    object PeerAppNotRunning : ForceSyncResult()
+
     /** Transport-level failure (SDK threw, send returned non-success). */
     data class Error(val message: String) : ForceSyncResult()
 }

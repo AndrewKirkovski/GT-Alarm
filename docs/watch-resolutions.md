@@ -28,8 +28,28 @@ tested us on a **Watch FIT 5 Pro**, so the AGConnect `liteWearable` distribution
 | **Round 466** | GT 3 / GT 3 Pro, GT 4 (41 & 46 mm), GT 5 / GT 5 Pro, **GT 6 / GT 6 Pro**, GT Runner / Runner 2, GT Cyber, GT 2022 Collector | **466 × 466** | circle | ✅ primary (our dev device) |
 | Round 454 (legacy) | GT 2 / GT 2 Pro (46 mm) | 454 × 454 | circle | 🟡 not on current store list; layout still adapts |
 | Round 390 (legacy) | GT / GT 2 (42 mm) | 390 × 390 | circle | 🟡 not on current store list; layout still adapts |
-| **Rect FIT (tall)** | **Watch FIT 3 / FIT 4 / FIT 5 / FIT 5 Pro** | **408 × 480** (portrait) | rect | 🟠 reviewer device (FIT 5 Pro); no hardware on hand |
-| Rect FIT 2 | Watch FIT 2 | 336 × 480 (portrait) | rect | 🟠 narrower 1.74″; layout adapts, time box tight |
+| **Rect FIT (tall)** | **Watch FIT 3 / FIT 4 / FIT 5 / FIT 5 Pro** | **408 × 480** (portrait) | rect | ⛔ excluded by `distroFilter`; no hardware on hand, and unverified layout twice failed review |
+| Rect FIT 2 | Watch FIT 2 | 336 × 480 (portrait) | rect | ⛔ excluded by `distroFilter` since 2026-09-10 |
+| **Rect FIT / D (short)** | **Watch FIT 1/2 gen, Watch D** | **280 × 456** | rect | ⛔ excluded; **never modelled — our layout was never designed for it** |
+| Band / FIT mini | Band 6–10, Watch FIT mini | 194 × 368 | rect | ⛔ excluded; never modelled |
+
+## Distribution is filtered to round screens (2026-09-10)
+
+`config.json` → `module.distroFilter.screenShape = {policy: "include", value: ["circle"]}`.
+
+Huawei: *"During app release, AppGallery distributes the app to the square and round lite wearables
+based on the `distroFilter` attribute."* Until this was set we had **no** filter, so the HAP was
+eligible for every Lite Wearable — GT, **Watch D and the whole FIT family** — and reviewers kept
+landing on square hardware we have never run. That produced the 1.0.2 rejection (FIT 5 Pro, layout)
+and the 2026-09 rule-3.1 rejection (square watch, app never reached RUNNING).
+
+AGC cannot express this: it offers device *types* only ("Smart watch" / "Sports watch"; GT 6 is a
+Sports watch), no per-model list, and device types can be added but never removed after release.
+The HAP filter is the only mechanism.
+
+Huawei's official resolution table is **wider than the rect profiles we had modelled** — it also
+lists 280 × 456 and 194 × 368, neither of which our responsive math was ever designed for. Treat
+"support square watches" as real work needing real hardware, not a layout tweak.
 
 **Key facts**
 

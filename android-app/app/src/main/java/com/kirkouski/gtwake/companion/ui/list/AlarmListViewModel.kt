@@ -12,6 +12,7 @@ import com.kirkouski.gtwake.companion.data.SettingsStore
 import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.scheduler.AlarmScheduler
 import com.kirkouski.gtwake.companion.wear.ForceSyncResult
+import com.kirkouski.gtwake.companion.wear.WearPermissionOutcome
 import com.kirkouski.gtwake.companion.wear.PairedDeviceInfo
 import com.kirkouski.gtwake.companion.wear.WatchSyncStatus
 import com.kirkouski.gtwake.companion.wear.WearBridgeService
@@ -69,6 +70,11 @@ class AlarmListViewModel @Inject constructor(
     /** One-shot events for showing the Force-sync result as a Snackbar/Toast. */
     val forceSyncEvents: SharedFlow<ForceSyncResult> = _forceSyncEvents.asSharedFlow()
 
+    private val _authEvents = MutableSharedFlow<WearPermissionOutcome>(extraBufferCapacity = 1)
+
+    /** One-shot outcomes of the watch-card authorize tap. */
+    val authEvents: SharedFlow<WearPermissionOutcome> = _authEvents.asSharedFlow()
+
     // Backed by a Mutex so consecutive taps of "Force sync" serialize
     // instead of racing N parallel coroutines through the bridge. The
     // Mutex is non-reentrant; isLocked check on the UI side would also
@@ -91,11 +97,25 @@ class AlarmListViewModel @Inject constructor(
     }
 
     /**
-     * Re-check Wear Engine permission. Called on screen resume and after the
-     * user returns from the Huawei Health authorize dialog.
+     * Re-check Wear Engine permission. Called on screen resume, and directly
+     * from [onAuthorizeOutcome] — resume alone is not enough, because a
+     * request that never renders a dialog never pauses the activity.
      */
     fun refreshWatchAuthorization() = viewModelScope.launch {
         _needsWatchAuthorization.value = wearBridge.hasWatchPermission() == false
+    }
+
+    /**
+     * Report the result of an authorize tap. Emits for the UI to surface and
+     * re-checks the permission so the card's key icon clears without waiting
+     * for a resume that may never come.
+     *
+     * May be called from a background thread — [MutableSharedFlow.tryEmit] and
+     * [viewModelScope] are both safe from any thread.
+     */
+    fun onAuthorizeOutcome(outcome: WearPermissionOutcome) {
+        _authEvents.tryEmit(outcome)
+        refreshWatchAuthorization()
     }
 
     fun onForceSync() = viewModelScope.launch {

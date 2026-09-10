@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">GT Wake Companion</string>
     <string name="widget_label">Наступны будзільнік</string>
 
@@ -100,8 +100,8 @@
     <string name="battery_opt_card_dismiss">Не зараз</string>
 
     <string name="watch_status_card_title">Сінхранізацыя з гадзіннікам</string>
-    <string name="watch_status_card_needs_auth">Не аўтарызавана — націсніце ключ, каб даць доступ да гадзінніка</string>
-    <string name="watch_status_card_authorize">Аўтарызаваць доступ да гадзінніка</string>
+    <string name="watch_status_card_needs_auth">Няма доступу — націсніце ключ, каб дазволіць доступ да гадзінніка</string>
+    <string name="watch_status_card_authorize">Дазволіць доступ да гадзінніка</string>
 
     <string name="voice_alarm_set">Будзільнік зададзены на %1$s</string>
     <string name="voice_alarm_failed">Не атрымалася задаць будзільнік</string>
@@ -210,4 +210,20 @@
     <string name="setup_oem_keep_oneplus">Калі будзільнікі спазняюцца на OxygenOS, праверце налады батарэі праграмы.\n\n  •  Налады → Батарэя → Дадатковыя налады → Кіраванне батарэяй праграм → GT Wake.\n  •  Дазвольце фонавую/актыўную працу для начнога тэставання будзільніка.</string>
     <string name="setup_oem_keep_huawei">Тэлефоны Huawei могуць блакіраваць фонавы запуск, калі вы не кіруеце праграмай уручную.\n\n  •  Менеджар тэлефона → Запуск праграм → GT Wake → Кіраваць уручную.\n  •  Уключыце Аўтазапуск, Другасны запуск і Працу ў фоне.\n  •  Зрабіце тое ж для Huawei Health, калі сінхранізацыя з гадзіннікам ненадзейная.</string>
     <string name="setup_oem_keep_other">Калі ў вашым тэлефоне ёсць Менеджар тэлефона / праграма бяспекі, пашукайце Абароненыя праграмы, Аўтазапуск ці Фонавую актыўнасць.\n\n  •  Дадавайце GT Wake туды толькі калі будзільнікі спазняюцца пасля праходжання абавязковых праверак.</string>
+    <string name="force_sync_already" tools:ignore="PluralsCandidate">На гадзінніку ўжо актуальныя даныя (%1$d)</string>
+    <string name="force_sync_disconnected">Гадзіннік па-за зонай дасягальнасці. Паднясіце яго бліжэй і паўтарыце.</string>
+    <string name="force_sync_error">Не ўдалося сінхранізаваць. Паўтарыце спробу пазней.</string>
+    <string name="force_sync_no_device">Гадзіннік не спалучаны. Падключыце яго ў Huawei Health і паўтарыце.</string>
+    <string name="force_sync_not_authorized">Спачатку дазвольце доступ да гадзінніка — націсніце значок ключа на картцы сінхранізацыі.</string>
+    <string name="force_sync_ok" tools:ignore="PluralsCandidate">Сінхранізавана будзільнікаў на гадзіннік: %1$d</string>
+    <string name="force_sync_peer_app_missing">GT Wake яшчэ не ўсталяваны на гадзінніку. Усталюйце: Huawei Health → Прылады → ваш гадзіннік → AppGallery.</string>
+    <string name="force_sync_peer_not_running">Адкрыйце GT Wake на гадзінніку і націсніце сінхранізацыю яшчэ раз.</string>
+    <string name="watch_authorize_cancelled">Доступ да гадзінніка не дадзены. Націсніце значок ключа, каб паўтарыць.</string>
+    <string name="watch_authorize_granted">Доступ да гадзінніка дазволены.</string>
+    <string name="watch_authorize_unavailable">Не ўдалося адкрыць экран дазволаў Huawei Health. Абнавіце Huawei Health і HMS Core і паўтарыце.</string>
+    <string name="watch_status_card_force_sync">Сінхранізаваць</string>
+    <string name="watch_unsupported_donate">Хочаце GT Wake на HarmonyOS? Дапамажыце гэтаму адбыцца →</string>
+    <string name="watch_unsupported_harmony">GT Wake Companion — праграма для Android, і на HarmonyOS 5 яна не можа звязацца з гадзіннікам. Магчыма, яна вам і не патрэбная: ваш тэлефон ужо ўмее званіць сваімі будзільнікамі на спараваным гадзінніку. Адкрыйце Huawei Health, выберыце гадзіннік, націсніце «Будзільнік» і ўключыце сінхранізацыю будзільнікаў тэлефона. Будзільнікі на гэтым тэлефоне працягваюць працаваць як звычайна.</string>
+    <string name="watch_unsupported_no_health">Для сінхранізацыі з гадзіннікам патрэбна праграма Huawei Health, але яна не ўсталяваная. Усталюйце Huawei Health і адкрыйце GT Wake зноў. Будзільнікі на гэтым тэлефоне працягваюць працаваць як звычайна.</string>
+    <string name="watch_unsupported_title">Сінхранізацыя з гадзіннікам недаступная на гэтым тэлефоне</string>
 </resources>
