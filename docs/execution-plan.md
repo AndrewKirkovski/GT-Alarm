@@ -342,7 +342,7 @@ Before resubmitting (shipped as 1.0.11, 2026-10-01):
 - [x] Sync-off check: the phone logs `syncWatchNow skipped` and the watch stays asleep.
 - [x] Probe logging and the visible `BUILD_TAG` removed (`BUILD_TAG` is now only logged at `onInit`).
 - [x] Release page bundle measured: 65,088 B (was 79,395 B).
-- [ ] Deploy the site before the store upload (the watch QR points at `/watch`).
+- [x] Site deployed 2026-10-02 (`/watch`, `/watch/zh` live; download page serves 1.0.11).
 
 Follow-ups:
 - `wearBridge.js` send timeout and retry timers, and the crown debounce timers, are still one-shot `setTimeout`.

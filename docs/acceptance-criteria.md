@@ -756,8 +756,8 @@ Rejected on GT 6 Pro and FIT 5 Pro with three findings:
   vibrates for them.") with a QR to the new `/watch` help page (`/watch/zh` for zh-CN). The old
   "Set up GT Wake / install the phone app" variant is gone: with sync off a working install has an
   empty list, and a fresh watch counts as connected only after its first alarm. Checked by the
-  tester 2026-10-01: text renders and the QR scans. ❌ The `/watch` page is not deployed yet, so
-  the QR leads nowhere until the site deploy (release step 9).
+  tester 2026-10-01: text renders and the QR scans. The `/watch` and `/watch/zh` pages are live
+  since 2026-10-02 (checked rendered in a browser).
 - 🟠 Known limitation: an older watch build ignores `listSync` and keeps its stale list until the
   watch app is updated. Both apps ship together.
 
