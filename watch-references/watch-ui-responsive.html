@@ -45,16 +45,22 @@
   .alarm-days-text { color:#C4CEE0; font-size:24px; line-height:33px; }
 
   .empty { display:flex; flex-direction:column; align-items:center; justify-content:center; }
-  .empty-title { color:#F1F5F9; font-size:42px; margin-bottom:6px; text-align:center; }
-  .empty-hint { color:#AEB8CC; font-size:26px; margin-bottom:12px; text-align:center; }
-  /* Onboarding QR (our /download page, which routes to a store) + scan hint. */
+  /* Heights mirror index.css (title 96, hint 76/104 via emptyHintH, scan 28) and
+     the flex centring there; without them the stack is shorter than on the
+     watch and a clipped scan line on small round faces looks fine here. */
+  .empty-title { color:#F1F5F9; font-size:42px; height:96px; margin-bottom:6px; text-align:center;
+                 display:flex; align-items:center; justify-content:center; }
+  .empty-hint { color:#AEB8CC; font-size:26px; margin-bottom:12px; text-align:center;
+                display:flex; align-items:center; justify-content:center; }
+  /* Help QR (our /watch page, which explains the list and links the stores) + scan line. */
   .onb-qr { width:154px; height:154px; margin-bottom:8px; }
   /* The watch uses a NATIVE <qrcode value="url"> (ArkUI.Lite) rendered on-device;
      the browser can't render it, so these placeholders stand in at the same size. */
   .qr-ph { background:#fff; color:#000; border:1px solid #aaa; box-sizing:border-box;
            display:flex; align-items:center; justify-content:center; text-align:center;
            font-size:13px; font-weight:700; line-height:1.2; }
-  .onb-scan { color:#C4CEE0; font-size:22px; text-align:center; }
+  .onb-scan { color:#C4CEE0; font-size:22px; height:28px; text-align:center; white-space:nowrap;
+              display:flex; align-items:center; justify-content:center; }
   /* Privacy consent screen. */
   .privacy-content { display:flex; flex-direction:column; align-items:center; justify-content:center; background-color:#0F0F23; position:relative; z-index:2; }
   .privacy-title { color:#fff; font-size:32px; margin-bottom:6px; text-align:center; }
@@ -103,6 +109,8 @@ function dims(W, H, shape) {
     W: W, H: H, round: round,
     listH: H - 146,
     emptyH: H,
+    // Mirrors index.js applyScreen: 2-line hint box on round, 3-line on rect.
+    emptyHintH: round ? 76 : 104,
     padTop: round ? 24 : 8,
     padBot: round ? 56 : 8,
     cx: Math.round(W / 2), cy: Math.round(H / 2),
@@ -165,27 +173,26 @@ function listScreen(d) {
     + '<div class="alarm-list" style="width:' + d.W + 'px;height:' + d.listH + 'px;padding-top:' + d.padTop + 'px;padding-bottom:' + d.padBot + 'px;">'
     + rows(d) + '</div></div>';
 }
-// Connected-but-empty: "No alarms" + the onboarding QR (shown on every empty
-// state so the watch always points to the companion app).
-function emptyScreen(d) {
+// Empty state (2026-09-28): one message whether or not the phone ever
+// connected, since with list sync off (the default) the list is always empty.
+// QR goes to the /watch help page. All six locales: the longest hint and the
+// widest scan line are in different languages (be/uk hints, pl scan line).
+var EMPTY_COPY = {
+  en: ['GT Wake', 'Set alarms on your phone. The watch vibrates for them.', 'Scan for help'],
+  ru: ['GT Wake', 'Будильники ставятся на телефоне. Часы вибрируют.', 'Справка'],
+  uk: ['GT Wake', 'Будильники ставляться на телефоні. Годинник вібрує.', 'Довідка'],
+  be: ['GT Wake', 'Будзільнікі ставяцца на тэлефоне. Гадзіннік вібруе.', 'Даведка'],
+  pl: ['GT Wake', 'Alarmy ustawiasz w telefonie. Zegarek wibruje.', 'Pomoc'],
+  zh: ['GT Wake', '在手机上设置闹钟，手表会振动提醒。', '扫码获取帮助']
+};
+function emptyScreen(d, lang) {
+  var c = EMPTY_COPY[lang];
   return '<div class="content" style="width:' + d.W + 'px;height:' + d.H + 'px;">'
     + '<div class="empty" style="width:' + d.W + 'px;height:' + d.emptyH + 'px;">'
-    + '<div class="empty-title" style="width:' + d.titleW + 'px;">No alarms</div>'
-    + '<div class="empty-hint" style="width:' + d.titleW + 'px;">Add alarms on the phone</div>'
+    + '<div class="empty-title" style="width:' + d.titleW + 'px;">' + c[0] + '</div>'
+    + '<div class="empty-hint" style="width:' + d.titleW + 'px;height:' + d.emptyHintH + 'px;overflow:hidden;">' + c[1] + '</div>'
     + '<div class="onb-qr qr-ph">QR<br>(native)</div>'
-    + '<div class="onb-scan" style="width:' + d.titleW + 'px;">Scan to get the phone app</div>'
-    + '</div></div>';
-}
-// Never connected: stronger "set up" copy + the AppGallery companion QR. This
-// is the state the AppGallery reviewer first lands on — the QR makes the watch
-// self-explanatory instead of a dead end.
-function onboardingScreen(d) {
-  return '<div class="content" style="width:' + d.W + 'px;height:' + d.H + 'px;">'
-    + '<div class="empty" style="width:' + d.W + 'px;height:' + d.emptyH + 'px;">'
-    + '<div class="empty-title" style="width:' + d.titleW + 'px;">Set up GT Wake</div>'
-    + '<div class="empty-hint" style="width:' + d.titleW + 'px;">Install GT Wake on your Android phone</div>'
-    + '<div class="onb-qr qr-ph">QR<br>(native)</div>'
-    + '<div class="onb-scan" style="width:' + d.titleW + 'px;">Scan to get the phone app</div>'
+    + '<div class="onb-scan" style="width:' + d.titleW + 'px;">' + c[2] + '</div>'
     + '</div></div>';
 }
 // First-launch privacy consent (rule 7.5). Agree persists + proceeds; Decline
@@ -229,6 +236,9 @@ var PROFILES = [
   { name: 'Round · legacy GT 2 / GT 2 Pro (454×454)',
     sub: 'Not on the current store list — shown to prove small-round scaling still fills + centres.',
     W: 454, H: 454, shape: 'circle' },
+  { name: 'Round · 390×390 (smaller round panels in distroFilter)',
+    sub: 'Smallest round size we distribute to. Narrowest text box on a round face (366 px).',
+    W: 390, H: 390, shape: 'circle' },
   { name: 'Rect · Watch FIT 3 / FIT 4 / FIT 5 (Pro) — portrait 408×480',
     sub: 'The device the reviewer rejected us on (FIT 5 Pro). Taller than wide; list gets more rows.',
     W: 408, H: 480, shape: 'rect' },
@@ -245,8 +255,12 @@ for (var i = 0; i < PROFILES.length; i++) {
   out += '<div class="profile-group"><h2>' + p.name + '</h2>'
     + '<div class="profile-sub">' + p.sub + '</div><div class="grid">'
     + frame('Privacy', d, privacyScreen(d))
-    + frame('Onboarding (never connected)', d, onboardingScreen(d))
-    + frame('Empty (connected)', d, emptyScreen(d))
+    + frame('Empty (en)', d, emptyScreen(d, 'en'))
+    + frame('Empty (ru)', d, emptyScreen(d, 'ru'))
+    + frame('Empty (uk)', d, emptyScreen(d, 'uk'))
+    + frame('Empty (be)', d, emptyScreen(d, 'be'))
+    + frame('Empty (pl)', d, emptyScreen(d, 'pl'))
+    + frame('Empty (zh)', d, emptyScreen(d, 'zh'))
     + frame('List', d, listScreen(d))
     + frame('Ring', d, ringScreen(d))
     + '</div></div>';

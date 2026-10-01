@@ -237,4 +237,21 @@
     <string name="watch_unsupported_harmony">GT Wake Companion — застосунок для Android, і на HarmonyOS 5 він не може зв’язатися з годинником. Можливо, він вам і не потрібен: ваш телефон уже вміє дзвонити своїми будильниками на спареному годиннику. Відкрийте Huawei Health, виберіть годинник, натисніть «Будильник» і увімкніть синхронізацію будильників телефона. Будильники на цьому телефоні працюють як звичайно.</string>
     <string name="watch_unsupported_no_health">Для синхронізації з годинником потрібен застосунок Huawei Health, але його не встановлено. Установіть Huawei Health і відкрийте GT Wake знову. Будильники на цьому телефоні працюють як звичайно.</string>
     <string name="watch_unsupported_title">Синхронізація з годинником недоступна на цьому телефоні</string>
+    <!-- Opt-in watch list sync + watch wake consent (rule 3.1, 2026-09-28) -->
+    <string name="settings_section_watch">Годинник</string>
+    <string name="settings_watch_list_sync">Показувати список будильників на годиннику</string>
+    <string name="settings_watch_list_sync_hint">Годинник у будь-якому разі дзвонить для кожного будильника. Якщо ввімкнено, годинник також показує список будильників і ненадовго відкриває GT Wake, щоб оновити його після кожної зміни.</string>
+    <string name="watch_list_sync_confirm_title">Показувати список будильників на годиннику?</string>
+    <string name="watch_list_sync_confirm_body">Через особливості підключення годинників Huawei годинник прокидатиметься й ненадовго відкриватиме GT Wake, щоб оновити список після кожної зміни будильників.</string>
+    <string name="watch_list_sync_confirm_ok">Увімкнути</string>
+    <string name="watch_list_sync_on_done">Список будильників надіслано на годинник</string>
+    <string name="watch_list_sync_off_done">Список будильників видалено з годинника</string>
+    <string name="force_sync_list_off">Список будильників на годиннику вимкнено. Його можна ввімкнути в налаштуваннях.</string>
+    <string name="watch_status_card_list_off">Список будильників на годиннику: вимкнено</string>
+    <string name="watch_picture_confirm_title">Змінити зображення на годиннику?</string>
+    <string name="watch_picture_clear_confirm_title">Прибрати зображення з годинника?</string>
+    <string name="watch_picture_confirm_body">Годинник прокинеться й ненадовго відкриє GT Wake, щоб отримати зображення.</string>
+    <string name="watch_picture_clear_confirm_body">Годинник прокинеться й ненадовго відкриє GT Wake, щоб прибрати зображення.</string>
+    <string name="watch_picture_confirm_ok">Продовжити</string>
+    <string name="field_watch_vibration_hint">Режим «Не турбувати», режим сну або вібрація «Немає» на годиннику можуть її вимкнути.</string>
 </resources>

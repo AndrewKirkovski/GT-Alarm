@@ -372,6 +372,16 @@ fun AlarmEditScreen(
                         checked = state.watchVibrationEnabled,
                         onToggle = vm::toggleWatchVibration,
                     )
+                    // The watch app cannot read these watch settings, so it
+                    // cannot warn at ring time; say it here instead.
+                    if (state.watchVibrationEnabled) {
+                        Text(
+                            text = stringResource(R.string.field_watch_vibration_hint),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 52.dp, end = 16.dp, bottom = 12.dp),
+                        )
+                    }
 
                     // Vibration pattern (shared by phone + watch) — shown only
                     // when at least one device vibrates.

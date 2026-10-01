@@ -18,7 +18,9 @@ import com.kirkouski.gtwake.companion.widget.WidgetRefresher
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -105,10 +107,47 @@ class AlarmRepository @Inject constructor(
      */
     suspend fun syncWatchNow(): ForceSyncResult = watchSyncMutex.withLock {
         val settings = settingsStore.snapshot()
+        // The single gate for every list push (debounced mutations, onStart,
+        // the manual button). It sits BEFORE sendSettingsChanged because that
+        // send wakes the watch on its own. Checked inside the lock so a sync
+        // queued behind a turn-off sees the new value.
+        if (!settings.watchListSync) {
+            Log.i(TAG, "syncWatchNow skipped — watch list sync is off")
+            return@withLock ForceSyncResult.ListSyncOff
+        }
         wearBridge.sendSettingsChanged(settings.use24Hour, settings.firstDayOfWeek)
         val result = wearBridge.forceSync { getAll() }
         Log.i(TAG, "syncWatchNow result=$result")
         result
+    }
+
+    /**
+     * Turn "Show alarm list on watch" on or off. The UI has already shown the
+     * consent dialog for turning it on. Turning on pushes the list once;
+     * turning off pushes an empty list once, so the watch drops the copy it
+     * holds (one user-initiated wake, through the same replace + sync_done
+     * path as a normal sync). A pending debounced sync is cancelled first so
+     * it cannot land after the clear.
+     */
+    /** [setWatchListSync] on the repository's own scope, so it outlives the caller's screen. */
+    fun changeWatchListSync(enabled: Boolean): Deferred<ForceSyncResult> =
+        appScope.async { setWatchListSync(enabled) }
+
+    suspend fun setWatchListSync(enabled: Boolean): ForceSyncResult {
+        synchronized(this) {
+            pendingSyncJob?.cancel()
+            pendingSyncJob = null
+        }
+        settingsStore.setWatchListSync(enabled)
+        return if (enabled) {
+            syncWatchNow()
+        } else {
+            watchSyncMutex.withLock {
+                val result = wearBridge.forceSync { emptyList() }
+                Log.i(TAG, "watch list sync off — cleared watch list result=$result")
+                result
+            }
+        }
     }
 
     suspend fun save(alarm: Alarm): Long {

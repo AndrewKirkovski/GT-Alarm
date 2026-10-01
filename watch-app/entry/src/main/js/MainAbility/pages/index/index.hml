@@ -9,18 +9,20 @@
      constants (no visual change); rectangular watches fit + centre. -->
 <stack class="root" onswipe="onSwipe" style="width:{{screenW}}px; height:{{screenH}}px;">
 
-    <!-- ================= SPLASH (loading) ================= -->
+    <!-- ================= SPLASH (loading) + SYNC screen ================= -->
     <!-- Branded loading screen shown once `sized` (real dims known) until the
          cold-start load finishes (contentReady) or an event takes over. Bg +
-         centred hourglass. Nested <stack> so the bg <image> composites (same
-         trick the screens use). splashBg = custom bg if received, else the
-         shipped default gradient. -->
-    <stack class="screen" if="{{showSplash}}" style="width:{{screenW}}px; height:{{screenH}}px;">
-        <image class="bg-full" src="{{splashBg}}" style="width:{{screenW}}px; height:{{screenH}}px;"></image>
-        <!-- Centred loading hourglass. The splash only ever shows when `sized`,
+         centred icon. Nested <stack> so the bg <image> composites (same trick
+         the screens use). splashBg = custom bg if received, else the shipped
+         default gradient. The SYNC screen is the same layout with the refresh
+         icon, so it shares this block (merged 2026-10-01 for bundle size;
+         showSplash is never true while screen is 'sync'). -->
+    <stack if="{{showSplash || (sized && screen === 'sync')}}" style="width:{{screenW}}px; height:{{screenH}}px;">
+        <image src="{{splashBg}}" style="width:{{screenW}}px; height:{{screenH}}px;"></image>
+        <!-- Centred icon. The splash only ever shows when `sized`,
              so it's correctly centred on every resolution — no dims gate. -->
         <div class="splash-center" style="width:{{screenW}}px; height:{{screenH}}px;">
-            <image class="loading-icon" src="common/loading.png"></image>
+            <image class="loading-icon" src="{{screen === 'sync' ? 'common/sync.png' : 'common/loading.png'}}"></image>
         </div>
     </stack>
 
@@ -127,19 +129,17 @@
             </list-item>
         </list>
 
-        <!-- Empty / onboarding state. Copy switches on hasConnected
-             (computed in index.js): never-connected shows "set up" wording,
-             connected-but-empty shows "no alarms". Both render the QR to our
-             own /download page (i18n'd onbQr), which picks the store from the
-             phone's UA — AppGallery unless it is clearly a non-Huawei Android.
-             Routing through a page we control means a store link can change
-             without re-releasing the watch. Do NOT point it at an AppGallery
+        <!-- Empty state. One message for everyone (alarms are set on the
+             phone; the watch vibrates when one goes off) with a QR to our own
+             /watch help page (i18n'd onbQr), which explains list sync and
+             links the stores. Routing through a page we control means a store
+             link can change without re-releasing the watch. Do NOT point it at an AppGallery
              /app/detail?id=<pkg> URL: that form is not served to browsers and
              scanning it was a dead end on every phone (AppGallery review
              finding, 2026-09). See meta/store-listings.md § F. -->
-        <div class="empty" if="{{alarms.length === 0}}" style="width:{{screenW}}px; height:{{emptyH}}px;">
+        <div class="empty" if="{{alarms.length === 0}}" style="width:{{screenW}}px; height:{{screenH}}px;">
             <text class="empty-title" style="width:{{titleW}}px;">{{emptyText}}</text>
-            <text class="empty-hint" style="width:{{titleW}}px;">{{emptyHint}}</text>
+            <text class="empty-hint" style="width:{{titleW}}px; height:{{emptyHintH}}px;">{{emptyHint}}</text>
             <qrcode class="onb-qr" value="{{onbQr}}"></qrcode>
             <text class="onb-scan" style="width:{{titleW}}px;">{{onbScan}}</text>
         </div>
@@ -172,15 +172,6 @@
         </div>
     </stack>
 
-    <!-- ================= SYNC screen ================= -->
-    <stack class="screen" if="{{sized && screen === 'sync'}}" style="width:{{screenW}}px; height:{{screenH}}px;">
-        <image class="bg-full" src="{{splashBg}}" style="width:{{screenW}}px; height:{{screenH}}px;"></image>
-        <!-- Sync state mirrors the splash: bg + centred refresh icon, no text. -->
-        <div class="splash-center" style="width:{{screenW}}px; height:{{screenH}}px;">
-            <image class="loading-icon" src="common/sync.png"></image>
-        </div>
-    </stack>
-
     <!-- ================= RING screen ================= -->
     <stack class="ring" if="{{sized && screen === 'ring'}}" onswipe="onSwipe" style="width:{{screenW}}px; height:{{screenH}}px;">
         <!-- Hidden, always-scrollable list: the digital crown scrolls the
@@ -203,24 +194,19 @@
             <image src="common/bell.png" class="ring-bell"></image>
             <text class="ring-title" style="width:{{screenW}}px;">{{ringTitle}}</text>
             <text class="ring-time" style="width:{{screenW}}px;">{{ringTime}}</text>
-            <!-- Action row: snooze + stop when snoozable, stop-only when
-                 the alarm has snoozeMinutes=0, OR the green thumbs-up
-                 confirmation once ended. SAME Y position via identical
-                 width/height/margin on all three slots. -->
-            <div class="ring-actions" if="{{!ended && ringSnoozeEnabled}}" style="width:{{screenW}}px;">
-                <div class="ring-btn" onclick="onSnooze">
+            <!-- Action row: snooze (only when snoozable) + stop, OR the green
+                 thumbs-up confirmation once ended. Both rows use the same class,
+                 so they sit at the same Y position. The snooze button is an
+                 `if=` child inside the flex row (same pattern as the day dots). -->
+            <div class="ring-actions" if="{{!ended}}" style="width:{{screenW}}px;">
+                <div class="ring-btn" if="{{ringSnoozeEnabled}}" onclick="onSnooze">
                     <image src="common/snooze.png" class="ring-btn-img"></image>
                 </div>
                 <div class="ring-btn" onclick="onDismiss">
                     <image src="common/stop.png" class="ring-btn-img"></image>
                 </div>
             </div>
-            <div class="ring-actions-stop" if="{{!ended && !ringSnoozeEnabled}}" style="width:{{screenW}}px;">
-                <div class="ring-btn" onclick="onDismiss">
-                    <image src="common/stop.png" class="ring-btn-img"></image>
-                </div>
-            </div>
-            <div class="ring-ended" if="{{ended}}" style="width:{{screenW}}px;">
+            <div class="ring-actions" if="{{ended}}" style="width:{{screenW}}px;">
                 <image src="common/thumbup.png" class="ring-thumb"></image>
             </div>
         </div>

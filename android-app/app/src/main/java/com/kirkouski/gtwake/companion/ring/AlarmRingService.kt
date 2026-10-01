@@ -21,8 +21,10 @@ import com.kirkouski.gtwake.companion.wear.WearBridgeService
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -76,6 +78,17 @@ class AlarmRingService : Service() {
      * would misreport every healthy ring as NEVER_LAUNCHED.
      */
     private var ringStartedElapsedMs: Long = 0L
+
+    // Keeps re-sending alarm_fired after the pre-arm window runs out (see
+    // startWatchCatchUp). Cancelled as soon as the ring ends.
+    private var watchCatchUpJob: Job? = null
+
+    // Set the moment a dismiss/snooze starts. Cancelling watchCatchUpJob is
+    // not enough on its own: a dismiss can land while the pre-arm is still
+    // awaiting (the FSI notification with its Dismiss action is already up),
+    // before the catch-up job exists. The pre-arm then returns and would
+    // start re-sending alarm_fired for a ring that already ended.
+    @Volatile private var ringEnded: Boolean = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -176,7 +189,16 @@ class AlarmRingService : Service() {
             stopForegroundAndSelf()
             return
         }
+        // A new ring takes over the service (see the TODO above): stop the
+        // previous ring's catch-up so it releases the bridge's pre-arm lock
+        // instead of delaying this alarm's own pre-arm.
+        stopWatchCatchUp()
         ringStartedElapsedMs = android.os.SystemClock.elapsedRealtime()
+        // Phone wall time of this ring, sent as `firedAt` so the watch can
+        // match re-sent copies. Captured once and passed down, not re-read
+        // from a field that a second ring could overwrite mid-pre-arm.
+        val firedAtEpoch = System.currentTimeMillis()
+        ringEnded = false
         startForegroundOnly(alarm)
 
         serviceScope.launch {
@@ -218,10 +240,7 @@ class AlarmRingService : Service() {
                 // STEP 2: pre-arm — if watch is paired+connected, await
                 // alarm_fired delivery up to PREARM_TIMEOUT_MS. Returns
                 // immediately false if no watch is reachable.
-                val prearmStartMs = System.currentTimeMillis()
-                val watchReady = preArmWatch(alarmId, alarm)
-                val prearmTookMs = System.currentTimeMillis() - prearmStartMs
-                Log.i(TAG, "preArmWatch id=$alarmId ready=$watchReady took=${prearmTookMs}ms")
+                preArmWatchTimed(alarmId, alarm, firedAtEpoch)
                 // STEP 3: start audio + show AlarmActivity. By now phone +
                 // watch are both presenting (or we timed out waiting).
                 startRingingAudioAndUi(alarm, resolveAudioUri(alarm))
@@ -274,15 +293,39 @@ class AlarmRingService : Service() {
         startForeground(AlarmNotifications.NOTIFICATION_ID, notif, foregroundServiceTypeForApi())
     }
 
+    // Pre-arm with timing log; if the watch did not confirm in time, keep
+    // delivering in the background (startWatchCatchUp).
+    private suspend fun preArmWatchTimed(alarmId: Long, alarm: Alarm, firedAtEpoch: Long) {
+        val prearmStartMs = System.currentTimeMillis()
+        val ringHints = buildRingHints(alarm, firedAtEpoch)
+        val watchReady = preArmWatch(alarmId, ringHints)
+        val prearmTookMs = System.currentTimeMillis() - prearmStartMs
+        Log.i(TAG, "preArmWatch id=$alarmId ready=$watchReady took=${prearmTookMs}ms")
+        if (!watchReady) startWatchCatchUp(alarmId, ringHints)
+    }
+
+    // Thin-client envelope hints — see AlarmRingHints KDoc. Computed once per
+    // ring and passed to every send (pre-arm and catch-up) so the watch rings
+    // with the right pattern + Snooze gating WITHOUT a prior sync.
+    // Settings live in credential-encrypted storage: read them only once the
+    // user has unlocked, or the read throws into the broad catch in handleRing
+    // and the ring never starts.
+    private suspend fun buildRingHints(
+        alarm: Alarm,
+        firedAtEpoch: Long,
+    ): com.kirkouski.gtwake.companion.wear.AlarmRingHints {
+        val settings = if (isUserUnlocked) settingsStore.snapshot() else null
+        return com.kirkouski.gtwake.companion.wear.AlarmRingHints.from(alarm, settings)
+            .copy(firedAtEpoch = firedAtEpoch)
+    }
+
     // Try to wake the watch so it shows its own ring page in time with the
     // phone. Returns true if a 207 (COMM_SUCCESS) came back within budget;
     // false if no watch is paired/connected OR we timed out waiting.
-    private suspend fun preArmWatch(alarmId: Long, alarm: Alarm): Boolean {
-        // Thin-client envelope hints — see AlarmRingHints KDoc. Computed
-        // once here, sent on every send/await variant below so the watch
-        // can ring with the right pattern + Snooze gating WITHOUT prior
-        // sync (cold-paired watch, dropped sync_replace, etc.).
-        val ringHints = com.kirkouski.gtwake.companion.wear.AlarmRingHints.from(alarm)
+    private suspend fun preArmWatch(
+        alarmId: Long,
+        ringHints: com.kirkouski.gtwake.companion.wear.AlarmRingHints,
+    ): Boolean {
         val info = wearBridge.pairedDeviceInfo.value
         if (info == null || !info.connected) {
             Log.d(TAG, "preArmWatch: no connected watch (info=$info) — skipping wait")
@@ -298,6 +341,62 @@ class AlarmRingService : Service() {
             return false
         }
         return wearBridge.sendAlarmFiredAwaiting(alarmId, PREARM_TIMEOUT_MS, ringHints)
+    }
+
+    // The pre-arm gives the watch PREARM_TIMEOUT_MS before the phone starts
+    // its own audio. That budget also CANCELS the send: on a slow cold start
+    // (the FIT watches in review) the wake + send did not finish in 10 s and
+    // nothing ever re-sent, so the watch never rang. Keep delivering in the
+    // background, each attempt with a fresh wake budget, until the watch
+    // confirms (alarm_ringing) or WATCH_CATCHUP_WINDOW_MS has passed. A late
+    // duplicate is safe: the watch only re-acks a ring that is already up.
+    // Awaiting alarm_ringing is allowed here because AlarmActivity is alive
+    // for the whole ring (Wear Engine delivers only with an Activity).
+    private fun startWatchCatchUp(
+        alarmId: Long,
+        hints: com.kirkouski.gtwake.companion.wear.AlarmRingHints,
+    ) {
+        val canCatchUp = !ringEnded && isUserUnlocked &&
+            wearBridge.pairedDeviceInfo.value?.connected == true
+        if (!canCatchUp) return
+        watchCatchUpJob?.cancel()
+        // elapsedRealtime: immune to wall-clock jumps during the window.
+        val deadline = ringStartedElapsedMs + WATCH_CATCHUP_WINDOW_MS
+        watchCatchUpJob = serviceScope.launch {
+            var attempt = 0
+            while (!ringEnded && android.os.SystemClock.elapsedRealtime() < deadline) {
+                attempt++
+                val budget = minOf(
+                    WATCH_CATCHUP_ATTEMPT_MS,
+                    deadline - android.os.SystemClock.elapsedRealtime(),
+                )
+                val ready = wearBridge.sendAlarmFiredAwaiting(alarmId, budget, hints)
+                Log.i(TAG, "watch catch-up id=$alarmId attempt=$attempt ready=$ready")
+                if (ready) return@launch
+                delay(WATCH_CATCHUP_GAP_MS)
+            }
+            Log.w(TAG, "watch catch-up gave up id=$alarmId after $attempt attempt(s)")
+        }
+    }
+
+    private fun stopWatchCatchUp() {
+        ringEnded = true
+        watchCatchUpJob?.cancel()
+        watchCatchUpJob = null
+    }
+
+    // Only tell the watch to stop a ring it could have received. Sending a
+    // dismiss/snooze to a watch that never got alarm_fired launches the watch
+    // app just to close it again.
+    // When this ring's start is unknown (the process died mid-ring and the
+    // dismiss came from the surviving notification, so both this service and
+    // the bridge's delivery record are fresh), send anyway: a watch left
+    // ringing is worse than one extra wake.
+    private fun watchMayBeRinging(alarmId: Long): Boolean {
+        if (ringStartedElapsedMs == 0L) return true
+        val may = wearBridge.wasAlarmFiredDelivered(alarmId, ringStartedElapsedMs)
+        if (!may) Log.i(TAG, "watch never received alarm_fired id=$alarmId — not sending end")
+        return may
     }
 
     private fun startForegroundOnly(alarm: Alarm) {
@@ -542,6 +641,7 @@ class AlarmRingService : Service() {
         // there's no audible cost.
         player?.stop()
         player = null
+        stopWatchCatchUp()
         autoStopRunnable?.let { mainHandler.removeCallbacks(it) }
         autoStopRunnable = null
         ringUiAuditRunnable?.let { mainHandler.removeCallbacks(it) }
@@ -554,9 +654,10 @@ class AlarmRingService : Service() {
             Log.i(TAG, "dismiss id=$alarmId pre-unlock — notifying watch + recording intent")
             serviceScope.launch {
                 bfuCache.markDismissed(alarmId)
-                val delivered = withTimeoutOrNull(PRE_UNLOCK_SEND_TIMEOUT_MS) {
-                    wearBridge.sendAlarmDismissed(alarmId)
-                } ?: false
+                val delivered = watchMayBeRinging(alarmId) &&
+                    (withTimeoutOrNull(PRE_UNLOCK_SEND_TIMEOUT_MS) {
+                        wearBridge.sendAlarmDismissed(alarmId)
+                    } ?: false)
                 Log.i(TAG, "dismiss id=$alarmId pre-unlock send delivered=$delivered")
                 stopForegroundAndSelf()
             }
@@ -588,7 +689,7 @@ class AlarmRingService : Service() {
                         repository.delete(alarmId)
                     }
                 }
-                if (!fromPeer) {
+                if (!fromPeer && watchMayBeRinging(alarmId)) {
                     val acked = wearBridge.sendAlarmDismissedAwaiting(alarmId, BROADCAST_AWAIT_MS)
                     Log.i(TAG, "dismiss broadcast id=$alarmId acked=$acked")
                 }
@@ -612,6 +713,7 @@ class AlarmRingService : Service() {
         // another 2s while the watch ACK arrives.
         player?.stop()
         player = null
+        stopWatchCatchUp()
         autoStopRunnable?.let { mainHandler.removeCallbacks(it) }
         autoStopRunnable = null
         ringUiAuditRunnable?.let { mainHandler.removeCallbacks(it) }
@@ -630,9 +732,10 @@ class AlarmRingService : Service() {
                 if (!alarm.isSnoozeEnabled) {
                     Log.i(TAG, "snooze id=$alarmId pre-unlock — snooze-disabled, collapse to dismiss")
                     bfuCache.markDismissed(alarmId)
-                    val delivered = withTimeoutOrNull(PRE_UNLOCK_SEND_TIMEOUT_MS) {
-                        wearBridge.sendAlarmDismissed(alarmId)
-                    } ?: false
+                    val delivered = watchMayBeRinging(alarmId) &&
+                        (withTimeoutOrNull(PRE_UNLOCK_SEND_TIMEOUT_MS) {
+                            wearBridge.sendAlarmDismissed(alarmId)
+                        } ?: false)
                     Log.i(TAG, "snooze→dismiss id=$alarmId pre-unlock send delivered=$delivered")
                     stopForegroundAndSelf()
                     return@launch
@@ -646,9 +749,10 @@ class AlarmRingService : Service() {
                 if (!fromPeer) {
                     bfuCache.markPendingSnoozeBump(alarmId)
                 }
-                val delivered = withTimeoutOrNull(PRE_UNLOCK_SEND_TIMEOUT_MS) {
-                    wearBridge.sendAlarmSnoozed(alarmId, trigger)
-                } ?: false
+                val delivered = watchMayBeRinging(alarmId) &&
+                    (withTimeoutOrNull(PRE_UNLOCK_SEND_TIMEOUT_MS) {
+                        wearBridge.sendAlarmSnoozed(alarmId, trigger)
+                    } ?: false)
                 Log.i(
                     TAG,
                     "snooze id=$alarmId pre-unlock — +${alarm.snoozeMinutes}min " +
@@ -695,7 +799,7 @@ class AlarmRingService : Service() {
                     System.currentTimeMillis() + alarm.snoozeMinutes * 60_000L
                 }
                 repository.snoozeAt(alarmId, trigger, fromPeer = fromPeer)
-                if (!fromPeer) {
+                if (!fromPeer && watchMayBeRinging(alarmId)) {
                     val acked = wearBridge.sendAlarmSnoozedAwaiting(
                         alarmId,
                         trigger,
@@ -709,6 +813,7 @@ class AlarmRingService : Service() {
     }
 
     private fun stopForegroundAndSelf() {
+        stopWatchCatchUp()
         autoStopRunnable?.let { mainHandler.removeCallbacks(it) }
         autoStopRunnable = null
         ringUiAuditRunnable?.let { mainHandler.removeCallbacks(it) }
@@ -768,6 +873,14 @@ class AlarmRingService : Service() {
         // Pre-arm returns EARLY as soon as the watch's `alarm_ringing` reply
         // arrives, so this is a worst-case cap, not a fixed delay.
         private const val PREARM_TIMEOUT_MS = 10_000L
+
+        // Background re-send of alarm_fired after the pre-arm times out (see
+        // startWatchCatchUp). The window covers slow cold starts without
+        // making the watch start buzzing minutes late; each attempt gets the
+        // same wake budget as a manual sync.
+        private const val WATCH_CATCHUP_WINDOW_MS = 90_000L
+        private const val WATCH_CATCHUP_ATTEMPT_MS = 25_000L
+        private const val WATCH_CATCHUP_GAP_MS = 2_000L
 
         // Max time to await the watch acknowledging a user-driven dismiss
         // or snooze broadcast before tearing down the service. If we don't

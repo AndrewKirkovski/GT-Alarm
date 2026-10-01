@@ -8,6 +8,8 @@ Companion document to `docs/acceptance-criteria.md`. This is the design-of-recor
 
 > **2026-04-27 architecture pivot — read first:** Empirical install testing on the GT 6 confirmed the watch runs **HarmonyOS LiteWearable, NOT full HarmonyOS NEXT**. LiteWearable lacks `reminderAgentManager` and any scheduling primitive that survives device sleep — only `setTimeout` / `setInterval`, foreground-only. **Phone is now the sole scheduler.** The watch is an online-armed thin client: it receives "ring now" pings from the phone via Wear Engine and renders the ring UI. It does not compute or persist fire times for offline operation. The legacy NEXT-targeted watch app lives in `watch-app.old/` for reference; the live `watch-app/` is being rewritten as a LiteWearable JS project (Phase 0b). All watch-side details below describe the new design.
 
+> **2026-09-28 — list sync is opt-in.** Every phone→watch delivery launches the watch app, so a list push is always visible on the watch. "Show alarm list on watch" is now **off by default**; with it off the phone sends the watch nothing except the ring messages (`alarm_fired`, dismiss/snooze). The flows in §4.3 and §5.7 run only when the user has turned it on. See §5.8.
+
 ---
 
 ## 1. Layered model
@@ -44,6 +46,8 @@ Companion document to `docs/acceptance-criteria.md`. This is the design-of-recor
 ## 2. Wire format
 
 JSON over P2P. Every message is a single line, single object, no nesting.
+
+> **Watch receive side, since 2026-10-01:** the Lite watch app no longer implements per-row LWW or tombstones. No published phone build (1.0.1–1.0.10) sends `alarm_updated` / `alarm_deleted` / `alarm_toggled`; the only per-alarm envelope it sends is `alarm_added` (from `pushAdditive`), which the watch now applies as a plain upsert. The watch's tombstone list was also stored in one `@system.storage` value and overflowed the 128 B cap after ~3 entries, so it was not persisting anyway. The watch handles `sync_replace` (authoritative), `alarm_added`, `alarm_fired`, the dismiss/snooze messages and the meta messages below; anything else is logged and ignored. The LWW text in this section still describes the phone side and the wire stamps.
 
 **LWW-carrying messages** (the 7 types that participate in last-write-wins conflict resolution):
 
@@ -86,9 +90,9 @@ JSON over P2P. Every message is a single line, single object, no nesting.
   "ts": <number> }
 
 // phone → watch: authoritative full-state replace — used by Force sync.
-// NOT LWW. The watch replaces its entire AlarmStore with `alarms` and
-// tombstones every id dropped by the replace. This is what prunes
-// watch-only rows that an additive `alarm_added` push can never remove.
+// NOT LWW. The watch replaces its entire AlarmStore with `alarms`.
+// This is what prunes watch-only rows that an additive `alarm_added`
+// push can never remove.
 { "type": "sync_replace",
   "alarms": [ <Alarm>, ... ], "updatedAtEpoch": <number> }
 
@@ -157,7 +161,7 @@ JSON over P2P. Every message is a single line, single object, no nesting.
 
 `watch_log_batch` is opt-in diagnostic; the phone receiver expands it to one `adb logcat` line per entry under the `WatchLog` tag, ts-ordered, and exits — never reaches the LWW handler. It replaces the former per-line `watch_log` envelope (one P2P send per log line was a real channel-pressure confound while diagnosing 206 failures).
 
-`screen_request` / `watch_screen` let the phone size the watch-background cropper + encoder to the real panel (round GT → circle-masked square; rectangular FIT → full-bleed W×H). **Phone-initiated only**, folded into `forceSync` right after the watch app is confirmed running (no extra wake), and **gated on the bonded model** — the phone caches the reply (`watchScreen{Width,Height,Shape,Model}` in `SettingsStore`) and re-asks only when the connected model differs, so a watch we've already measured is never re-pinged. The reply is intercepted in `HuaweiWearBridge` (it owns the bonded-model knowledge), not routed to the LWW handler. Fire-and-forget: if the reply is lost (watch app closed before it replied), the cropper falls back to the cached/default size and the next `forceSync` re-asks. The supported-panel matrix + the "unrecognized resolution → no crop overlay" rule live in `docs/watch-resolutions.md`.
+`screen_request` / `watch_screen` let the phone size the watch-background cropper + encoder to the real panel (round GT → circle-masked square; rectangular FIT → full-bleed W×H). **Phone-initiated only**. With list sync on it is folded into `forceSync` right after the watch app is confirmed running (no extra wake). With list sync off (the default since 2026-09-28) `forceSync` never runs, so the picture flow calls `refreshWatchScreen()` after its consent dialog: a dedicated wake, sent only when the size for the bonded model is not cached, followed by `sync_done`. Either way it is **gated on the bonded model** — the phone caches the reply (`watchScreen{Width,Height,Shape,Model}` in `SettingsStore`) and re-asks only when the connected model differs, so a watch we've already measured is never re-pinged. The reply is intercepted in `HuaweiWearBridge` (it owns the bonded-model knowledge), not routed to the LWW handler. Fire-and-forget: if the reply is lost (watch app closed before it replied), the cropper falls back to the cached/default size and the next `forceSync` (or picture flow) re-asks. The supported-panel matrix + the "unrecognized resolution → no crop overlay" rule live in `docs/watch-resolutions.md`.
 
 `sync_replace` is **authoritative, not LWW** — it is a deliberate user-initiated "Force sync", so the watch applies the whole list wholesale rather than per-row last-write-wins. Before writing, the watch diffs against its current store and **tombstones every id that the replace drops**, so a stale `alarm_updated` arriving afterward cannot resurrect a pruned row. `sync_done` is a meta-protocol terminate marker; the watch calls `app.terminate()` on it unless the ring page is active or the user opened the app themselves.
 
@@ -233,11 +237,11 @@ Implementation requirements before real P2P is enabled:
 - If `incoming.updatedAtEpoch > local.updatedAtEpoch` (or no local record exists) → apply the incoming write, do NOT re-broadcast (avoid loop).
 - If `incoming.updatedAtEpoch < local.updatedAtEpoch` → ignore the incoming message and re-broadcast our newer local state so the sender catches up.
 - Tie (`==`) on a live row → incoming wins (deterministic tie-break; common-case is the user's most recent action propagating).
-- Tie (`==`) involving a local tombstone → **local tombstone wins** (delete is sticky, see §5.2 below). Both Tombstones impls (`Tombstones.kt` on phone and the Lite-port on watch) implement `tombstone.epoch >= incoming.epoch ⇒ suppress`.
+- Tie (`==`) involving a local tombstone → **local tombstone wins** (delete is sticky, see §5.2 below). The phone's `Tombstones.kt` implements `tombstone.epoch >= incoming.epoch ⇒ suppress`. The Lite watch has no tombstones (removed 2026-10-01, see the note above the wire-format table).
 
 **Caveats:**
 - Clock skew between phone and watch can flip the winner the wrong way. Both devices stamp `updatedAtEpoch = Date.now()` (wall clock); skew tolerance budget: 60 s (one minute is the smallest user-visible alarm-time granularity). Larger skew is tracked in Phase 5b under "NTP-anchored clocks before pairing".
-- A delete is also stamped — a tombstone with `updatedAtEpoch` shipped via `alarm_deleted` MUST beat an older `alarm_updated`. Implementation requirement: the local store keeps a deletion tombstone (or at least the `updatedAtEpoch` of the deletion) for some retention window so a stale `alarm_updated` arriving later doesn't resurrect the row. Already implemented on the phone (Tombstones, 256-entry / 7-day ring buffer); needs to be re-implemented on the LiteWearable watch in plain JS against `@system.storage`.
+- A delete is also stamped — a tombstone with `updatedAtEpoch` shipped via `alarm_deleted` MUST beat an older `alarm_updated`. Implementation requirement: the local store keeps a deletion tombstone (or at least the `updatedAtEpoch` of the deletion) for some retention window so a stale `alarm_updated` arriving later doesn't resurrect the row. Implemented on the phone (Tombstones, 256-entry / 7-day ring buffer). The Lite watch port was removed on 2026-10-01: it kept the whole list in one `@system.storage` value, which overflows the 128 B cap after ~3 entries, and the phone never sends `alarm_deleted` to the watch anyway. Deletions reach the watch only through `sync_replace`.
 
 ---
 
@@ -424,6 +428,8 @@ check. Concurrent `handleSnooze` + `handleDismiss` are serialized by
 
 ### 4.3 — Edit on phone, mirror to watch (display-only)
 
+> Since 2026-09-28 this flow runs only with "Show alarm list on watch" on (§5.8). Today it is a debounced `syncWatchNow` (settings + `sync_replace` + `sync_done`), not the per-alarm envelope sketched below.
+
 ```
 User opens AlarmEditScreen on phone, changes 07:00 → 06:30, saves.
 
@@ -434,8 +440,9 @@ AlarmRepository.update(alarm):
   – widget.update(ctx, glanceId)
   – wearBridge.sendAlarmUpdated(alarm)    ─→ watch (full Alarm payload)
 
-Watch receives { type: "alarm_updated", alarmId, alarm: {...}, updatedAtEpoch }
-  – AlarmStore.update(item)               ← updates local KV cache
+Watch: per-alarm `alarm_updated` is NOT handled (since 2026-10-01).
+  Edits reach the watch only through `sync_replace`, and only when
+  "Show alarm list on watch" is on (§5.8).
   – list re-renders if visible
   – DOES NOT publish a watch-side reminder; the watch never schedules anything
 ```
@@ -472,7 +479,7 @@ Reboot does NOT trigger any cross-device sync — the phone recovers from its ow
 The message body carries the `Alarm` record (hour, minute, daysOfWeek, enabled, audioUri, isVibrationOnly, updatedAtEpoch) — minus the phone-only `label`. Stateless — the receiver applies it directly without a round-trip. Schema-drift risk handled by including a `schemaVersion` field if/when the contract grows; today both sides agree on the v1 shape implicit in `domain/Alarm.kt` (phone) and the LiteWearable port's AlarmItem JS object.
 
 ### 5.2 — Decided: last-write-wins on offline-edit conflicts (2026-04-25, still applies)
-Per §2's conflict-resolution rule. Both sides MUST stamp `updatedAtEpoch = Date.now()` on every local mutation. Phone-side implementation is complete (Phase 4 + Phase 5a). Watch-side implementation is being ported in Phase 0b — same algorithm, JS instead of ArkTS.
+Per §2's conflict-resolution rule. Phone-side implementation is complete (Phase 4 + Phase 5a). The Lite watch does not run LWW: the phone is the sole scheduler and sends the full list with `sync_replace`, so there is nothing to resolve on the watch. The watch-side port was removed on 2026-10-01.
 
 ### 5.3 — Decided: phone is sole scheduler (2026-04-27)
 See §3. Watch is online-armed thin client. Watch-originated edits (toggle, dismiss-flips-enabled, snooze) still propagate via the wire format and still apply LWW, but no scheduling work happens on the watch.
@@ -535,6 +542,25 @@ If `sync_check` send fails or no `sync_hash` reply arrives within `SYNC_CHECK_TI
 
 ---
 
+### 5.8 — Opt-in list sync and the ring-only default (2026-09-28)
+
+**Why.** Wear Engine delivers only to a running watch app, so every push launches it. AppGallery rejected the build because every phone edit popped the watch's sync page (rule 3.1, 2026-09-28).
+
+**Default (list sync off).**
+- The phone sends only `alarm_fired` and the dismiss/snooze messages. `AlarmRepository.syncWatchNow` returns `ListSyncOff` before anything is sent (it is the single gate for every caller, and it sits before `sendSettingsChanged`, which wakes the watch by itself).
+- `alarm_fired` carries the whole ring contract: `vibrationPattern`, `snoozeAllowed`, `watchVibrationEnabled`, plus `listSync`, `use24Hour` and `firedAt`. `listSync` and `use24Hour` are omitted before the phone's first unlock, because settings live in credential-encrypted storage; `firedAt` is always sent. `firedAt` is phone wall time and the watch compares it with its own clock in one check (a phone dismiss that arrived before the ring showed), so that check assumes the clocks are roughly in sync, which Huawei Health keeps them.
+- The watch shows one empty-state message with a QR to the `/watch` help page.
+
+**Turning it on / off.** On: consent dialog, then one `syncWatchNow`. Off: pending debounced sync cancelled, then one `forceSync { emptyList() }` so the watch drops its list. A watch that still holds a list from an older build drops it after the next ring ends (`listSync: false`).
+
+**Delivery on slow cold starts.** The pre-arm (`PREARM_TIMEOUT_MS`, 10 s) only decides when the phone starts its own audio. If the watch has not confirmed by then, `AlarmRingService.startWatchCatchUp` re-sends `alarm_fired` (25 s wake budget per attempt, 2 s apart) until `alarm_ringing`, the ring ends, or 90 s pass. The awaits are legal because `AlarmActivity` is alive for the whole ring.
+
+**Duplicates.** A re-sent copy for the ring already on screen only re-sends `alarm_ringing`. A copy of a ring that already ended is ignored: `firedAt` matches the last ended ring, which the watch persists in `@system.storage` `gt_last_ring` so a relaunch still recognises it. A snooze re-fire has a new `firedAt` and rings normally.
+
+**Ending a ring.** Phone-side dismiss/snooze go to the watch only if an `alarm_fired` for that ring was delivered (`wasAlarmFiredDelivered`). Otherwise the watch never rang, and the send would launch it just to close it.
+
+**Watch timers.** ACELite drops a one-shot `setTimeout` when its message queue is full, which is common during a cold start (this is what stopped the vibration after one buzz). Deadlines on the ring and exit paths run on `common/ticker.js`, one `setInterval` that runs only while a deadline is pending. See §6.1.
+
 ## 6. Customization — what we can and cannot style
 
 Researched 2026-04-25 + revised 2026-04-27 against developer.huawei.com + developer.android.com + Lite Wearable docs.
@@ -546,7 +572,7 @@ Researched 2026-04-25 + revised 2026-04-27 against developer.huawei.com + develo
 | System reminder card        | N/A           | LiteWearable has no Reminder Agent. There is no system-rendered alarm card before our ring page — we render the entire alarm UI ourselves. |
 | **Fullscreen ring page** (our `js/default/pages/ring/ring.{hml,css,js}`) | ✅ | We own every pixel. Round display: own background `<image>` / `<canvas>`. HML/CSS supports full styling. |
 | System alarm ringtone       | N/A           | No system-played alarm tone on Lite, AND no in-page audio either: verified on GT 6 (2026-06-24) that `@system.audio` resolves but its `src` setter is a **no-op** (readback + getPlayState.src always empty), so no source loads and every `play()` instantly errors. Watch feedback is **vibration only**. (The F3 audio probe was removed; bundling probe.wav/mp3 + the staging copy tripped an install crash.) |
-| Vibration pattern           | ✅            | `vibrator.vibrate({type:'pattern', pattern: [...]})` from the page. We start vibration when the ring page mounts and stop on dismiss. |
+| Vibration pattern           | ✅            | Lite `@system.vibrator` only has `vibrate({mode: 'long' \| 'short'})`, so the page builds a pattern from steps (`VIBRATION_PATTERNS` in `index.js`). Steps run on `common/ticker.js`, not a `setTimeout` chain: ACELite drops one-shot timers on a full message queue, which on a cold wake stopped the pattern after one buzz (device-proven 2026-09-28). Delays round to the nearest 250 ms tick. Needs `ohos.permission.VIBRATE` in `reqPermissions`. |
 | Lock-screen takeover        | ⚠️ different model | LiteWearable apps don't run "over keyguard" the way Android does. The watch face is what shows when the watch is asleep; an `alarm_fired` ping wakes the JS process and the OS launches our ring page on top of the watch face. This is the Lite equivalent of "fullscreen alarm". |
 
 **Bottom line — watch:** we own everything visible. There is no system-level alarm UI on Lite to compete with — it's all ours.
@@ -590,8 +616,7 @@ When changing the sync contract, update **all** of these in the same change:
 
 **Watch-side call sites** (new — being implemented in Phase 0b):
 - `js/default/services/alarmStore.js` — `@system.storage`-backed local cache (mirrors phone's Room)
-- `js/default/services/lwwResolver.js` — port of `LwwResolver.kt`
-- `js/default/services/tombstones.js` — port of `Tombstones.kt` (256-entry / 7-day ring buffer)
+- (`lwwResolver.js` / `tombstones.js` / `connectionStore.js` were removed on 2026-10-01; see §2)
 - `js/default/services/incomingMessageHandler.js` — port of phone-side handler; routes `alarm_fired` to ring page, `alarm_*` mutations to AlarmStore
 - `js/default/services/wearBridge.js` — Wear Engine seam; today no-op, post-approval calls `wearengine.getP2pClient().send/onMessage`
 - `js/default/pages/ring/ring.js` — `onDismiss` / `onSnooze` send acks back to phone
@@ -617,7 +642,7 @@ Researched 2026-04-25 + revised 2026-04-27. **Verdict: each side is partially te
 - Renders HML pages + executes JS lifecycle. Sufficient for visual iteration on the ring page, list, edit page; no animation/perf guarantees match the GT 6 (CPU and GPU profiles differ).
 - `vibrator.vibrate` is a no-op on simulator.
 - `@system.wearengine` not available on simulator — there is no peer to talk to. The Wear Engine seam falls back to logging.
-- No native unit-test framework on Lite (Hypium is NEXT-only). Pure-logic modules (`lwwResolver.js`, `tombstones.js`, `incomingMessageHandler.js` core) get extracted as plain JS and tested via Node + jest under `.local/jest-lite/`. UI / page-lifecycle is manual-test only.
+- No native unit-test framework on Lite (Hypium is NEXT-only). Pure-logic modules get extracted as plain JS and tested via Node + jest under `.local/jest-lite/`. The `.local/jest-lite/` suites for tombstones, LWW and the per-alarm handlers are out of date since those modules were removed on 2026-10-01. UI / page-lifecycle is manual-test only.
 
 ### 8.2 — What does NOT work on emulators (hard gates)
 

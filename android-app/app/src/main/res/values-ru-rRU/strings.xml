@@ -246,4 +246,21 @@
     <string name="watch_unsupported_harmony">GT Wake Companion — приложение для Android, и на HarmonyOS 5 оно не может связаться с часами. Возможно, оно вам и не нужно: ваш телефон уже умеет звонить своими будильниками на сопряжённых часах. Откройте Huawei Health, выберите часы, нажмите «Будильник» и включите синхронизацию будильников телефона. Будильники на этом телефоне продолжают работать как обычно.</string>
     <string name="watch_unsupported_no_health">Для синхронизации с часами нужно приложение Huawei Health, но оно не установлено. Установите Huawei Health и откройте GT Wake заново. Будильники на этом телефоне продолжают работать как обычно.</string>
     <string name="watch_unsupported_title">Синхронизация с часами недоступна на этом телефоне</string>
+    <!-- Opt-in watch list sync + watch wake consent (rule 3.1, 2026-09-28) -->
+    <string name="settings_section_watch">Часы</string>
+    <string name="settings_watch_list_sync">Показывать список будильников на часах</string>
+    <string name="settings_watch_list_sync_hint">Часы в любом случае звонят для каждого будильника. Если включено, часы также показывают список будильников и ненадолго открывают GT Wake, чтобы обновить его после каждого изменения.</string>
+    <string name="watch_list_sync_confirm_title">Показывать список будильников на часах?</string>
+    <string name="watch_list_sync_confirm_body">Из-за особенностей подключения часов Huawei часы будут просыпаться и ненадолго открывать GT Wake, чтобы обновить список после каждого изменения будильников.</string>
+    <string name="watch_list_sync_confirm_ok">Включить</string>
+    <string name="watch_list_sync_on_done">Список будильников отправлен на часы</string>
+    <string name="watch_list_sync_off_done">Список будильников удалён с часов</string>
+    <string name="force_sync_list_off">Список будильников на часах выключен. Его можно включить в настройках.</string>
+    <string name="watch_status_card_list_off">Список будильников на часах: выключен</string>
+    <string name="watch_picture_confirm_title">Изменить картинку на часах?</string>
+    <string name="watch_picture_clear_confirm_title">Убрать картинку с часов?</string>
+    <string name="watch_picture_confirm_body">Часы проснутся и ненадолго откроют GT Wake, чтобы получить картинку.</string>
+    <string name="watch_picture_clear_confirm_body">Часы проснутся и ненадолго откроют GT Wake, чтобы убрать картинку.</string>
+    <string name="watch_picture_confirm_ok">Продолжить</string>
+    <string name="field_watch_vibration_hint">Режим «Не беспокоить», режим сна или вибрация «Нет» на часах могут её отключить.</string>
 </resources>

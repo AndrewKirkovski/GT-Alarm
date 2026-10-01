@@ -226,4 +226,21 @@
     <string name="watch_unsupported_harmony">GT Wake Companion to aplikacja na Androida i na HarmonyOS 5 nie połączy się z zegarkiem. Możesz jej nie potrzebować: Twój telefon już dzwoni własnymi alarmami na sparowanym zegarku. Otwórz Huawei Health, wybierz zegarek, dotknij „Alarm” i włącz synchronizację alarmów telefonu. Alarmy na tym telefonie działają normalnie.</string>
     <string name="watch_unsupported_no_health">Synchronizacja z zegarkiem wymaga aplikacji Huawei Health, która nie jest zainstalowana. Zainstaluj Huawei Health i otwórz GT Wake ponownie. Alarmy na tym telefonie działają normalnie.</string>
     <string name="watch_unsupported_title">Synchronizacja z zegarkiem jest niedostępna na tym telefonie</string>
+    <!-- Opt-in watch list sync + watch wake consent (rule 3.1, 2026-09-28) -->
+    <string name="settings_section_watch">Zegarek</string>
+    <string name="settings_watch_list_sync">Pokazuj listę alarmów na zegarku</string>
+    <string name="settings_watch_list_sync_hint">Zegarek i tak dzwoni przy każdym alarmie. Gdy ta opcja jest włączona, zegarek pokazuje też listę alarmów i na chwilę otwiera GT Wake, aby ją zaktualizować po każdej zmianie.</string>
+    <string name="watch_list_sync_confirm_title">Pokazywać listę alarmów na zegarku?</string>
+    <string name="watch_list_sync_confirm_body">Ze względu na sposób działania połączenia zegarków Huawei zegarek będzie się wybudzał i na chwilę otwierał GT Wake, aby zaktualizować listę po każdej zmianie alarmów.</string>
+    <string name="watch_list_sync_confirm_ok">Włącz</string>
+    <string name="watch_list_sync_on_done">Lista alarmów wysłana na zegarek</string>
+    <string name="watch_list_sync_off_done">Lista alarmów usunięta z zegarka</string>
+    <string name="force_sync_list_off">Lista alarmów na zegarku jest wyłączona. Możesz ją włączyć w ustawieniach.</string>
+    <string name="watch_status_card_list_off">Lista alarmów na zegarku: wyłączona</string>
+    <string name="watch_picture_confirm_title">Zmienić obraz na zegarku?</string>
+    <string name="watch_picture_clear_confirm_title">Usunąć obraz z zegarka?</string>
+    <string name="watch_picture_confirm_body">Zegarek wybudzi się i na chwilę otworzy GT Wake, aby odebrać obraz.</string>
+    <string name="watch_picture_clear_confirm_body">Zegarek wybudzi się i na chwilę otworzy GT Wake, aby usunąć obraz.</string>
+    <string name="watch_picture_confirm_ok">Dalej</string>
+    <string name="field_watch_vibration_hint">Tryb „Nie przeszkadzać”, tryb snu lub wibracje ustawione na „Brak” na zegarku mogą je wyciszyć.</string>
 </resources>

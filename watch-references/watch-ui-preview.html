@@ -411,15 +411,6 @@
     box-sizing: border-box;
     pointer-events: none;
   }
-  /* Ended-state confirmation — green thumbs-up replaces .ring-actions. */
-  .ring-ended {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 466px;
-    height: 124px;
-    margin-top: 6px;
-  }
   .ring-thumb { width: 96px; height: 96px; }
   .ring-diag {
     width: 420px;
@@ -516,15 +507,15 @@
 
   <!-- ============================================================== -->
   <div class="panel">
-    <div class="panel-label">Index — never connected (onboarding QR)</div>
+    <div class="panel-label">Index — empty (list sync off, the default) + /watch help QR</div>
     <div class="watch">
       <div class="container">
         <div class="content">
           <div class="empty" style="height:466px;">
-            <div class="empty-title">Set up GT Wake</div>
-            <div class="empty-hint">Install GT Wake on your Android phone</div>
+            <div class="empty-title" style="width:420px;">GT Wake</div>
+            <div class="empty-hint" style="width:420px;">Set alarms on your phone. The watch vibrates for them.</div>
             <div class="onb-qr qr-ph">QR<br>(native)</div>
-            <div class="onb-scan">Scan to get the phone app</div>
+            <div class="onb-scan">Scan for help</div>
           </div>
         </div>
       </div>
@@ -533,15 +524,15 @@
 
   <!-- ============================================================== -->
   <div class="panel">
-    <div class="panel-label">Index — empty, connected (no alarms + QR)</div>
+    <div class="panel-label">Index — empty, ru (all six locales: watch-ui-responsive.html)</div>
     <div class="watch">
       <div class="container">
         <div class="content">
           <div class="empty" style="height:466px;">
-            <div class="empty-title">No alarms</div>
-            <div class="empty-hint">Add alarms on the phone</div>
+            <div class="empty-title" style="width:420px;">GT Wake</div>
+            <div class="empty-hint" style="width:420px;">Будильники ставятся на телефоне. Часы вибрируют.</div>
             <div class="onb-qr qr-ph">QR<br>(native)</div>
-            <div class="onb-scan">Scan to get the phone app</div>
+            <div class="onb-scan">Справка</div>
           </div>
         </div>
       </div>
@@ -748,7 +739,7 @@
           <img class="ring-bell" src="../watch-app/entry/src/main/js/MainAbility/common/bell.png">
           <div class="ring-title">Alarm</div>
           <div class="ring-time">07:30</div>
-          <div class="ring-ended"><img class="ring-thumb" src="../watch-app/entry/src/main/js/MainAbility/common/thumbup.png"></div>
+          <div class="ring-actions"><img class="ring-thumb" src="../watch-app/entry/src/main/js/MainAbility/common/thumbup.png"></div>
           <div class="ring-diag">snt:207 rx:ok@27s raw:6 in:5</div>
         </div>
       </div>

@@ -327,6 +327,27 @@ Pending device verification:
 - Cap-vs-snooze visibility on the watch (Tier 2D) — needs paired watch.
 - Volume-ramp audibility at low system volume (Tier 2E).
 
+### AppGallery rule-3.1 rejection response (2026-09-28)
+
+Details and statuses: `acceptance-criteria.md` → "AppGallery rule-3.1 rejection — watch vibration and sync wakes (2026-09-28)". Design: `sync-architecture.md` §5.8.
+
+Done in code (🟡, device verification pending):
+- Watch deadlines moved to `common/ticker.js` (fixes vibration stopping after one buzz on a cold wake).
+- "Show alarm list on watch", off by default; consent before turning it on and before picture changes.
+- `alarm_fired` carries `listSync`, `use24Hour`, `firedAt`; background catch-up re-send; duplicate/late-copy handling on the watch; dismiss/snooze sent to the watch only if it got the fire.
+- Watch empty state: one message plus `/watch` help QR; site pages `/watch` and `/watch/zh`.
+
+Before resubmitting (shipped as 1.0.11, 2026-10-01):
+- [x] Cold-wake ring test on GT 6 Pro: 2 of 2 cold rings buzzed for the whole ring; the watch app exits after dismiss.
+- [x] Sync-off check: the phone logs `syncWatchNow skipped` and the watch stays asleep.
+- [x] Probe logging and the visible `BUILD_TAG` removed (`BUILD_TAG` is now only logged at `onInit`).
+- [x] Release page bundle measured: 65,088 B (was 79,395 B).
+- [ ] Deploy the site before the store upload (the watch QR points at `/watch`).
+
+Follow-ups:
+- `wearBridge.js` send timeout and retry timers, and the crown debounce timers, are still one-shot `setTimeout`.
+- 390 × 390 round layout clips on the Privacy and ring screens (predates this work); fix or drop from `distroFilter`.
+
 ---
 
 ## Phase ordering rationale

@@ -11,6 +11,10 @@
     {
       "name": "MainAbility_label",
       "value": "GT Wake"
+    },
+    {
+      "name": "vibrate_reason",
+      "value": "Vibrates the watch when an alarm goes off"
     }
   ]
 }

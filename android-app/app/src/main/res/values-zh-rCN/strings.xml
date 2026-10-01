@@ -229,4 +229,21 @@
     <string name="watch_unsupported_harmony">GT Wake Companion 是 Android 应用，在 HarmonyOS 5 上无法连接手表。你可能并不需要它：你的手机已经可以让自己的闹钟在配对的手表上响起。请打开华为运动健康，选择你的手表，点击“闹钟”，并开启手机闹钟同步提醒。此手机上的闹钟仍照常响铃。</string>
     <string name="watch_unsupported_no_health">手表同步需要华为运动健康应用，但尚未安装。请安装华为运动健康后重新打开 GT Wake。此手机上的闹钟仍照常响铃。</string>
     <string name="watch_unsupported_title">此手机不支持手表同步</string>
+    <!-- Opt-in watch list sync + watch wake consent (rule 3.1, 2026-09-28) -->
+    <string name="settings_section_watch">手表</string>
+    <string name="settings_watch_list_sync">在手表上显示闹钟列表</string>
+    <string name="settings_watch_list_sync_hint">无论是否开启，手表都会为每个闹钟响铃。开启后，手表还会显示闹钟列表，并在每次更改后短暂打开 GT Wake 以更新列表。</string>
+    <string name="watch_list_sync_confirm_title">在手表上显示闹钟列表？</string>
+    <string name="watch_list_sync_confirm_body">由于华为手表连接的工作方式，每次更改闹钟后，手表都会被唤醒并短暂打开 GT Wake 以更新列表。</string>
+    <string name="watch_list_sync_confirm_ok">开启</string>
+    <string name="watch_list_sync_on_done">闹钟列表已发送到手表</string>
+    <string name="watch_list_sync_off_done">已从手表移除闹钟列表</string>
+    <string name="force_sync_list_off">手表上的闹钟列表已关闭。可在设置中开启。</string>
+    <string name="watch_status_card_list_off">手表闹钟列表：已关闭</string>
+    <string name="watch_picture_confirm_title">更换手表图片？</string>
+    <string name="watch_picture_clear_confirm_title">移除手表图片？</string>
+    <string name="watch_picture_confirm_body">手表将被唤醒并短暂打开 GT Wake 以接收图片。</string>
+    <string name="watch_picture_clear_confirm_body">手表将被唤醒并短暂打开 GT Wake 以移除图片。</string>
+    <string name="watch_picture_confirm_ok">继续</string>
+    <string name="field_watch_vibration_hint">手表上的勿扰模式、睡眠模式或振动设为“无”可能会使振动静音。</string>
 </resources>

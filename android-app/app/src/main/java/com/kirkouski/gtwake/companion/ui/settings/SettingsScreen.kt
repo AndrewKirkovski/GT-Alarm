@@ -40,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -74,6 +75,8 @@ import com.kirkouski.gtwake.companion.ui.edit.PhoneBackgroundPickerDialog
 import com.kirkouski.gtwake.companion.ui.edit.RingScreenPreview
 import com.kirkouski.gtwake.companion.ui.edit.WatchBackgroundPickerDialog
 import com.kirkouski.gtwake.companion.wear.WatchCropProfile
+import com.kirkouski.gtwake.companion.wear.WatchSupport
+import com.kirkouski.gtwake.companion.wear.WatchSupportState
 import com.kirkouski.gtwake.companion.wear.WatchSyncStatus
 import com.kirkouski.gtwake.companion.wear.WatchScreenProfiles
 import com.kirkouski.gtwake.companion.ui.edit.rememberAudioPicker
@@ -98,6 +101,15 @@ fun SettingsScreen(
     // the block, or a background send during a crop would yank it.
     val watchStatus by vm.watchStatus.collectAsStateWithLifecycle()
     val watchConnected = watchStatus != WatchSyncStatus.NOT_CONNECTED
+    val context = LocalContext.current
+    // The list-sync switch only means something where Wear Engine works at
+    // all; on an unsupported phone the list screen already explains that.
+    val watchSupported = remember { WatchSupport.state(context) == WatchSupportState.Supported }
+    LaunchedEffect(Unit) {
+        vm.watchListSyncResults.collect { (enabled, result) ->
+            Toast.makeText(context, watchListSyncToast(context, enabled, result), Toast.LENGTH_LONG).show()
+        }
+    }
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -140,6 +152,22 @@ fun SettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         DisplaySection(state = state, vm = vm)
+                    }
+                }
+            }
+            if (watchSupported) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SettingsSectionHeader(stringResource(R.string.settings_section_watch))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            WatchListSyncSection(
+                                listSyncOn = state.watchListSync,
+                                onChange = vm::setWatchListSync,
+                            )
+                        }
                     }
                 }
             }
@@ -194,6 +222,7 @@ private fun BackgroundSection(state: SettingsState, vm: SettingsViewModel, watch
     // files but before onSaved fired — so the upload never ran. Keeping the
     // dialog here means an open crop survives any status change.
     var showWatchPicker by remember { mutableStateOf(false) }
+    var pendingPictureAction by remember { mutableStateOf<WatchPictureAction?>(null) }
     var watchReloadToken by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
     val savedMessage = stringResource(R.string.settings_watch_background_saved)
@@ -219,13 +248,25 @@ private fun BackgroundSection(state: SettingsState, vm: SettingsViewModel, watch
         if (watchConnected) {
             WatchBackgroundRow(
                 currentUri = state.defaultWatchBackgroundUri,
-                onChange = { showWatchPicker = true },
-                onClear = { vm.setDefaultWatchBackground(null) },
+                onChange = { pendingPictureAction = WatchPictureAction.CHANGE },
+                onClear = { pendingPictureAction = WatchPictureAction.CLEAR },
                 watchProfile = watchProfile,
                 reloadToken = watchReloadToken,
             )
         }
     }
+    WatchPictureConsent(
+        pending = pendingPictureAction,
+        onConfirm = { action ->
+            pendingPictureAction = null
+            if (action == WatchPictureAction.CHANGE) {
+                vm.prepareWatchPicturePicker { showWatchPicker = true }
+            } else {
+                vm.setDefaultWatchBackground(null)
+            }
+        },
+        onDismiss = { pendingPictureAction = null },
+    )
     // Dialog is OUTSIDE the conditional — an open crop is never yanked mid-save.
     if (showWatchPicker) {
         WatchBackgroundPickerDialog(

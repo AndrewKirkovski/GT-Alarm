@@ -339,9 +339,8 @@ silencing other people's medication reminders. **Do not revisit.**
 - ❌ Install green on GT 6 (the "step 0" empirical verification — install a stub Lite HAP through 应用调测助手 and confirm it launches)
 
 ### Algorithm port (from `watch-app.old/entry/src/main/ets/service/`)
-- ❌ `js/default/services/lwwResolver.js` — port of `LwwResolver.kt`/`.ets`. Pure helper, JS rewrite. ~10 lines.
-- ❌ `js/default/services/tombstones.js` — port of `Tombstones.kt`/`.ets`. 256-entry ring buffer, 7-day prune, sticky tie-break. Backing store: `@system.storage`.
-- ❌ `js/default/services/incomingMessageHandler.js` — port of receive-side LWW dispatch. Routes 7 wire types to AlarmStore + ring page + ack-back-to-phone.
+- 📋 `lwwResolver.js` / `tombstones.js` — ported, then **removed 2026-10-01**. The phone is the sole scheduler and sends the full list with `sync_replace`, so the watch has nothing to resolve. The tombstone list lived in one `@system.storage` value and overflowed the 128 B cap after ~3 entries, so it never persisted reliably.
+- 🟡 `common/incomingHandler.js` — receive-side dispatch. Since 2026-10-01 it handles `sync_replace`, `alarm_added` (plain upsert), `alarm_fired`, dismiss/snooze and the meta messages. `alarm_updated` / `alarm_deleted` / `alarm_toggled` are logged and ignored: no published phone build (1.0.1–1.0.10) sends them.
 - ❌ `js/default/services/alarmStore.js` — display cache (mirrors phone's Room state). Backed by `@system.storage` for KV + `@system.file` for the JSON blob if needed. **Does not** schedule anything — phone is sole scheduler per `sync-architecture.md` §3.
 - ❌ `js/default/services/wearBridge.js` — Wear Engine seam. No-op send/onMessage today; post-AGConnect-approval calls `wearengine.getP2pClient().send(...)` + registers `onMessage` callback that routes to `incomingMessageHandler.handle`.
 
@@ -367,12 +366,12 @@ silencing other people's medication reminders. **Do not revisit.**
 - 🟡 On the `watch_screen` reply the phone reconciles: if it has a bg set AND the watch's reported hash differs (or is empty — the watch lost it after reset/reinstall) → re-upload the current bg (re-encoded from the cached crop for the same resolution); if the phone has no bg but the watch still reports one → send the clear. This auto-restores the background after a watch reset and guarantees the watch never shows a mismatching image. Caveat: a watch **resolution/model change** still needs a re-pick (the original SAF source isn't cached, only the per-resolution crop).
 - 🟡 Settings watch-bg block gating (1.0.6, revised on device feedback): the ENTIRE watch-background block is dropped unless a watch is connected AND its shape is known (`watchConnected && state.watchScreenWidth > 0`) — no placeholder (we can't render a shape we don't know). `watchConnected` comes from the reliable connection signal below, not a stale send-state.
 - 🟡 Reliable watch-connection detection (1.0.6): `WearBridgeService.statusFlow` is the single source of truth for EVERY watch-status surface (alarm-list sync card + Settings block). It is kept authoritative by (a) a one-shot LOCAL `DeviceClient.getBondedDevices().any{isConnected}` query — a query to the phone's Huawei Health pairing service, NOT a P2P round-trip, so zero watch traffic / no ping — seeded on every `MainActivity.onStart` + on Settings open, and (b) a `MonitorClient` connection-status monitor (`MonitorItem.MONITOR_ITEM_CONNECTION`) registered on `onStart`, unregistered on `onStop` — event-driven, **no background service**. The monitor's payload int mapping is undocumented (verified by decompiling `wearengine-5.0.1.300.aar`), so each change event just re-runs the authoritative local query rather than trusting the value. Replaces the prior design where status only flipped to CONNECTED during an active P2P send (read "not connected" when idle). **Monitor delivery may be subject to the same Activity-in-task constraint as P2P receive — verify on device; the seed-on-resume keeps status correct regardless.**
-- 🟡 `watch_default_bg_cleared` reliability (1.0.6): the clear send now uses the force-wake + retry path (`performSend(forceWake=true, retryOnError=true)`) like the bg upload — a non-forced send at Settings time (watch asleep) hit a stale "running" cache and delivered into the void (clearing never reached the watch).
+- 🟡 `watch_default_bg_cleared` delivery (corrected 2026-09-28): the clear goes through `performSend(retryOnError = true)`, which pings first and so launches a sleeping watch app (it is not a separate forced wake). Since list sync became opt-in there is no later forceSync to carry the clear, so the send is followed by `sync_done` and the watch closes right away instead of waiting out its sync-page fallback. The user agrees to the wake in the picture consent dialog.
 
 ### Force-sync hash precheck (Phase 5b)
 - 🟡 `AlarmHash.kt` + `alarmHash.js` produce byte-equivalent 8-char hex hashes from a canonical pipe-delimited render of the alarm list, sorted by id. Empty list → `"00000000"`. Java `String.hashCode()` (Kotlin) mirrored as `((h<<5)-h+c)|0` (JS). Test coverage in `AlarmHashTest.kt` pins canonical strings + reference vectors.
 - 🟡 `WearBridgeService.forceSync(suspend () -> List<Alarm>)` rounds-trips `sync_check` → `sync_hash` before pushing. Phone re-snapshots its own alarm list **after** receiving the watch's response so a TOCTOU race (user adds an alarm during the ~2s window) doesn't accidentally match a stale local hash.
-- 🟡 On hash mismatch, force-sync makes the watch's alarm set **EXACTLY equal** the phone's: phone sends ONE authoritative full-state replace (full list) and the watch replaces its `AlarmStore` wholesale + tombstones every dropped id. The earlier additive `alarm_added`-per-row push could never prune watch-only rows, so the watch monotonically accumulated stale alarms and the hash never converged. (Phase 5b, 2026-05-17.)
+- 🟡 On hash mismatch, force-sync makes the watch's alarm set **EXACTLY equal** the phone's: phone sends ONE authoritative full-state replace (full list) and the watch replaces its `AlarmStore` wholesale (the watch tombstones were removed 2026-10-01). The earlier additive `alarm_added`-per-row push could never prune watch-only rows, so the watch monotonically accumulated stale alarms and the hash never converged. (Phase 5b, 2026-05-17.)
 - ✅ **Full replace is text-or-file by size (>3-alarm sync fix, 2026-06-23).** Device-verified on GT 6 Pro: a 4-alarm/1068 B replace went over the 768 B text cap → file transfer → `incoming.sync_replace applied n=4 dropped=0 pruned=0` → `alarms_received` ack → `pushFileReplace confirmed … after 1 attempt`, all 4 alarms visible on the watch, and the previously-perpetual `sync_replace n=4` re-push loop stopped (converged). The Wear Engine P2P **text-message** ceiling is ~1 KiB on the GT 6 (measured: 3-alarm/817 B round-trips; 4-alarm/1068 B returns transport 207 but is truncated before the watch `JSON.parse`, so the watch silently kept 3 and the phone re-pushed forever). `pushFullReplace` now sends the replace as **text only when ≤ `SYNC_REPLACE_MAX_BYTES` = 768 B**; above that, `pushFileReplace` stages the identical `sync_replace` JSON to `alarms_<hash>.json` and sends it as a **Wear Engine file transfer** with app-level ack (`alarms_received`, hash echoed from the filename) + retry — the same proven pattern as the watch background image (`pendingAlarmsAck` ↔ watch `WearBridge.sendAlarmsReceived`). Watch `fileHandler` branches on the `alarms_` name → `IncomingHandler.applyReplaceFromFile` (validate + `replaceAll` + tombstone pruned, so the file path **still prunes**) → acks after the store write commits. The `alarm_added` burst is now only a last-ditch fallback if the file transfer itself fails. The old 4 KiB text cap sat ~4× above the real ceiling, which is why >3 alarms silently failed to sync. (See `sync-architecture.md` §2.1 + §5.7.)
 - 🟡 Force-sync always sends a `sync_done` marker last (matched and replaced paths). The watch terminates on it immediately instead of waiting out the drain-quiescence timer — closes the race where the watch self-terminated between `sync_check` and the data push (`forceSync done sent=0 of=1`). (Phase 5b, 2026-05-17.)
 - 🟡 `ForceSyncResult.AlreadyInSync(n)` returned when remote hash matches; UI shows a distinct toast string. On `sync_check` timeout / send failure, falls through to a full push (never user-blocking).
@@ -382,7 +381,7 @@ silencing other people's medication reminders. **Do not revisit.**
 
 ### Known scope deltas vs the legacy NEXT app
 - **Watch no longer schedules.** No `reminderAgentManager` (doesn't exist on Lite). Phone is sole scheduler. Watch reacts to `alarm_fired` pings.
-- **No on-device unit tests.** Hypium is NEXT-only. Pure-logic modules (LwwResolver, Tombstones, IncomingMessageHandler) get extracted as plain JS and tested in Node/jest under `.local/jest-lite/`. UI / page lifecycle is manual-only.
+- **No on-device unit tests.** Hypium is NEXT-only. Pure-logic modules get extracted as plain JS and tested in Node/jest under `.local/jest-lite/`. The suites for LwwResolver, Tombstones and the per-alarm handlers are out of date since those were removed from the watch on 2026-10-01. UI / page lifecycle is manual-only.
 - **No TypeScript.** All `.ts` becomes `.js`, types stripped.
 - **Reboot survival is asymmetric.** Phone is fully self-recovering; watch has nothing to recover for scheduling. AlarmStore (display cache) restores from `@system.storage` on cold start.
 
@@ -476,8 +475,8 @@ silencing other people's medication reminders. **Do not revisit.**
 **Design pivot 2026-04-27 — phone is sole scheduler.** LiteWearable on GT 6 has no scheduling primitive that survives device sleep, so all scheduling moves to the phone. Watch is online-armed thin client: receives `alarm_fired` pings, renders the ring page, sends back dismiss/snooze acks. See `sync-architecture.md` §3 and §5.3.
 
 **Acceptance criterion — watch rings on command without prior sync (2026-05-20).** The watch is a thin client: it MUST be able to render its ring page from the `alarm_fired` envelope alone, even for an alarm it has never received an `alarm_added` / `sync_replace` for. The phone never assumes the watch's local store is populated when issuing a ring command. Practical implications:
-- `alarm_fired` carries the thin-client ring hints: `alarmId`, `updatedAtEpoch`, `vibrationPattern` (enum name), `watchVibrationEnabled` (1.0.6 — when `false` the watch skips its `startVibrate` loop, supporting the per-device "silent" state), `snoozeAllowed` (pre-computed `alarm.isSnoozeEnabled` — collapses both `snoozeMinutes==0` and `consecutiveSnoozeCount >= maxSnoozeCount` so the watch hides Snooze verbatim). The watch reads these BEFORE falling back to `AlarmStore`. Hour/minute/daysOfWeek/isVibrationOnly come from the synced cache (it's already there in steady-state; the thin-client criterion targets ring affordances, not the clock readout). `label` is NEVER on the wire (PII, phone-only — see `sync-architecture.md`).
-- Watch ring page reads display fields from the envelope first; AlarmStore lookup is a fallback for older envelopes only, never required.
+- `alarm_fired` carries the thin-client ring hints: `alarmId`, `updatedAtEpoch`, `vibrationPattern` (enum name), `watchVibrationEnabled` (1.0.6 — when `false` the watch skips its `startVibrate` loop, supporting the per-device "silent" state), `snoozeAllowed` (pre-computed `alarm.isSnoozeEnabled` — collapses both `snoozeMinutes==0` and `consecutiveSnoozeCount >= maxSnoozeCount` so the watch hides Snooze verbatim). The watch reads ONLY these; the `AlarmStore` fallback was removed on 2026-10-01. Added 2026-09-28: `listSync` (false = list sync is off, so drop the stored list when the ring ends), `use24Hour` (ring clock format; with list sync off no `settings_changed` ever arrives), `firedAt` (phone ring start, identical on every re-send, used to ignore a late copy of an ended ring). `listSync` and `use24Hour` are omitted before first unlock (settings live in credential-encrypted storage); `firedAt` is always sent. The ring clock always shows the current time, not the alarm's hour/minute, so the envelope is the whole ring contract. `label` is NEVER on the wire (PII, phone-only — see `sync-architecture.md`).
+- Watch ring page reads display fields from the envelope only. A missing field takes its default (snooze shown, PULSE pattern, vibration on, the watch's stored 12/24 h setting).
 - This is the foundation for any "phone fires from a state the watch hasn't synced yet" scenario — Before-First-Unlock (BFU) alarms, cold-start fires, watch reboot-mid-sync, paired-but-never-synced first install.
 
 Wire format both sides agree on (locked 2026-04-25):
@@ -492,7 +491,7 @@ Wire format both sides agree on (locked 2026-04-25):
 }
 ```
 
-**Conflict resolution: last-write-wins (LWW).** Every mutation stamps `updatedAtEpoch = Date.now()` before broadcasting. Receiver applies if newer than local; otherwise re-broadcasts its newer state. Tie → incoming wins. Deletion tombstones retained ≥ 7 days so stale updates can't resurrect. Code-side gaps tracked under "Known gaps" #21–#25 below.
+**Conflict resolution: last-write-wins (LWW).** Every mutation stamps `updatedAtEpoch = Date.now()` before broadcasting. Receiver applies if newer than local; otherwise re-broadcasts its newer state. Tie → incoming wins. Deletion tombstones retained ≥ 7 days so stale updates can't resurrect. Code-side gaps tracked under "Known gaps" #21–#25 below. **Phone side only:** the Lite watch does not run LWW or keep tombstones (removed 2026-10-01); it takes the phone's list wholesale via `sync_replace`.
 
 ---
 
@@ -543,7 +542,7 @@ i18n is not "wrap a few strings"; it's an end-to-end contract. Both apps must en
 
 - [ ] Pair: confirm Huawei Health pairing on Samsung phone shows GT 6 connected (already verified 2026-04-27)
 - [ ] Install: build LiteWearable HAP via Hvigor → copy to phone → App Debug Assistant push → confirm install green
-- [ ] Pure-logic tests in Node/jest: `.local/jest-lite/` covers LwwResolver, Tombstones, IncomingMessageHandler core
+- [ ] Pure-logic tests in Node/jest: `.local/jest-lite/` covers IncomingMessageHandler core (LwwResolver / Tombstones suites are obsolete since 2026-10-01)
 - [ ] Manual UI: launch app on watch, scroll alarm list, toggle a row, long-press delete confirmation, all surfaces render
 - [x] Manual ring: simulate `alarm_fired` (post-Wear-Engine approval) → ring page mounts within 500 ms, vibration starts, Dismiss/Snooze taps work
   — ✅ **verified on GT 6 Pro 2026-08-29** with watch 1.0.9 / code 1000008. Two alarms:
@@ -695,6 +694,113 @@ The reviewer did NOT get `PeerAppMissing`, so the HAP installed and then never r
 "debug/diagnostic UI, English-only" while being primary UI on the main screen — two were quoted
 verbatim in the rejection. Now translated into ru/be/uk/pl/zh, and neither the raw SDK message nor
 the ping code reaches the user (both stay in logcat).
+
+### AppGallery rule-3.1 rejection — watch vibration and sync wakes (2026-09-28)
+
+Rejected on GT 6 Pro and FIT 5 Pro with three findings:
+1. The watch did not vibrate when the alarm went off, with watch vibration enabled (square and round).
+2. A phone change while the watch was on any page launched GT Wake over it: sync page, then exit (square and round).
+3. After editing an alarm the watch kept popping the sync page (round).
+
+**(1) Vibration — root cause found on device.**
+- Cause: ACELite drops a **one-shot** timer silently when the app message queue is full at fire
+  time (`arkui_ace_engine_lite` `timer_module.cpp`, `Task()`: `DispatchAsyncWork` fails, then
+  `if (!check && !arg->repeated) DeleteTimer`). A cold wake fills that queue (render, ~35 `$t`
+  lookups, storage callbacks, P2P, log relay). The buzz pattern was a `setTimeout` chain, so it died
+  after the first buzz. A real alarm almost always finds the watch app closed, so the reviewer got
+  one ~1 s buzz.
+- Evidence (vibprobe-1b, GT 6 Pro, 2026-09-28): 4 of 4 cold-wake rings logged `vib#1 ok` and no
+  further step; 3 of 3 rings with the app already open ran the pattern (`vib#1..#4` every 1.5 s).
+  `vibrate()` never reported a failure. A `setInterval` (the 2 s poll) kept firing through every
+  cold ring.
+- ✅ **Fix (GT 6 Pro; FIT untested):** `common/ticker.js` — one `setInterval` (250 ms) that runs named deadlines and runs only
+  while one is pending. Repeating timers survive a failed dispatch. Moved onto it: vibration steps,
+  ring/sync terminate caps, the sync-page fallback, the drain timer, the reveal and size safety nets,
+  the post-ring "back to list" flip (whose callback also arms the peer-ended terminate), crown arming.
+  Pattern delays now round to the nearest 250 ms (HEARTBEAT's 150 ms gap becomes ~250 ms).
+  ✅ on GT 6 Pro: 2 of 2 cold rings buzzed for the whole ring (before the fix: 0 of 4). vibprobe-3
+  logged 3 steps before dismiss. slim-7 (2026-10-01) buzzed for ~10 s until the phone dismissed
+  it; confirmed by the tester, since slim-7 no longer logs individual steps. FIT 5 Pro not tested
+  (no device).
+- 📋 Not moved: the crown debounce timers (250/550 ms; a 250 ms tick would change the gesture) and
+  the `wearBridge.js` send timeout / retry timers on the watch-originated dismiss path. Both are
+  still one-shot and still exposed to the same drop.
+- ✅ `ohos.permission.VIBRATE` is now declared in `config.json` `reqPermissions` (the SDK typings mark
+  `@system.vibrator` with it). It was not the cause: the GT 6 Pro buzzed without it.
+- 🟡 Static hint under the phone's "Watch vibration" switch: watch Do Not Disturb, Sleep mode or
+  Vibration: None can silence it. The watch cannot read those settings, and a silenced `vibrate()`
+  was not observed to report failure, so no runtime warning is possible.
+
+**(2)/(3) Sync wakes — list sync is now opt-in.**
+- Every phone→watch delivery must launch the watch app (Wear Engine only delivers to a running
+  app), so a list push is always visible. Finding 3 was amplified by `MainActivity.onStart` syncing
+  on every foreground (for example, returning from the ringtone picker).
+- 🟡 "Show alarm list on watch" (Settings → Watch), **off by default for new and upgraded
+  installs**. The single gate is the first line of `AlarmRepository.syncWatchNow`, ahead of
+  `sendSettingsChanged` (which wakes the watch by itself), so it covers every caller: debounced
+  mutations, `onStart`, the Sync-now button, dismiss→disable/delete, the voice shim.
+- ✅ Turning it on shows a consent dialog, then pushes once. Turning it off pushes an empty list once
+  (same replace + `sync_done` path), so the watch drops its copy. Device-verified 2026-10-01 (GT 6
+  Pro + SM-S948B): on → one `sync_check` round trip (hashes matched, n=6); off → one wake,
+  `sync_replace applied n=0`, watch closed on `sync_done`.
+- ✅ Changing or removing the watch picture shows a consent dialog first. With list sync off the
+  watch's screen size is fetched once on demand (`refreshWatchScreen`) before the cropper opens.
+  Checked by the tester 2026-10-01: consent → cropper → upload.
+- ✅ The watch rings purely from the `alarm_fired` payload. New fields: `listSync` (false → drop the
+  stored list when the ring ends), `use24Hour` (ring clock), `firedAt` (see below). Settings are read
+  only after first unlock; before it the fields are omitted. Seen on device 2026-10-01: a cold ring
+  with `ls=false` cleared the watch list when the phone dismissed it, and the dismiss caused no
+  follow-up sync (`syncWatchNow skipped`). Checked by the tester 2026-10-01: the ring clock follows
+  the phone's 12/24 h setting, and an alarm before first unlock rings the watch.
+- ✅ Watch empty state: one message for everyone ("GT Wake" / "Set alarms on your phone. The watch
+  vibrates for them.") with a QR to the new `/watch` help page (`/watch/zh` for zh-CN). The old
+  "Set up GT Wake / install the phone app" variant is gone: with sync off a working install has an
+  empty list, and a fresh watch counts as connected only after its first alarm. Checked by the
+  tester 2026-10-01: text renders and the QR scans. ❌ The `/watch` page is not deployed yet, so
+  the QR leads nowhere until the site deploy (release step 9).
+- 🟠 Known limitation: an older watch build ignores `listSync` and keeps its stale list until the
+  watch app is updated. Both apps ship together.
+
+**Fire path hardening (found while reviewing the fix).**
+- 🟡 The 10 s pre-arm wrapped the send itself, so a slow cold start cancelled delivery and nothing
+  re-sent it. `AlarmRingService.startWatchCatchUp` now keeps re-sending `alarm_fired` (25 s wake
+  budget per attempt) until `alarm_ringing` arrives, the ring ends, or 90 s pass. The watch re-acks a
+  duplicate for the ring on screen, and ignores a late copy of a ring it already ended (matched on
+  `firedAt`, persisted in `@system.storage` `gt_last_ring` so a relaunch still recognises it).
+  Seen on device 2026-10-01: a cold fire got 206 while the watch app launched, was delivered on the
+  second transport retry, and `alarm_ringing` arrived 3.86 s after the fire. The 90 s catch-up loop
+  was not needed, so it is still untested on device.
+- ✅ Phone-side dismiss/snooze reach the watch only if an `alarm_fired` for that ring was delivered
+  (`wasAlarmFiredDelivered`); otherwise the send would launch the watch app just to close it.
+  Delivered case seen on device 2026-10-01 (dismiss acked in 0.4 s). Not-delivered case checked
+  by the tester the same day: the watch stayed asleep after a phone dismiss.
+
+**Install-time watch reboot while testing the fix (2026-09-29 to 2026-10-01).**
+- The watch launches the app right after install. vibprobe-3 (debug page bundle 134,482 B)
+  installs and runs. vibprobe-4 (136,686 B) rebooted the **whole watch** during that launch,
+  repeatably.
+- Cause not proven. Working hypothesis: JS heap use during the first launch. ACELite gives
+  every page `data` key reactive accessors and binds every page method, so a large `data`
+  block and dead code cost heap at `onInit`.
+- 🟡 Cuts made (no behaviour change intended):
+  - Page `data` holds only template-bound fields. About 50 script-only fields moved to module
+    variables.
+  - Removed watch LWW, tombstones, `ConnectionStore` and the per-alarm
+    updated/deleted/toggled handlers (see "Algorithm port" above). `AlarmStore` rewritten
+    without the `gt_alarms` migration, last-sync stamp and unused methods. `SettingsStore` and
+    `wearBridge.js` lost unused APIs and diagnostics.
+  - Removed the `enterRing` `AlarmStore` fallback, 18 unused i18n keys per locale, the
+    splash/sync duplicate block and the duplicate ring action row.
+- Debug page bundle: 134,482 B (vibprobe-3) → 108,335 B (slim-7). HAP 1,488,019 B.
+  ✅ slim-7 installs and launches on the GT 6 Pro without a reboot (2026-10-01). The cause is
+  still unproven, so keep the bundle from growing. Debug bundles are not minified, so these
+  numbers are not comparable with release figures. Release page bundle: 79,395 B (1.0.10) →
+  65,088 B (1.0.11).
+
+**Also found, not changed here.**
+- 🟠 The 390 × 390 round size is in `distroFilter`, but the responsive mockup shows clipping there on
+  screens that predate this change: the Privacy consent body and buttons, and the ring's snooze/stop
+  buttons touch the curved edge. Needs a layout pass or removal from `distroFilter`.
 
 ### HarmonyOS 5 is declared unsupported, in code (2026-09-10)
 

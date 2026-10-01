@@ -63,7 +63,19 @@ class SettingsStore @Inject constructor(
             watchScreenHeight = prefs[KEY_WATCH_SCREEN_H] ?: 0,
             watchScreenShape = prefs[KEY_WATCH_SCREEN_SHAPE] ?: "",
             watchScreenModel = prefs[KEY_WATCH_SCREEN_MODEL] ?: "",
+            watchListSync = prefs[KEY_WATCH_LIST_SYNC] ?: false,
         )
+    }
+
+    /**
+     * "Show alarm list on watch". Off by default: every phone→watch list push
+     * has to launch the watch app (Wear Engine delivers only to a running
+     * app), which AppGallery review flagged as the watch popping a sync page
+     * on every edit. With it off the watch rings purely from the
+     * `alarm_fired` payload and never receives the list.
+     */
+    suspend fun setWatchListSync(enabled: Boolean) {
+        dataStore.edit { prefs -> prefs[KEY_WATCH_LIST_SYNC] = enabled }
     }
 
     /**
@@ -211,6 +223,8 @@ class SettingsStore @Inject constructor(
         private val KEY_WATCH_SCREEN_SHAPE = stringPreferencesKey("watch_screen_shape")
         // Bonded-device label the cached dims belong to — re-request gate.
         private val KEY_WATCH_SCREEN_MODEL = stringPreferencesKey("watch_screen_model")
+        // "Show alarm list on watch" — opt-in list sync (absent = off).
+        private val KEY_WATCH_LIST_SYNC = booleanPreferencesKey("watch_list_sync")
 
         // Extension property generates a process-singleton DataStore<Preferences>
         // bound to the application Context. Hilt @Singleton on [SettingsStore]
@@ -238,4 +252,6 @@ data class SettingsState(
     val watchScreenShape: String = "",
     // Bonded-device label the cached dims belong to (re-request gate).
     val watchScreenModel: String = "",
+    // "Show alarm list on watch" (opt-in; see SettingsStore.setWatchListSync).
+    val watchListSync: Boolean = false,
 )

@@ -29,7 +29,7 @@ const features = [
   { icon: Watch, title: 'Act from the wrist', text: 'Snooze or dismiss from the watch — no need to reach for the phone.' },
   { icon: LayoutGrid, title: 'Every alarm type', text: 'Recurring, one-time, and timer (“in X minutes”) alarms, with skip-next.' },
   { icon: Vibrate, title: 'Patterns & ramp', text: 'Vibration patterns, gradual volume ramp, and snooze limits.' },
-  { icon: ImageIcon, title: 'Your backgrounds', text: 'A background image per alarm — on the lock screen and the watch.' },
+  { icon: ImageIcon, title: 'Your backgrounds', text: 'A background image per alarm on the lock screen, plus your own picture on the watch.' },
   { icon: Mic, title: 'Voice & widget', text: 'Set alarms by voice with your assistant; a home-screen widget shows the next one.' },
   { icon: Globe, title: 'Six languages', text: 'English, Русский, Беларуская, Українська, Polski, 中文.' },
   { icon: ShieldCheck, title: 'Private by design', text: 'No ads, no account, no tracking. Nothing leaves your devices.' },

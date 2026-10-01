@@ -1,5 +1,6 @@
 package com.kirkouski.gtwake.companion.wear
 
+import com.kirkouski.gtwake.companion.data.SettingsState
 import com.kirkouski.gtwake.companion.domain.Alarm
 
 /**
@@ -25,12 +26,33 @@ data class AlarmRingHints(
     // 1.0.6: whether the WATCH should vibrate for this alarm. Inlined so a
     // cold-paired watch honors "silent on watch" at fire time without sync.
     val watchVibrationEnabled: Boolean,
+    // "Show alarm list on watch" at fire time. false tells the watch to drop
+    // any list it still holds (cleared after the ring ends). null = unknown
+    // (phone not unlocked yet, settings unreadable) → field omitted, watch
+    // changes nothing.
+    val listSync: Boolean? = null,
+    // 12/24 h for the ring clock. With list sync off the watch never gets a
+    // settings_changed, so the fire carries it. null = follow the watch's
+    // locale, or unknown pre-unlock → field omitted.
+    val use24Hour: Boolean? = null,
+    // Wall time this ring started on the phone. Constant across the pre-arm
+    // and every catch-up re-send, so the watch can tell a late copy of a ring
+    // it already ended (ignore) from a new ring of the same alarm, such as a
+    // snooze re-fire (ring). null = omitted.
+    val firedAtEpoch: Long? = null,
 ) {
     companion object {
-        fun from(alarm: Alarm): AlarmRingHints = AlarmRingHints(
+        /**
+         * [settings] is null before the first unlock: DataStore lives in
+         * credential-encrypted storage, so the ring path must not read it
+         * there (an exception would tear down the ring).
+         */
+        fun from(alarm: Alarm, settings: SettingsState? = null): AlarmRingHints = AlarmRingHints(
             vibrationPatternName = alarm.vibrationPattern.name,
             snoozeAllowed = alarm.isSnoozeEnabled,
             watchVibrationEnabled = alarm.watchVibrationEnabled,
+            listSync = settings?.watchListSync,
+            use24Hour = settings?.use24Hour,
         )
     }
 }

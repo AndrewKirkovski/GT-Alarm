@@ -11,7 +11,6 @@
 // setPeerFingerPrint(watch_bundle_base64_pubkey) call.
 import { P2pClient, Message, Builder } from '../wearEngine/wearengine.js';
 import Logger from './logger.js';
-import storage from '@system.storage';
 
 // PHONE_PKG_NAME is the Android phone APK's applicationId. Used by
 // setPeerPkgName so the watch's P2pClient knows which peer to send to.
@@ -33,7 +32,6 @@ var PHONE_CERT_SHA256 =
 
 var client = null;
 var incomingHandler = null;
-var receiverRegistered = false;
 
 // Handler for inbound P2P FILE messages (as opposed to JSON text). Set
 // by the page via setFileHandler. Wear Engine delivers a received file
@@ -48,27 +46,6 @@ var fileHandler = null;
 // state is a SEPARATE copy per page — the tag tells the relayed logs
 // which bundle's receiver actually fired.
 var pageTag = 'app';
-
-// Receiver registration state for this bundle's P2pClient. Exposed via
-// getReceiverState() so the page diagnostic strip can show, on-screen,
-// whether the watch's inbound P2P receiver is actually bound right now.
-// result: 'idle' | 'pending' | 'ok' | 'fail'.
-var receiverState = { result: 'idle', atMs: 0 };
-
-// Last send outcome for this bundle — surfaced in the page diagnostic
-// strip as `tx:<type>=<code>`. reason is the SDK code string ('207',
-// '206', 'timeout', 'fail', 'throw').
-var lastSendType = '';
-var lastSendReason = '';
-
-// Trace of the most recent send-step the code reached. Set by
-// sendOnceWithResult before/after each phase. Exported via getLastTrace()
-// so the index page can render it — invaluable when c.send hangs and we
-// can't see HiLog.
-var lastTrace = 'idle';
-function trace(s) {
-    lastTrace = s;
-}
 
 function ensureClient() {
     if (client === null) {
@@ -104,7 +81,8 @@ function dispatchIncoming(rawMessage) {
 }
 
 // Bind this bundle's P2pClient receiver to the GLOBAL Wear Engine
-// message subscription. NOT guarded by `receiverRegistered` — Fix 1
+// message subscription. Deliberately NOT guarded by an "already registered"
+// flag — Fix 1
 // (per-page receiver registration) REQUIRES this to re-register on
 // every call. Each page bundle owns an isolated copy of this module
 // (gotcha #11); when a page becomes foreground it must re-point the
@@ -115,17 +93,12 @@ function dispatchIncoming(rawMessage) {
 // idempotent operation.
 function installReceiver() {
     var c = ensureClient();
-    receiverState = { result: 'pending', atMs: Date.now() };
     Logger.i('wearBridge[' + pageTag + '].registerReceiver call');
     c.registerReceiver({
         onSuccess: function () {
-            receiverRegistered = true;
-            receiverState = { result: 'ok', atMs: Date.now() };
             Logger.i('wearBridge[' + pageTag + '].registerReceiver onSuccess');
         },
         onFailure: function () {
-            receiverRegistered = false;
-            receiverState = { result: 'fail', atMs: Date.now() };
             Logger.w('wearBridge[' + pageTag + '].registerReceiver onFailure');
         },
         onReceiveMessage: function (data) {
@@ -157,56 +130,23 @@ function installReceiver() {
     });
 }
 
-function unregister() {
-    if (!receiverRegistered || !client) return;
-    client.unregisterReceiver({
-        onSuccess: function () {
-            receiverRegistered = false;
-            Logger.i('wearBridge.unregister onSuccess');
-        },
-        onFailure: function () {
-            Logger.w('wearBridge.unregister onFailure');
-        },
-    });
-}
-
-function buildMessage(payloadStr) {
-    var builder = new Builder();
-    builder.setPayload(payloadStr);
-    var msg = new Message();
-    msg.builder = builder;
-    return msg;
-}
-
 // One-shot send. Calls `cb(success, reason)` exactly once.
-// IMPORTANT: transport-level logs use console.* directly, NOT Logger.i.
-// If we routed them through Logger, the log relay would mirror them back
-// to the phone as watch_log envelopes — and each of those sends triggers
-// ANOTHER onSendResult → another Logger call → unbounded loop. The
-// on-device HiLog still captures them.
+// IMPORTANT: never log a send's outcome through Logger. The log relay
+// itself sends watch_log_batch envelopes, so each of those sends would
+// trigger ANOTHER send result -> another Logger call -> unbounded loop.
+// (The console.* echo this used instead was removed 2026-10-01: HiLog is
+// unreadable on the GT 6, so it only cost bundle bytes.)
 //
-// `reason` is a short tag for the caller's UI: '207', '206', 'fail',
-// 'timeout', 'throw'. Hard-timeout at SEND_TIMEOUT_MS guarantees the
-// callback fires even when the SDK silently never invokes onSendResult /
-// onFailure (observed on real GT 6 Pro when peer is unreachable — the
-// JS callback just never fires and the caller hangs forever otherwise).
+// `reason` is a short tag: '207', '206', 'fail', 'timeout', 'throw'.
+// Hard-timeout at SEND_TIMEOUT_MS guarantees the callback fires even when
+// the SDK silently never invokes onSendResult / onFailure (observed on real
+// GT 6 Pro when peer is unreachable — the JS callback just never fires and
+// the caller hangs forever otherwise).
 var SEND_TIMEOUT_MS = 3000;
 
-function sendOnceWithResult(envelope, cb, onTrace) {
-    function tr(step) {
-        trace(step);
-        if (onTrace) onTrace(step);
-    }
-    tr('ensureClient');
+function sendOnceWithResult(envelope, cb) {
     var c = ensureClient();
-    // Finer-grained tracing — earlier "buildMsg" label was set BEFORE the
-    // actual build, so any hang inside JSON.stringify / new Builder /
-    // setPayload / new Message looked identical to "stuck at buildMsg."
-    // Splitting into per-step labels so we can see exactly which SDK
-    // constructor blocks.
-    tr('stringify');
     var payload = JSON.stringify(envelope);
-    tr('newBuilder');
     var builder = new Builder();
     // CRITICAL: use setDescription (string path) NOT setPayload (ArrayBuffer
     // path). setPayload(jsString) calls setBufferPlayload internally, which
@@ -216,38 +156,22 @@ function sendOnceWithResult(envelope, cb, onTrace) {
     // callback. Matches HMS-Core official demo's setDescription("hello
     // wearEngine") pattern exactly. Verified by reading wearengine.js
     // 5.0.2.306 lines 430-457 against HMS demo index.js.
-    tr('setDescription');
     builder.setDescription(payload);
-    tr('newMessage');
     var msg = new Message();
     msg.builder = builder;
     var settled = false;
     function settle(success, reason) {
         if (settled) return;
         settled = true;
-        lastSendType = envelope.type;
-        lastSendReason = reason;
         if (cb) cb(success, reason);
     }
-    tr('schedTimeout');
     var timeoutId = setTimeout(function () {
-        tr('TIMEOUT fired');
-        if (!settled) {
-            console.warn('GT-Alarm: wearBridge.send TIMEOUT type=' + envelope.type +
-                ' (no onSendResult after ' + SEND_TIMEOUT_MS + 'ms)');
-            settle(false, 'timeout');
-        }
+        settle(false, 'timeout');
     }, SEND_TIMEOUT_MS);
     try {
-        tr('before c.send');
         c.send(msg, {
-            onSuccess: function () {
-                tr('onSuccess fired');
-                console.info('GT-Alarm: wearBridge.send onSuccess type=' + envelope.type);
-            },
+            onSuccess: function () {},
             onFailure: function () {
-                tr('onFailure fired');
-                console.warn('GT-Alarm: wearBridge.send onFailure type=' + envelope.type);
                 clearTimeout(timeoutId);
                 settle(false, 'fail');
             },
@@ -255,19 +179,12 @@ function sendOnceWithResult(envelope, cb, onTrace) {
                 var code = resultCode && typeof resultCode === 'object'
                     ? resultCode.code
                     : resultCode;
-                tr('onSendResult c=' + code);
-                console.info('GT-Alarm: wearBridge.send onSendResult type=' +
-                    envelope.type + ' code=' + code);
                 clearTimeout(timeoutId);
                 settle(code === 207, '' + code);
             },
             onSendProgress: function () {},
         });
-        tr('after c.send');
     } catch (e) {
-        tr('c.send threw');
-        console.error('GT-Alarm: wearBridge.send threw type=' + envelope.type +
-            ' err=' + (e && e.message ? e.message : '' + e));
         clearTimeout(timeoutId);
         settle(false, 'throw');
     }
@@ -303,28 +220,21 @@ function sendJsonWithRetry(envelope, maxAttempts, attempt, terminalCb) {
             return;
         }
         if (attempt >= maxAttempts) {
-            console.warn('GT-Alarm: wearBridge.send gave up type=' + envelope.type + ' after ' + attempt + ' attempts');
             if (terminalCb) terminalCb(false, reason);
             return;
         }
         setTimeout(function () {
-            console.info('GT-Alarm: wearBridge.send retry type=' + envelope.type + ' attempt=' + (attempt + 1));
             sendJsonWithRetry(envelope, maxAttempts, attempt + 1, terminalCb);
         }, 500);
     });
 }
 
 export default {
-    // Called from app.onCreate with a callback that handles parsed
-    // BridgeMessage objects. Passing null detaches the handler and
-    // unregisters the receiver (used in app.onDestroy).
+    // Called from the page's onShow with a callback that handles parsed
+    // BridgeMessage objects. Re-registers on every call (see installReceiver).
     setIncomingHandler: function (handler) {
         incomingHandler = handler;
-        if (handler !== null) {
-            installReceiver();
-        } else {
-            unregister();
-        }
+        if (handler !== null) installReceiver();
     },
 
     // Per-bundle page tag for diagnostics — call before setIncomingHandler.
@@ -339,33 +249,10 @@ export default {
         fileHandler = fn;
     },
 
-    // Receiver registration state for this bundle: { result, atMs }.
-    // result is 'idle' | 'pending' | 'ok' | 'fail'. Rendered in the page
-    // diagnostic strip so a failed hardware test shows on-screen whether
-    // the inbound P2P receiver was even bound.
-    getReceiverState: function () {
-        return receiverState;
-    },
-
-    // Last send outcome for this bundle: { type, reason }. reason is the
-    // SDK code string. Rendered in the page diagnostic strip.
-    getLastSend: function () {
-        return { type: lastSendType, reason: lastSendReason };
-    },
-
-    notifyToggled: function (alarm) {
-        sendJson({
-            type: 'alarm_toggled',
-            alarmId: alarm.id,
-            updatedAtEpoch: alarm.updatedAtEpoch,
-            enabled: !!alarm.enabled,
-        });
-    },
     // Dismiss + snooze use the retry path because dropping them means
     // the phone keeps ringing. 3 attempts × 500 ms delay = up to ~1.5 s
     // of recovery window per tap, in addition to the per-send round
-    // trips. notifyToggled/notifyDeleted stay fire-and-forget since the
-    // user is staring at the list UI and can re-tap if a sync fails.
+    // trips.
     //
     // RETRIES-ONLY BY DESIGN — no blocking wait for a phone application
     // ack. The watch CANNOT wake the Android app: a watch→phone message
@@ -397,14 +284,6 @@ export default {
             updatedAtEpoch: Date.now(),
         }, 3, 1, cb);
     },
-    notifyDeleted: function (alarmId) {
-        sendJson({
-            type: 'alarm_deleted',
-            alarmId: alarmId,
-            updatedAtEpoch: Date.now(),
-        });
-    },
-
     // Response to a phone-originated `sync_check` envelope. Phone uses the
     // hash to decide whether to skip the full force-sync push. Fire-and-
     // forget — if it's dropped, the phone just times out and does the
@@ -512,18 +391,13 @@ export default {
     // DevEco on Windows). `lines` is an array of { level, msg, ts }.
     // logger.js coalesces lines and calls this once per ~700 ms instead of
     // once per line — one P2P send per line was a channel-pressure
-    // confound. Fire-and-forget; uses console.* internally, never Logger.
+    // confound. Fire-and-forget; its send outcome is never logged through
+    // Logger (that would loop, see sendOnceWithResult).
     sendLogBatch: function (lines) {
         sendJson({
             type: 'watch_log_batch',
             lines: lines,
             ts: Date.now(),
         });
-    },
-
-    // Read-only — last send-step the bridge reached. Useful for the
-    // index page's diagnostic UI to render between callback events.
-    getLastTrace: function () {
-        return lastTrace;
     },
 };

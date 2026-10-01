@@ -8,6 +8,7 @@ import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.domain.DaysOfWeek
 import com.kirkouski.gtwake.companion.ring.AlarmNotifications
 import com.kirkouski.gtwake.companion.scheduler.AlarmScheduler
+import com.kirkouski.gtwake.companion.wear.ForceSyncResult
 import com.kirkouski.gtwake.companion.wear.WearBridgeService
 import com.kirkouski.gtwake.companion.widget.WidgetRefresher
 import android.content.Context
@@ -80,6 +81,66 @@ class AlarmRepositoryTest {
             appContext = appContext,
             ioDispatcher = UnconfinedTestDispatcher(),
         )
+    }
+
+    // --- Opt-in watch list sync (2026-09-28) -------------------------------
+
+    @Test
+    fun `syncWatchNow with list sync off sends nothing to the watch`() = runTest {
+        coEvery { settingsStore.snapshot() } returns SettingsState(watchListSync = false)
+
+        val result = repo.syncWatchNow()
+
+        assertEquals(ForceSyncResult.ListSyncOff, result)
+        // sendSettingsChanged wakes the watch on its own, so it must be gated too.
+        verify(exactly = 0) { wearBridge.sendSettingsChanged(any(), any()) }
+        coVerify(exactly = 0) { wearBridge.forceSync(any()) }
+    }
+
+    @Test
+    fun `syncWatchNow with list sync on pushes settings and the list`() = runTest {
+        coEvery { settingsStore.snapshot() } returns SettingsState(watchListSync = true)
+        coEvery { wearBridge.forceSync(any()) } returns ForceSyncResult.Ok(0)
+
+        val result = repo.syncWatchNow()
+
+        assertEquals(ForceSyncResult.Ok(0), result)
+        verify(exactly = 1) { wearBridge.sendSettingsChanged(any(), any()) }
+        coVerify(exactly = 1) { wearBridge.forceSync(any()) }
+    }
+
+    @Test
+    fun `turning list sync off stores it and pushes an empty list`() = runTest {
+        coEvery { settingsStore.snapshot() } returns SettingsState(watchListSync = false)
+        val pushed = mutableListOf<List<Alarm>>()
+        coEvery { wearBridge.forceSync(any()) } coAnswers {
+            val supplier = firstArg<suspend () -> List<Alarm>>()
+            pushed += supplier()
+            ForceSyncResult.Ok(0)
+        }
+        repo.save(Alarm(id = 0L, hour = 7, minute = 0, daysOfWeek = DaysOfWeek.MON, enabled = true))
+
+        repo.setWatchListSync(false)
+
+        coVerify { settingsStore.setWatchListSync(false) }
+        assertEquals(listOf(emptyList<Alarm>()), pushed)
+    }
+
+    @Test
+    fun `turning list sync on stores it and pushes the real list`() = runTest {
+        coEvery { settingsStore.snapshot() } returns SettingsState(watchListSync = true)
+        val pushed = mutableListOf<List<Alarm>>()
+        coEvery { wearBridge.forceSync(any()) } coAnswers {
+            val supplier = firstArg<suspend () -> List<Alarm>>()
+            pushed += supplier()
+            ForceSyncResult.Ok(1)
+        }
+        repo.save(Alarm(id = 0L, hour = 7, minute = 0, daysOfWeek = DaysOfWeek.MON, enabled = true))
+
+        repo.setWatchListSync(true)
+
+        coVerify { settingsStore.setWatchListSync(true) }
+        assertEquals(1, pushed.single().size)
     }
 
     @Test

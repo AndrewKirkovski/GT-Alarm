@@ -5,10 +5,14 @@ import androidx.lifecycle.viewModelScope
 import com.kirkouski.gtwake.companion.data.AlarmRepository
 import com.kirkouski.gtwake.companion.data.SettingsState
 import com.kirkouski.gtwake.companion.data.SettingsStore
+import com.kirkouski.gtwake.companion.wear.ForceSyncResult
 import com.kirkouski.gtwake.companion.wear.WatchSyncStatus
 import com.kirkouski.gtwake.companion.wear.WearBridgeService
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -24,8 +28,15 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val store: SettingsStore,
     private val alarmRepository: AlarmRepository,
-    wearBridge: WearBridgeService,
+    private val wearBridge: WearBridgeService,
 ) : ViewModel() {
+
+    // One-shot results of a list-sync switch change, for a toast. The Boolean
+    // is the requested state, so the screen can word "removed" vs "sent".
+    private val _watchListSyncResults =
+        MutableSharedFlow<Pair<Boolean, ForceSyncResult>>(extraBufferCapacity = 1)
+    val watchListSyncResults: SharedFlow<Pair<Boolean, ForceSyncResult>> =
+        _watchListSyncResults.asSharedFlow()
 
     val state: StateFlow<SettingsState> = store.state.stateIn(
         viewModelScope,
@@ -53,6 +64,26 @@ class SettingsViewModel @Inject constructor(
     fun setFirstDayOfWeek(value: Int?) = viewModelScope.launch {
         store.setFirstDayOfWeek(value)
         alarmRepository.scheduleWatchSync()
+    }
+
+    /**
+     * Consent was already given in the UI for turning it on. The push runs in
+     * the repository's own scope, so leaving Settings mid-sync does not cancel
+     * it; this only waits for the result to show a toast.
+     */
+    fun setWatchListSync(enabled: Boolean) = viewModelScope.launch {
+        val result = alarmRepository.changeWatchListSync(enabled).await()
+        _watchListSyncResults.tryEmit(enabled to result)
+    }
+
+    /**
+     * After picture consent: make sure the watch's screen size is known (list
+     * sync off means no sync ever fetched it), then open the cropper. The
+     * cropper still works without it, just without the watch-shaped frame.
+     */
+    fun prepareWatchPicturePicker(onReady: () -> Unit) = viewModelScope.launch {
+        wearBridge.refreshWatchScreen()
+        onReady()
     }
 
     fun setDefaultAbsoluteRingtone(uri: String?, name: String?) = viewModelScope.launch {

@@ -307,4 +307,21 @@
     <string name="watch_unsupported_harmony">GT Wake Companion is an Android app and cannot reach your watch on HarmonyOS 5. You may not need it: your phone already rings its own alarms on a paired watch. Open Huawei Health, go to your watch, tap Alarm, and turn on phone alarm sync. Your alarms still ring on this phone as normal.</string>
     <string name="watch_unsupported_no_health">Watch sync needs the Huawei Health app, which is not installed. Install Huawei Health and reopen GT Wake. Your alarms still ring on this phone as normal.</string>
     <string name="watch_unsupported_title">Watch sync is not available on this phone</string>
+    <!-- Opt-in watch list sync + watch wake consent (rule 3.1, 2026-09-28) -->
+    <string name="settings_section_watch">Watch</string>
+    <string name="settings_watch_list_sync">Show alarm list on watch</string>
+    <string name="settings_watch_list_sync_hint">Your watch rings for every alarm either way. When this is on, the watch also shows your alarm list, and it briefly opens GT Wake to update the list after each change.</string>
+    <string name="watch_list_sync_confirm_title">Show alarm list on watch?</string>
+    <string name="watch_list_sync_confirm_body">Because of how Huawei\'s watch connection works, your watch will wake and briefly open GT Wake to update the list after every alarm change.</string>
+    <string name="watch_list_sync_confirm_ok">Turn on</string>
+    <string name="watch_list_sync_on_done">Alarm list sent to your watch</string>
+    <string name="watch_list_sync_off_done">Alarm list removed from your watch</string>
+    <string name="force_sync_list_off">The alarm list on the watch is off. You can turn it on in Settings.</string>
+    <string name="watch_status_card_list_off">Alarm list on watch: off</string>
+    <string name="watch_picture_confirm_title">Change the watch picture?</string>
+    <string name="watch_picture_clear_confirm_title">Remove the watch picture?</string>
+    <string name="watch_picture_confirm_body">Your watch will wake and briefly open GT Wake to receive the picture.</string>
+    <string name="watch_picture_clear_confirm_body">Your watch will wake and briefly open GT Wake to remove the picture.</string>
+    <string name="watch_picture_confirm_ok">Continue</string>
+    <string name="field_watch_vibration_hint">Do Not Disturb, Sleep mode, or Vibration set to None on the watch can silence it.</string>
 </resources>

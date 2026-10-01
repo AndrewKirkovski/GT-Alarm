@@ -16,13 +16,11 @@ import app from '@system.app';
 import storage from '@system.storage';
 import AlarmStore from './alarmStore.js';
 import SettingsStore from './settingsStore.js';
-import Tombstones from './tombstones.js';
-import Lww from './lwwResolver.js';
 import Logger from './logger.js';
 import AlarmHash from './alarmHash.js';
 import WearBridge from './wearBridge.js';
 import Screen from './screen.js';
-import ConnectionStore from './connectionStore.js';
+import Ticker from './ticker.js';
 
 // Wake-reason tracking. When the phone wakes the watch app via Wear
 // Engine auto-launch for a sync push, the first state-mutation envelope
@@ -58,7 +56,6 @@ var DRAIN_QUIESCENCE_MS = 3000;
 
 var _appStartMs = 0;
 var _wokenForSync = false;
-var _drainTimer = null;
 // Once an alarm_fired routes the user to the ring page, the ring page
 // owns the rest of the process lifetime (its own onDismiss/onSnooze/onHide
 // schedule app.terminate after the action settles). Any later envelope
@@ -91,10 +88,7 @@ function markAppStart() {
 // or terminate while the user is mid-alarm.
 function markRingActive() {
     _ringActive = true;
-    if (_drainTimer !== null) {
-        clearTimeout(_drainTimer);
-        _drainTimer = null;
-    }
+    Ticker.clear('drain');
 }
 
 // Arms / re-arms the drain quiescence timer. Burst of N envelopes
@@ -112,8 +106,8 @@ function armDrain() {
     // lifetime is owned by the page itself (ring.scheduleTerminate,
     // syncing's onSyncDone terminate, index never auto-closes).
     if (_appStartMs === 0) return;
-    if (_drainTimer !== null) clearTimeout(_drainTimer);
-    _drainTimer = setTimeout(function () {
+    // On the Ticker: a dropped one-shot timer would leave the app open.
+    Ticker.set('drain', DRAIN_QUIESCENCE_MS, function () {
         Logger.i('incoming.drain-quiesced — app.terminate()');
         try {
             app.terminate();
@@ -123,7 +117,7 @@ function armDrain() {
             // dying anyway. Log for diagnostic completeness.
             Logger.err('incoming.app.terminate threw', e);
         }
-    }, DRAIN_QUIESCENCE_MS);
+    });
 }
 
 // Routes to the syncing page on the first state-mutation envelope within
@@ -148,33 +142,6 @@ function noteIncomingEnvelope() {
     }
     armDrain();
     if (onSyncWake) onSyncWake();
-}
-
-// Stamp the AlarmStore's last-sync-epoch whenever any peer-driven mutation
-// actually takes effect locally. Drives the "Last sync: N min ago" line on
-// the index page.
-function bumpLastSync() {
-    AlarmStore.setLastSyncEpoch(Date.now());
-}
-
-// Records that the watch has connected to the phone companion (drives the
-// onboarding "install the companion" screen vs. a plain empty list). ANY
-// well-formed inbound envelope proves the phone is present — sync_check is
-// typically the first one on connect. Guarded so we touch storage at most
-// once per process, except to UPGRADE the recorded companion version if a
-// `phoneAppVersion` field appears (a future phone build will add it; absent
-// today → ConnectionStore defaults to LEGACY_VERSION '1.0.0').
-var _connRecorded = false;
-function noteConnection(msg) {
-    var ver = (msg && typeof msg.phoneAppVersion === 'string' && msg.phoneAppVersion.length > 0)
-        ? msg.phoneAppVersion : null;
-    if (_connRecorded && ver === null) return;
-    _connRecorded = true;
-    try {
-        ConnectionStore.recordConnection(ver, function () {});
-    } catch (e) {
-        Logger.err('incoming.noteConnection', e);
-    }
 }
 
 // F4: reply to a phone screen_request, threading the watch's current default-
@@ -216,91 +183,18 @@ function rejectMalformed(msg) {
     return false;
 }
 
-function applyAddOrUpdate(msg) {
-    var stamp = msg.alarm.updatedAtEpoch;
-    Tombstones.lookupEpoch(msg.alarmId, function (tEpoch) {
-        if (Lww.shouldSuppressForTombstone(stamp, tEpoch)) {
-            Logger.i('incoming.suppressed-by-tombstone id=' + msg.alarmId);
-            return;
-        }
-        AlarmStore.getAll(function (items) {
-            var localEpoch = null;
-            var existsLocally = false;
-            for (var i = 0; i < items.length; i++) {
-                if (items[i].id === msg.alarmId) {
-                    localEpoch = items[i].updatedAtEpoch;
-                    existsLocally = true;
-                    break;
-                }
-            }
-            if (!Lww.shouldApply(stamp, localEpoch)) {
-                Logger.i('incoming.lww-rejected id=' + msg.alarmId);
-                return;
-            }
-            if (existsLocally) {
-                AlarmStore.update(msg.alarm, function () {
-                    Logger.i('incoming.applied-update id=' + msg.alarmId);
-                    bumpLastSync();
-                });
-            } else {
-                AlarmStore.add(msg.alarm, function () {
-                    Logger.i('incoming.applied-add id=' + msg.alarmId);
-                    bumpLastSync();
-                });
-            }
-        });
-    });
-}
-
-function applyDelete(msg) {
-    var stamp = msg.updatedAtEpoch;
-    Tombstones.add(msg.alarmId, stamp, function () {
-        AlarmStore.deleteById(msg.alarmId, function () {
-            Logger.i('incoming.applied-delete id=' + msg.alarmId);
-            bumpLastSync();
-        });
-    });
-}
-
-function applyToggle(msg) {
-    var stamp = msg.updatedAtEpoch;
-    Tombstones.lookupEpoch(msg.alarmId, function (tEpoch) {
-        if (Lww.shouldSuppressForTombstone(stamp, tEpoch)) {
-            Logger.i('incoming.toggle-suppressed-by-tombstone id=' + msg.alarmId);
-            return;
-        }
-        AlarmStore.getAll(function (items) {
-            var found = null;
-            for (var i = 0; i < items.length; i++) {
-                if (items[i].id === msg.alarmId) {
-                    found = items[i];
-                    break;
-                }
-            }
-            if (found === null) {
-                Logger.i('incoming.toggle-no-local id=' + msg.alarmId);
-                return;
-            }
-            if (!Lww.shouldApply(stamp, found.updatedAtEpoch)) {
-                Logger.i('incoming.toggle-lww-rejected id=' + msg.alarmId);
-                return;
-            }
-            // Clone all fields from the existing alarm so we don't drop
-            // snoozeMinutes / audioUri / relativeMinutes / selfDestruct /
-            // etc. on a toggle. ACE Lite's older JS engine may not have
-            // Object.assign — enumerate via for-in with hasOwnProperty
-            // for safety across engines.
-            var updated = {};
-            for (var k in found) {
-                if (found.hasOwnProperty(k)) updated[k] = found[k];
-            }
-            updated.enabled = !!msg.enabled;
-            updated.updatedAtEpoch = stamp;
-            AlarmStore.update(updated, function () {
-                Logger.i('incoming.applied-toggle id=' + msg.alarmId);
-                bumpLastSync();
-            });
-        });
+// alarm_added is the only per-alarm envelope any published phone build sends
+// (HuaweiWearBridge.pushAdditive: the large-list path on phones 1.0.1-1.0.5,
+// and the last-resort fallback after a failed file replace since then). The
+// phone is the sole scheduler and every send is awaited under its sync mutex,
+// so the row simply upserts: no tombstones, no per-row LWW (2026-10-01; the
+// tombstone list also overflowed the 128 B storage cap after ~3 entries, so
+// that protection was not persisting anyway).
+function applyAdd(msg) {
+    // update() calls back false when the row is not stored yet (or the write
+    // failed, in which case add() sees the id and no-ops).
+    AlarmStore.update(msg.alarm, function (ok) {
+        if (!ok) AlarmStore.add(msg.alarm);
     });
 }
 
@@ -317,20 +211,9 @@ function isPlausibleAlarm(a) {
     );
 }
 
-// Sequentially tombstone each id dropped by a sync_replace, so a stale
-// alarm_updated arriving later can't resurrect a pruned row. Sequential
-// (not parallel) to avoid racing Tombstones' read-modify-write storage.
-function tombstonePruned(ids, stamp, idx) {
-    if (idx >= ids.length) return;
-    Tombstones.add(ids[idx], stamp, function () {
-        tombstonePruned(ids, stamp, idx + 1);
-    });
-}
-
-// Authoritative full-state replace (phone-originated Force sync). NOT
-// per-row LWW — the watch's AlarmStore is replaced wholesale so rows the
-// phone deleted (which an additive alarm_added push can never remove)
-// are pruned. Every dropped id is tombstoned first.
+// Authoritative full-state replace (phone-originated Force sync). The
+// watch's AlarmStore is replaced wholesale, so rows the phone deleted
+// (which an additive alarm_added push can never remove) are pruned.
 function applyReplace(msg, done) {
     var incoming = msg && msg.alarms;
     if (!incoming || incoming.length === undefined) {
@@ -347,29 +230,12 @@ function applyReplace(msg, done) {
             dropped++;
         }
     }
-    var stamp = (typeof msg.updatedAtEpoch === 'number' && msg.updatedAtEpoch > 0)
-        ? msg.updatedAtEpoch : Date.now();
-    AlarmStore.getAll(function (oldItems) {
-        var newIds = {};
-        for (var j = 0; j < valid.length; j++) {
-            newIds['' + valid[j].id] = true;
-        }
-        var prunedIds = [];
-        for (var k = 0; k < oldItems.length; k++) {
-            if (!newIds['' + oldItems[k].id]) {
-                prunedIds.push(oldItems[k].id);
-            }
-        }
-        AlarmStore.replaceAll(valid, function () {
-            Logger.i('incoming.sync_replace applied n=' + valid.length +
-                ' dropped=' + dropped + ' pruned=' + prunedIds.length);
-            bumpLastSync();
-            tombstonePruned(prunedIds, stamp, 0);
-            // done fires AFTER the store write commits (replaceAll success) so a
-            // file-delivered replace acks only once persisted — same ordering
-            // guarantee as the bg file ack. The text-message path passes no done.
-            if (done) done(true);
-        });
+    AlarmStore.replaceAll(valid, function () {
+        Logger.i('incoming.sync_replace applied n=' + valid.length + ' dropped=' + dropped);
+        // done fires AFTER the store write commits (replaceAll success) so a
+        // file-delivered replace acks only once persisted — same ordering
+        // guarantee as the bg file ack. The text-message path passes no done.
+        if (done) done(true);
     });
 }
 
@@ -413,13 +279,6 @@ export default {
         onBgCleared = fn;
     },
     handle: function (msg) {
-        // Any recognized-shape envelope means the phone companion is
-        // present — record the connection (+ companion version if carried)
-        // so the onboarding screen can distinguish never-connected from a
-        // connected-but-empty watch.
-        if (msg && typeof msg.type === 'string') {
-            noteConnection(msg);
-        }
         // Meta-protocol envelopes (no alarmId / no updatedAtEpoch) MUST
         // bypass rejectMalformed, which requires both. sync_check is a
         // phone-originated request asking us to reply with our current
@@ -457,7 +316,6 @@ export default {
             SettingsStore.apply(u, d, function (ok) {
                 Logger.i('incoming.settings_changed applied ok=' + ok +
                     ' use24Hour=' + u + ' firstDow=' + d);
-                bumpLastSync();
             });
             return;
         }
@@ -492,19 +350,15 @@ export default {
             return;
         }
         var type = msg.type;
-        if (type === 'alarm_added' || type === 'alarm_updated') {
+        // No published phone build sends alarm_updated / alarm_deleted /
+        // alarm_toggled; they fall through to the unknown-type log below.
+        if (type === 'alarm_added') {
             if (!msg.alarm) {
-                Logger.w('incoming.add-or-update missing alarm');
+                Logger.w('incoming.add missing alarm');
                 return;
             }
             noteIncomingEnvelope();
-            applyAddOrUpdate(msg);
-        } else if (type === 'alarm_deleted') {
-            noteIncomingEnvelope();
-            applyDelete(msg);
-        } else if (type === 'alarm_toggled') {
-            noteIncomingEnvelope();
-            applyToggle(msg);
+            applyAdd(msg);
         } else if (type === 'alarm_fired') {
             // Ring page takes over: cancel any in-flight drain timer and
             // latch _ringActive so a piggybacked sync envelope can't
@@ -523,6 +377,13 @@ export default {
                     vibrationPattern: msg.vibrationPattern,
                     snoozeAllowed: msg.snoozeAllowed,
                     watchVibrationEnabled: msg.watchVibrationEnabled,
+                    // Opt-in list sync (2026-09-28). false = drop the list
+                    // this watch still holds; absent = no change.
+                    listSync: msg.listSync,
+                    // 12/24 h for the ring clock; absent = keep stored value.
+                    use24Hour: msg.use24Hour,
+                    // Ring start on the phone, same on every re-send.
+                    firedAt: msg.firedAt,
                 });
             }
         } else if (type === 'alarm_dismissed' || type === 'alarm_snoozed') {

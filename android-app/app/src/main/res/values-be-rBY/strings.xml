@@ -226,4 +226,21 @@
     <string name="watch_unsupported_harmony">GT Wake Companion — праграма для Android, і на HarmonyOS 5 яна не можа звязацца з гадзіннікам. Магчыма, яна вам і не патрэбная: ваш тэлефон ужо ўмее званіць сваімі будзільнікамі на спараваным гадзінніку. Адкрыйце Huawei Health, выберыце гадзіннік, націсніце «Будзільнік» і ўключыце сінхранізацыю будзільнікаў тэлефона. Будзільнікі на гэтым тэлефоне працягваюць працаваць як звычайна.</string>
     <string name="watch_unsupported_no_health">Для сінхранізацыі з гадзіннікам патрэбна праграма Huawei Health, але яна не ўсталяваная. Усталюйце Huawei Health і адкрыйце GT Wake зноў. Будзільнікі на гэтым тэлефоне працягваюць працаваць як звычайна.</string>
     <string name="watch_unsupported_title">Сінхранізацыя з гадзіннікам недаступная на гэтым тэлефоне</string>
+    <!-- Opt-in watch list sync + watch wake consent (rule 3.1, 2026-09-28) -->
+    <string name="settings_section_watch">Гадзіннік</string>
+    <string name="settings_watch_list_sync">Паказваць спіс будзільнікаў на гадзінніку</string>
+    <string name="settings_watch_list_sync_hint">Гадзіннік у любым выпадку звініць для кожнага будзільніка. Калі ўключана, гадзіннік таксама паказвае спіс будзільнікаў і ненадоўга адкрывае GT Wake, каб абнавіць яго пасля кожнай змены.</string>
+    <string name="watch_list_sync_confirm_title">Паказваць спіс будзільнікаў на гадзінніку?</string>
+    <string name="watch_list_sync_confirm_body">З-за асаблівасцей падлучэння гадзіннікаў Huawei гадзіннік будзе прачынацца і ненадоўга адкрываць GT Wake, каб абнавіць спіс пасля кожнай змены будзільнікаў.</string>
+    <string name="watch_list_sync_confirm_ok">Уключыць</string>
+    <string name="watch_list_sync_on_done">Спіс будзільнікаў адпраўлены на гадзіннік</string>
+    <string name="watch_list_sync_off_done">Спіс будзільнікаў выдалены з гадзінніка</string>
+    <string name="force_sync_list_off">Спіс будзільнікаў на гадзінніку выключаны. Яго можна ўключыць у наладах.</string>
+    <string name="watch_status_card_list_off">Спіс будзільнікаў на гадзінніку: выключаны</string>
+    <string name="watch_picture_confirm_title">Змяніць выяву на гадзінніку?</string>
+    <string name="watch_picture_clear_confirm_title">Прыбраць выяву з гадзінніка?</string>
+    <string name="watch_picture_confirm_body">Гадзіннік прачнецца і ненадоўга адкрые GT Wake, каб атрымаць выяву.</string>
+    <string name="watch_picture_clear_confirm_body">Гадзіннік прачнецца і ненадоўга адкрые GT Wake, каб прыбраць выяву.</string>
+    <string name="watch_picture_confirm_ok">Працягнуць</string>
+    <string name="field_watch_vibration_hint">Рэжым «Не турбаваць», рэжым сну або вібрацыя «Няма» на гадзінніку могуць яе адключыць.</string>
 </resources>

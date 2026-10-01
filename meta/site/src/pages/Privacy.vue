@@ -35,8 +35,9 @@ const CONTACT = 'andrew.kirkovski@gmail.com'
       <strong>None that is sent to us.</strong> The apps have no backend, no developer-operated
       server, and no account system. The following is created and kept <strong>locally on your
       device(s)</strong>: your alarms and their settings, app preferences (clock format, first day
-      of week, language), and any background images you choose. A mirror of your alarms is kept on
-      your paired watch so it can display and ring them. None of it is uploaded anywhere.
+      of week, language), and any background images you choose. When an alarm goes off, the phone sends your paired watch what it
+      needs to ring. If you turn on <strong>Settings → Watch → Show alarm list on watch</strong>
+      in the phone app, a copy of your alarms is also kept on the watch so it can show them. None of it is uploaded anywhere.
     </p>
 
     <h2>2. Network and data transmission</h2>
@@ -98,7 +99,8 @@ const CONTACT = 'andrew.kirkovski@gmail.com'
     <h2>8. Data retention and deletion</h2>
     <p>
       All data is stored locally, so you control it entirely. Deleting an alarm removes it from the
-      phone and, on the next sync, the watch. Uninstalling an app removes its data from that device.
+      phone and, if the watch alarm list is on, from the watch on the next sync. Turning the
+      watch alarm list off removes the copy from the watch. Uninstalling an app removes its data from that device.
       We hold no copies, so there is nothing for us to delete on your behalf.
     </p>
 

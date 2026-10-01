@@ -1,10 +1,12 @@
 package com.kirkouski.gtwake.companion.wear
 
+import com.kirkouski.gtwake.companion.data.SettingsState
 import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.domain.DaysOfWeek
 import com.kirkouski.gtwake.companion.domain.VibrationPattern
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -34,6 +36,23 @@ class AlarmRingHintsTest {
         vibrationPattern = vibrationPattern,
         updatedAtEpoch = 1L,
     )
+
+    @Test
+    fun `settings unknown (pre-unlock) leaves listSync and use24Hour out`() {
+        val hints = AlarmRingHints.from(alarm(), settings = null)
+        assertNull(hints.listSync)
+        assertNull(hints.use24Hour)
+    }
+
+    @Test
+    fun `settings known carry listSync and use24Hour`() {
+        val hints = AlarmRingHints.from(
+            alarm(),
+            SettingsState(watchListSync = false, use24Hour = true),
+        )
+        assertEquals(false, hints.listSync)
+        assertEquals(true, hints.use24Hour)
+    }
 
     @Test
     fun `pattern flows through as enum name`() {

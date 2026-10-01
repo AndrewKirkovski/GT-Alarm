@@ -26,8 +26,6 @@ var NULL_SENTINEL = 'null';
 // visible.
 var cache = { loaded: false, use24Hour: null, firstDayOfWeek: null };
 
-var onChangeListener = null;
-
 function loadInto(callback) {
     storage.get({
         key: KEY_USE_24H,
@@ -85,16 +83,6 @@ function serializeInt(v) {
     return '' + Math.floor(v);
 }
 
-function fireChange() {
-    if (onChangeListener) {
-        try {
-            onChangeListener();
-        } catch (e) {
-            Logger.err('settingsStore.onChange listener', e);
-        }
-    }
-}
-
 export default {
     // Page callers (index/ring) bind on the cached values via this hook.
     // Cache is populated on first get(); subsequent gets are sync via
@@ -110,17 +98,6 @@ export default {
             return;
         }
         loadInto(callback);
-    },
-
-    // Synchronous accessor — returns the in-process cache without
-    // hitting storage. Callers MUST have called get() at least once
-    // beforehand or the values are the default `null`s (matching
-    // "follow watch locale" behaviour, so still correct).
-    snapshot: function () {
-        return {
-            use24Hour: cache.use24Hour,
-            firstDayOfWeek: cache.firstDayOfWeek,
-        };
     },
 
     // Apply an inbound settings_changed envelope. NOT LWW — overwrites
@@ -142,11 +119,7 @@ export default {
                     success: function () {
                         cache.firstDayOfWeek = firstDayOfWeek;
                         cache.loaded = true;
-                        Logger.i(
-                            'settings.apply use24Hour=' + hourSerialized +
-                            ' firstDow=' + dowSerialized
-                        );
-                        fireChange();
+                        // incomingHandler logs the applied values.
                         if (callback) callback(true);
                     },
                     fail: function (data, code) {
@@ -160,9 +133,5 @@ export default {
                 if (callback) callback(false);
             },
         });
-    },
-
-    setOnChange: function (cb) {
-        onChangeListener = cb;
     },
 };

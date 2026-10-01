@@ -87,9 +87,9 @@ const CONTACT = 'mailto:andrew.kirkovski@gmail.com?subject=GT%20Wake%20on%20Harm
 
     <h2>The watch app</h2>
     <p>
-      GT Wake on the watch is a companion to the phone app — it shows your alarms and handles the ring, but the phone
-      schedules everything. Without a supported phone there is nothing for it to sync with. It installs on round
-      Huawei Watch GT-series watches through
+      GT Wake on the watch is a companion to the phone app — it handles the ring and can show your alarm list, but the phone
+      schedules everything. Without a supported phone there is nothing for it to sync with. It installs on
+      Huawei Watch GT 3 and newer GT-series watches and on Watch FIT 3 and newer through
       <strong>Huawei Health → Devices → your watch → AppGallery</strong>.
     </p>
 

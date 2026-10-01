@@ -11,9 +11,9 @@ import {
 } from '@/data/stores'
 
 // Sniffed once. It only orders the store buttons and gates the HarmonyOS 5
-// note — every destination stays reachable whatever it returns. This page is
-// the watch onboarding QR's target, so most arrivals are Huawei-ecosystem
-// users; preferAppGallery() encodes that default.
+// note — every destination stays reachable whatever it returns. The watch's
+// QR now opens /watch (which links here), so most arrivals are still
+// Huawei-ecosystem users; preferAppGallery() encodes that default.
 const platform = detectPhone()
 const appGalleryFirst = preferAppGallery(platform)
 

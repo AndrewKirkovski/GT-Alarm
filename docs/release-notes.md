@@ -6,6 +6,7 @@ leaves the other's unchanged. The integer release codes are **per-app**.
 
 | versionName | phone code | watch code | tag | date |
 |---|---|---|---|---|
+| 1.0.11 | 11 | 1000011 | `v1.0.11` | 2026-10-01 |
 | 1.0.10 | 10 | 1000010 | `v1.0.10` | 2026-09-10 |
 | 1.0.9 | 9 | 1000009 (watch resubmission; 1000008 rejected) | `v1.0.9` | 2026-08-29 |
 | 1.0.8 | 8 | 1000007 (unchanged — phone-only release) | `v1.0.8` | 2026-08-27 |
@@ -20,6 +21,63 @@ Apps:
 - **Watch** — `com.kirkouski.gtwatch.watch` (HarmonyOS Lite Wearable, AppGallery only), `version.code` in `watch-app/entry/src/main/config.json`.
 
 ---
+
+## 1.0.11 — 2026-10-01
+phone `versionCode 11` · watch `code 1000011` · tag `v1.0.11`
+
+Addresses the AppGallery rule-3.1 rejection of 1.0.10 on 2026-09-28 (GT 6 Pro and FIT 5 Pro). The
+reviewer reported three findings: the watch did not vibrate when an alarm went off, a phone change
+launched GT Wake over whatever the watch was showing, and editing an alarm made the watch's sync
+page pop up repeatedly.
+
+**The watch vibrates for the whole ring again.** The buzz pattern was a chain of one-shot
+`setTimeout` calls. ACELite silently drops a one-shot timer when the app's message queue is full,
+and a cold launch (which is how almost every real alarm finds the watch) fills that queue. The
+watch buzzed once and stopped. Every timed step that must run now goes through `common/ticker.js`,
+a single `setInterval` that runs only while something is scheduled; repeating timers survive the
+dropped dispatch. On a GT 6 Pro, 2 of 2 cold rings buzzed for the whole ring, against 0 of 4
+before. The watch also declares `ohos.permission.VIBRATE` now. It was not the cause, but the SDK
+marks the vibrator API with it.
+
+**The watch alarm list is now optional and off by default, including on upgrade.** Wear Engine can
+only deliver a message by launching the watch app, so every list push is visible on the watch. The
+new setting is Settings → Watch → "Show alarm list on watch". Turning it on asks for consent and
+explains why the watch will open after each change; turning it off clears the list from the watch
+with one final push. While it is off, alarm edits never wake the watch. Changing or removing the
+watch picture also asks for consent first, because it wakes the watch in the same way.
+
+**The watch rings purely from the alarm message.** `alarm_fired` now also carries `listSync`,
+`use24Hour` and `firedAt`, so the watch needs no stored list to ring, show the right clock format,
+or recognise a late copy of a ring it already ended. Settings are read only after the phone's first
+unlock; before it those fields are left out and the watch uses its defaults.
+
+**A slow watch launch no longer loses the alarm.** In 1.0.10 the 10-second pre-arm wrapped the send
+itself, so a slow cold start cancelled delivery and nothing re-sent it. The 10 seconds now only
+decide when the phone starts its own sound. The phone keeps re-sending `alarm_fired` until the
+watch confirms it is ringing, the ring ends, or 90 seconds pass. Dismiss and snooze from the phone
+are sent to the watch only if that ring actually reached it, so ending an alarm never launches the
+watch app just to close it.
+
+**New watch empty screen.** With the list off, opening GT Wake on the watch shows "Set alarms on
+your phone. The watch vibrates for them." and a QR code to the new help page
+(`gtwake.kirkouski.com/watch`, `/watch/zh` for Chinese).
+
+**Smaller watch app.** A test build of this release rebooted the whole watch during the launch
+that follows install. The cause is not proven; the working theory is memory use at first launch.
+The watch page now keeps only screen-bound fields in `data`, and the unused conflict-resolution,
+tombstone and per-alarm update/delete/toggle handlers are gone (no published phone build sends
+those messages). The release page bundle went from 79,395 B to 65,088 B, and the slimmed build
+installs and runs on the GT 6 Pro.
+
+**Listings and site.** Fixed claims that were no longer true: the watch has one shared background
+picture (per-alarm backgrounds are phone-only), the privacy pages now say the watch keeps a copy of
+your alarms only when the list is on, `/harmony` names the watch models the app installs on, and
+the RU/BY/UK text now says "HarmonyOS 4 or earlier" unambiguously. Three BY/UK short descriptions
+were shortened to fit Google Play's 80-character limit.
+
+> Not verified on hardware: no FIT watch is available, so the vibration fix is proven on the GT 6
+> Pro only. The 90-second re-send has not yet been needed in a device test. The 390 × 390 layout still has known clipping (privacy consent and ring buttons); per
+> `docs/watch-resolutions.md` that size covers only watches that cannot install third-party apps.
 
 ## 1.0.10 — 2026-09-10
 phone `versionCode 10` · watch `code 1000010` · tag `v1.0.10`

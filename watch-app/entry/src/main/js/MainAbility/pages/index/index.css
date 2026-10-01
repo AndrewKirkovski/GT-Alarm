@@ -369,19 +369,6 @@
     background-color: transparent;
 }
 
-/* Ended-state confirmation — replaces .ring-actions in place. Same
-   width / height / margin-top as .ring-actions so the green thumbs-up
-   sits at exactly the Y the buttons occupied. */
-.ring-ended {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: center;
-    width: 466px;
-    height: 124px;
-    margin-top: 6px;
-}
-
 .ring-thumb {
     width: 96px;
     height: 96px;
@@ -411,20 +398,10 @@
     margin-bottom: 4px;
 }
 
+/* Action row (snooze + stop, or stop only, centred by justify-content) and
+   the ended-state thumbs-up row share this class, so the confirmation sits
+   at exactly the Y the buttons occupied. */
 .ring-actions {
-    display: flex;
-    flex-direction: row;
-    justify-content: center;
-    align-items: center;
-    width: 466px;
-    height: 124px;
-    margin-top: 6px;
-}
-
-/* Stop-only variant for alarms with snoozeMinutes=0. Same Y position
-   and outer dimensions as .ring-actions; single button stays centered
-   via flex justify-content. */
-.ring-actions-stop {
     display: flex;
     flex-direction: row;
     justify-content: center;

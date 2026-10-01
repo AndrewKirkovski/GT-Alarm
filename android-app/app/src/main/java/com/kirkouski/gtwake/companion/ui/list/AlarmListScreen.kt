@@ -264,8 +264,11 @@ fun AlarmListScreen(
                         WatchSyncCard(
                             status = watchStatus,
                             pairedDevice = pairedDevice,
-                            forceSyncRunning = forceSyncRunning,
-                            needsAuthorization = needsWatchAuth,
+                            flags = WatchSyncCardFlags(
+                                forceSyncRunning = forceSyncRunning,
+                                needsAuthorization = needsWatchAuth,
+                                listSyncOn = settings.watchListSync,
+                            ),
                             onForceSync = { vm.onForceSync() },
                             onAuthorize = { onAuthorizeWatch(vm::onAuthorizeOutcome) },
                         )
@@ -538,22 +541,23 @@ private fun WatchUnsupportedCard(state: WatchSupportState) {
 
 private const val HARMONY_INFO_URL = "https://gtwake.kirkouski.com/harmony"
 
+/** State flags for [WatchSyncCard], grouped to keep its signature short. */
+private data class WatchSyncCardFlags(
+    val forceSyncRunning: Boolean,
+    val needsAuthorization: Boolean,
+    // "Show alarm list on watch"; off hides the sync button.
+    val listSyncOn: Boolean,
+)
+
 @Composable
 private fun WatchSyncCard(
     status: WatchSyncStatus,
     pairedDevice: PairedDeviceInfo?,
-    forceSyncRunning: Boolean,
-    needsAuthorization: Boolean,
+    flags: WatchSyncCardFlags,
     onForceSync: () -> Unit,
     onAuthorize: () -> Unit,
 ) {
     val iconRes = if (status == WatchSyncStatus.CONNECTED) R.drawable.ic_watch else R.drawable.ic_watch_off
-    val deviceText = pairedDevice?.displayName?.takeIf { it.isNotBlank() }
-    val subtitle = when {
-        needsAuthorization -> stringResource(R.string.watch_status_card_needs_auth)
-        deviceText != null -> deviceText
-        else -> null
-    }
     Card(
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -571,30 +575,59 @@ private fun WatchSyncCard(
                 modifier = Modifier.size(28.dp),
                 tint = Color.Unspecified,
             )
-            Column(
+            WatchSyncCardText(
+                pairedDevice = pairedDevice,
+                flags = flags,
                 modifier = Modifier
                     .weight(1f)
                     .padding(start = 12.dp),
-            ) {
-                Text(
-                    text = stringResource(R.string.watch_status_card_title),
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
+            )
+            // With the list off there is nothing to sync, so no sync button.
+            // The authorize button stays: alarms still need watch access to ring.
+            if (flags.needsAuthorization || flags.listSyncOn) {
+                WatchSyncActionButton(
+                    needsAuthorization = flags.needsAuthorization,
+                    forceSyncRunning = flags.forceSyncRunning,
+                    onForceSync = onForceSync,
+                    onAuthorize = onAuthorize,
                 )
-                if (subtitle != null) {
-                    Text(
-                        text = subtitle,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                }
             }
-            WatchSyncActionButton(
-                needsAuthorization = needsAuthorization,
-                forceSyncRunning = forceSyncRunning,
-                onForceSync = onForceSync,
-                onAuthorize = onAuthorize,
+        }
+    }
+}
+
+@Composable
+private fun WatchSyncCardText(
+    pairedDevice: PairedDeviceInfo?,
+    flags: WatchSyncCardFlags,
+    modifier: Modifier = Modifier,
+) {
+    val deviceText = pairedDevice?.displayName?.takeIf { it.isNotBlank() }
+    val subtitle = when {
+        flags.needsAuthorization -> stringResource(R.string.watch_status_card_needs_auth)
+        deviceText != null -> deviceText
+        else -> null
+    }
+    Column(modifier = modifier) {
+        Text(
+            text = stringResource(R.string.watch_status_card_title),
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        if (subtitle != null) {
+            Text(
+                text = subtitle,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        if (!flags.listSyncOn && !flags.needsAuthorization) {
+            Text(
+                text = stringResource(R.string.watch_status_card_list_off),
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp),
             )
         }
     }
@@ -646,10 +679,11 @@ private fun authorizeToast(
     is WearPermissionOutcome.Unavailable -> context.getString(R.string.watch_authorize_unavailable)
 }
 
-private fun forceSyncToast(
+internal fun forceSyncToast(
     context: android.content.Context,
     result: ForceSyncResult,
 ): String = when (result) {
+    ForceSyncResult.ListSyncOff -> context.getString(R.string.force_sync_list_off)
     is ForceSyncResult.Ok -> context.getString(R.string.force_sync_ok, result.alarmCount)
     is ForceSyncResult.AlreadyInSync ->
         context.getString(R.string.force_sync_already, result.alarmCount)

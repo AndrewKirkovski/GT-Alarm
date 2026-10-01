@@ -31,6 +31,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -143,6 +144,10 @@ class HuaweiWearBridge @Inject constructor(
     @Volatile
     private var forceScreenRefresh: Boolean = false
 
+    // Set by refreshWatchScreen so the watch_screen reply it triggers does not
+    // run the bg reconcile (see persistWatchScreen).
+    @Volatile private var skipNextBgReconcile: Boolean = false
+
     private val p2pClient: P2pClient by lazy {
         HiWear.getP2pClient(context)
             .setPeerPkgName(PEER_PKG_NAME)
@@ -189,6 +194,16 @@ class HuaweiWearBridge @Inject constructor(
     private val pendingAlarmRinging =
         java.util.concurrent.atomic.AtomicReference<PendingRing?>(null)
     private val pendingAlarmRingingMutex = Mutex()
+
+    // alarmId -> elapsedRealtime of the last `alarm_fired` the transport
+    // confirmed (207). elapsedRealtime, not wall time, so an NTP or manual
+    // clock change mid-ring cannot make a real delivery look older than the
+    // ring's start. AlarmRingService reads it to decide whether a dismiss/snooze
+    // must go to the watch: if no fire ever reached the watch for this ring,
+    // sending one would only launch the watch app for nothing (a visible
+    // wake right after the alarm, which review flagged).
+    private val alarmFiredDeliveredAt =
+        java.util.concurrent.ConcurrentHashMap<Long, Long>()
 
     // Pending alarm_dismissed → alarm_dismissed_ack round-trip. The 207
     // transport ACK on dismiss only proves "delivered to watch's Wear
@@ -391,7 +406,17 @@ class HuaweiWearBridge @Inject constructor(
     override fun sendAlarmFired(alarmId: Long, ringHints: AlarmRingHints?) {
         val now = System.currentTimeMillis()
         if (!validateStamp("sendAlarmFired", now)) return
-        sendJson(buildAlarmFiredEnvelope(alarmId, now, ringHints))
+        val envelope = buildAlarmFiredEnvelope(alarmId, now, ringHints)
+        scope.launch {
+            if (performSend(envelope, retryOnError = false)) {
+                alarmFiredDeliveredAt[alarmId] = android.os.SystemClock.elapsedRealtime()
+            }
+        }
+    }
+
+    override fun wasAlarmFiredDelivered(alarmId: Long, sinceElapsedMs: Long): Boolean {
+        val at = alarmFiredDeliveredAt[alarmId] ?: return false
+        return at >= sinceElapsedMs
     }
 
     override suspend fun sendAlarmDismissed(alarmId: Long): Boolean {
@@ -455,6 +480,7 @@ class HuaweiWearBridge @Inject constructor(
                         Log.w(TAG, "sendAlarmFiredAwaiting: alarm_fired send failed id=$alarmId")
                         return@withTimeoutOrNull false
                     }
+                    alarmFiredDeliveredAt[alarmId] = android.os.SystemClock.elapsedRealtime()
                     deferred.await()
                     true
                 }
@@ -466,6 +492,11 @@ class HuaweiWearBridge @Inject constructor(
                     )
                     false
                 } else {
+                    Log.i(
+                        TAG,
+                        "sendAlarmFiredAwaiting id=$alarmId outcome=$outcome " +
+                            "elapsed=${System.currentTimeMillis() - now}ms",
+                    )
                     outcome
                 }
             } finally {
@@ -686,12 +717,17 @@ class HuaweiWearBridge @Inject constructor(
             put("type", "watch_default_bg_cleared")
             put("updatedAtEpoch", now)
         }
-        // Do NOT force-wake. Cold-waking the watch with only this envelope (no
-        // sync_replace/sync_done) strands it on the 'sync' screen. Send
-        // best-effort to an already-running watch; if it's asleep, the
-        // reconcile-on-next-connect (watch awake during forceSync) propagates
-        // the clear. retryOnError still covers a transient transport error.
-        scope.launch { performSend(envelope, retryOnError = true) }
+        // performSend pings first, so this DOES launch a sleeping watch app
+        // (the user agreed to that in the picture consent dialog). The watch
+        // then shows its sync screen, so follow the clear with sync_done: the
+        // watch closes right away instead of waiting out its fallback. With
+        // list sync off there is no later forceSync to carry the clear, so
+        // this send is the only delivery.
+        scope.launch {
+            if (performSend(envelope, retryOnError = true)) {
+                performSend(buildSyncDoneEnvelope(), retryOnError = false)
+            }
+        }
         // The watch no longer holds our image — allow a re-deliver if the user
         // re-picks the same one.
         deliveredBgHash = null
@@ -1251,6 +1287,10 @@ class HuaweiWearBridge @Inject constructor(
             put("vibrationPattern", ringHints.vibrationPatternName)
             put("snoozeAllowed", ringHints.snoozeAllowed)
             put("watchVibrationEnabled", ringHints.watchVibrationEnabled)
+            // Omitted when unknown (pre-unlock): the watch keeps its state.
+            ringHints.listSync?.let { put("listSync", it) }
+            ringHints.use24Hour?.let { put("use24Hour", it) }
+            ringHints.firedAtEpoch?.let { put("firedAt", it) }
         }
     }
 
@@ -1544,6 +1584,42 @@ class HuaweiWearBridge @Inject constructor(
     // forceSync re-sends until the reply lands). Fire-and-forget: if the reply
     // is lost (watch app closed), the cropper falls back to the cached/default
     // size and a later forceSync — past the debounce — re-asks.
+    // With list sync off, forceSync never runs, so the watch's screen size is
+    // never fetched and the picture cropper has no frame to crop to. The
+    // picture flow calls this after its consent dialog: one wake + one
+    // screen_request, only when the size for the bonded model is unknown.
+    // Waits briefly for the reply so the cropper opens with the right shape.
+    // reason: ReturnCount — each early return is a distinct precondition
+    // (permission, paired, connected, model, already cached, wake failed),
+    // mirroring forceSync's guard ladder.
+    @Suppress("ReturnCount")
+    override suspend fun refreshWatchScreen(): Boolean {
+        if (!ensurePermissionGranted()) return false
+        val device = ensurePairedDevice() ?: return false
+        if (!device.isConnected) return false
+        val model = _pairedDeviceInfo.value?.displayName.orEmpty()
+        if (model.isBlank()) return false
+        val cached = settingsStore.snapshot()
+        if (model == cached.watchScreenModel && cached.watchScreenWidth > 0) return true
+        if (!ensurePeerAppRunning(device, force = true, timeoutMs = FORCE_SYNC_WAKE_TIMEOUT_MS)) {
+            return false
+        }
+        skipNextBgReconcile = true
+        forceScreenRefresh = true
+        maybeRequestWatchScreen()
+        val known = withTimeoutOrNull(SCREEN_REPLY_WAIT_MS) {
+            settingsStore.state.first { it.watchScreenModel == model && it.watchScreenWidth > 0 }
+        } != null
+        // Bound the skip to this request's own wait. If the reply never came
+        // (send dropped, or debounced behind another request), a stale flag
+        // would silently skip the reconcile of some later, unrelated reply.
+        skipNextBgReconcile = false
+        // The watch was woken only for this; let it close.
+        performSend(buildSyncDoneEnvelope(), retryOnError = false)
+        Log.i(TAG, "refreshWatchScreen model='$model' known=$known")
+        return known
+    }
+
     private suspend fun maybeRequestWatchScreen() {
         val model = _pairedDeviceInfo.value?.displayName.orEmpty()
         if (model.isBlank()) return
@@ -1570,7 +1646,13 @@ class HuaweiWearBridge @Inject constructor(
         // F4 bg reconcile is independent of the screen-model gate — run it
         // whether or not we can key the screen dims. The marker tells us if
         // the watch holds the same default bg the phone last uploaded.
-        reconcileWatchBgMarker(msg.bgMarker)
+        // Skipped once after refreshWatchScreen: the user is about to pick a
+        // new picture, so re-uploading the old one would be a wasted send.
+        if (skipNextBgReconcile) {
+            skipNextBgReconcile = false
+        } else {
+            reconcileWatchBgMarker(msg.bgMarker)
+        }
         val model = _pairedDeviceInfo.value?.displayName.orEmpty()
         if (model.isBlank()) {
             Log.w(TAG, "watch_screen ${msg.width}x${msg.height} dropped — no bonded model to key on")
@@ -1709,6 +1791,8 @@ class HuaweiWearBridge @Inject constructor(
 
         // Wake budget for the manual "Sync now" tap only — see forceSync.
         const val FORCE_SYNC_WAKE_TIMEOUT_MS = 25_000L
+        // How long refreshWatchScreen waits for the watch_screen reply.
+        private const val SCREEN_REPLY_WAIT_MS = 5_000L
         const val PING_WAKE_POLL_DELAY_MS = 400L
 
         // Cache "peer is 202 RUNNING" for this long so the dismiss / snooze

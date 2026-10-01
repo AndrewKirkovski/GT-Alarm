@@ -3,14 +3,26 @@
         "bundleName": "com.kirkouski.gtwatch.watch",
         "vendor": "kirkouski",
         "version": {
-            "code": 1000010,
-            "name": "1.0.10"
+            "code": 1000011,
+            "name": "1.0.11"
         }
     },
     "deviceConfig": {},
     "module": {
         "deviceType": [
             "liteWearable"
+        ],
+        "reqPermissions": [
+            {
+                "name": "ohos.permission.VIBRATE",
+                "reason": "$string:vibrate_reason",
+                "usedScene": {
+                    "ability": [
+                        ".MainAbility"
+                    ],
+                    "when": "always"
+                }
+            }
         ],
         "distroFilter": {
             "screenShape": {

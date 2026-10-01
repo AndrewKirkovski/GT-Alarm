@@ -4,6 +4,8 @@ import Download from '@/pages/Download.vue'
 import Harmony from '@/pages/Harmony.vue'
 import Privacy from '@/pages/Privacy.vue'
 import PrivacyZh from '@/pages/PrivacyZh.vue'
+import WatchHelp from '@/pages/WatchHelp.vue'
+import WatchHelpZh from '@/pages/WatchHelpZh.vue'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -13,6 +15,8 @@ export const router = createRouter({
     { path: '/harmony', name: 'harmony', component: Harmony },
     { path: '/privacy', name: 'privacy', component: Privacy },
     { path: '/privacy/zh', name: 'privacy-zh', component: PrivacyZh },
+    { path: '/watch', name: 'watch', component: WatchHelp },
+    { path: '/watch/zh', name: 'watch-zh', component: WatchHelpZh },
     // A stale APK link (old version pruned on release) has no asset to serve,
     // so it falls through to the SPA. Land those on the download page with the
     // current version rather than dumping the user on the home page.

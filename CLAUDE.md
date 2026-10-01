@@ -95,14 +95,14 @@ GT-Alarm/
 **Always build via the repo scripts — never raw `gradlew` / `hvigorw`.** The scripts wire up `JAVA_HOME`, `DEVECO_SDK_HOME`, memory flags, and `--no-daemon` so there is one command pattern to approve:
 
 - **Android:** `bash scripts/android.sh <build|lint|detekt|test|check|all>` — `all` = assemble + lint + detekt + test.
-- **Watch:** `bash scripts/build-watch.sh debug` — builds the HAP AND pushes it to `/sdcard/haps/` on the phone. Lint separately via `./scripts/codelinter.sh`.
+- **Watch:** `bash scripts/build-watch.sh debug` — builds the HAP AND pushes it to `/sdcard/haps/` on the phone. There is no watch linter for the current app: `scripts/codelinter.sh` exists only in the legacy `watch-app.old/`. Check ES5 syntax by hand (no `let`/`const`/arrow/template literals).
 
 Each app builds standalone — there is no cross-build dependency.
 
 ### Agent pre-flight checklist (recurring trip-ups — check EVERY time)
 
 - [ ] **Build with the scripts above**, not raw `gradlew.bat` / `hvigorw`. Raw invocations skip env setup and have failed repeatedly.
-- [ ] **Two adb devices are connected.** ALWAYS set `ANDROID_SERIAL=R5CX13B9KWK` for `adb` and `build-watch.sh`, or commands fail with `more than one device/emulator`.
+- [ ] **Two adb devices are connected.** ALWAYS set `ANDROID_SERIAL` for `adb` and `build-watch.sh`, or commands fail with `more than one device/emulator`. The S24 Ultra is `R5CX13B9KWK`; the SM-S948B (serial `R3GL60DNDDA`) is used over wireless debugging, where the serial is `<ip>:<port>` from `adb devices` and the port changes per session.
 - [ ] **bg-manager + shell scripts:** append `2>&1` to `bash scripts/*.sh` commands so bg-manager routes them through Git Bash — a bare direct spawn yields an empty log + exit 1.
 - [ ] **Run `scripts/android.sh all` before declaring an Android build done** — detekt breaks the build on new loop-jumps (≤1 `break`/`continue` per loop), >3 returns, >60-line methods, or broad `catch`. Fix at source, or add `@Suppress` + an adjacent `// reason:`.
 - [ ] **Any watch HML/CSS change → update `watch-references/watch-ui-preview.html` AND Playwright-screenshot it.** The mockup is browser CSS and CANNOT reproduce native-component quirks — verify intent, not pixel-truth.
@@ -144,7 +144,8 @@ The watch is a HarmonyOS **Lite Wearable** (FA model, ACELite engine, GT 6 Pro 4
 - **`<list>` is a native scroll component** — needs an explicit `height`, never flex-sized (see pre-flight checklist).
 - **One `<list-item for=>` template per `<list>`.** Multiple templates render nothing. Switch enabled/disabled variants with inner `if=` on pre-computed booleans (HML `if=` does NOT coerce truthy).
 - **Buttons are `<div onclick=>`**, not `<input>`.
-- **Page bundle ≤ 48 KB.** Webpack-bundled imports count — do NOT import the Wear Engine bridge into display-only pages (it drags in the heavy `wearengine.js` wrapper). Keep `pages/*` imports minimal.
+- **Page bundle: no net growth.** The old "≤ 48 KB" rule no longer matches reality: the single index page bundle was 79,395 B in the 1.0.10 release build and 65,088 B in 1.0.11. Each release must not grow it (measure the release build's `pages/index/index.js`; debug bundles are unminified and not comparable). A 1.0.11 test build at a larger size rebooted the whole watch during the install-time launch (cause unproven, likely heap), so keep page `data` to template-bound fields and delete dead code. Webpack-bundled imports count — do NOT import the Wear Engine bridge into display-only pages (it drags in the heavy `wearengine.js` wrapper). Keep `pages/*` imports minimal.
+- **One-shot timers can be dropped.** ACELite silently discards a `setTimeout` callback when its message queue is full, which happens on a cold wake. Anything that must run (ring steps, terminate caps, fallbacks) goes on `common/ticker.js` (a `setInterval`), not a `setTimeout` chain.
 - **Per-page-bundle module isolation.** `app.js` + `common/*` share one bundle; each `pages/*` is its own isolated bundle. A module singleton imported by `app.js` is a DIFFERENT instance than the one a page imports. Cross-bundle signalling MUST go through `@system.storage` / `@system.file` — never shared module state.
 - **`@system.storage` per-value cap is 128 bytes.** Anything larger → `@system.file`.
 - **`<image>` cannot decode PNG/JPEG at runtime** — only the custom BGRA `.bin` format (phone encodes before sending).

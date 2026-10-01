@@ -83,6 +83,15 @@ interface WearBridgeService {
     ): Boolean
 
     /**
+     * True if any `alarm_fired` for [alarmId] got a transport 207 at or after
+     * [sinceElapsedMs] (`SystemClock.elapsedRealtime()`). A dismiss/snooze is
+     * only worth sending to the watch when this holds: otherwise the watch
+     * never rang, and the send would launch the watch app just to tell it to
+     * stop.
+     */
+    fun wasAlarmFiredDelivered(alarmId: Long, sinceElapsedMs: Long): Boolean
+
+    /**
      * Suspending dismiss: waits up to [timeoutMs] for the watch to ACK
      * the P2P send (207=COMM_SUCCESS). Used by AlarmRingService so the
      * service doesn't tear down (and risk process-kill) before the watch
@@ -123,6 +132,14 @@ interface WearBridgeService {
      * `bg_default.bin` and falls back to its bundled ring UI.
      */
     fun sendDefaultWatchBackgroundCleared()
+
+    /**
+     * Make sure the watch's screen size is known before the picture cropper
+     * opens. Wakes the watch and asks only when the size for the bonded model
+     * is not cached (list sync off means no forceSync ever fetched it).
+     * Returns true when the size is known afterwards.
+     */
+    suspend fun refreshWatchScreen(): Boolean
 
     /**
      * Per-connection bg-delivery guard. The bridge owns the connection

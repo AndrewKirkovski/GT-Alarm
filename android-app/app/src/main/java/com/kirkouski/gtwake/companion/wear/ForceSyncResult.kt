@@ -47,6 +47,12 @@ sealed class ForceSyncResult {
      */
     object PeerAppNotRunning : ForceSyncResult()
 
+    /**
+     * "Show alarm list on watch" is off, so nothing was sent. The watch rings
+     * from the `alarm_fired` payload and does not hold a list.
+     */
+    object ListSyncOff : ForceSyncResult()
+
     /** Transport-level failure (SDK threw, send returned non-success). */
     data class Error(val message: String) : ForceSyncResult()
 }
