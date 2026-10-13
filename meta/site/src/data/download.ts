@@ -22,24 +22,6 @@ export interface DownloadMeta {
   minSdk: number
   /** YYYY-MM-DD, from the APK's own mtime. */
   builtAt: string
-  /** Candidate metadata only; false until artifact and install verification pass. */
-  watchHap: {
-    available: boolean
-    verified: boolean
-    sourceVersionName: string
-    sourceVersionCode: number
-    expectedBundleName: string
-    artifactVersionName: string | null
-    artifactVersionCode: number | null
-    artifactBundleName: string | null
-    fileName: string
-    url: string | null
-    sizeBytes: number
-    sha256: string
-    signerSha256: string | null
-    provisioningProfileVerified: boolean
-    generalInstallVerified: boolean
-  }
 }
 
 export const download = raw as DownloadMeta

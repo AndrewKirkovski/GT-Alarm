@@ -66,18 +66,17 @@ and transport-only success in this document.
   any change when exact alarms are not allowed, so `ok:false` always means nothing changed.
 - 🟡 Alarm list replacement succeeds only after persistence is confirmed. Failed writes
   must not acknowledge success, and `sync_done` waits for pending writes up to a bound.
-- 🟠 The site has a manual-install page; the HAP download stays disabled. The only
-  standalone HAP is AppGallery release-signed (no device list). Whether DevEco Assistant
-  installs it is unverified; the decision waits for one hand install on the developer's
-  own watch. 2026-10-13: a release-mode HAP failed with "Failed to decompress" because
-  only debug build mode produces the Lite `.bin` package the watch installs; the `--hap`
-  candidate is now release-signed and built in debug mode. Hand install of that package
-  on the GT 6 failed with error 31 "Failed to verify signature" (2026-10-13). Its
-  signature chain is complete: release developer certificate, profile signed by "HOS
-  Profile Management". The debug package that installs differs only in the debug
-  certificate and a debug profile signed by "HOS Profile Management Debug" that lists
-  the watch. Conclusion (inferred from this test): a store-signed watch package cannot
-  be hand-installed, so there is no public watch download. Install-page model: open.
+- 🟡 The site's watch install page (EN `/watch/install`, ZH `/watch/install/zh`) sends
+  users to AppGallery through Huawei Health and to the developer if GT Wake is not
+  there. There is no watch package to download (decided 2026-10-13, "AppGallery only").
+  Why: a store-signed watch package cannot be hand-installed. A release-mode HAP failed
+  with "Failed to decompress" (only debug build mode produces the Lite `.bin` package
+  the watch installs). The same package built in debug mode with the release signing
+  failed with error 31 "Failed to verify signature" (2026-10-13). Its signature chain is
+  complete: release developer certificate, profile signed by "HOS Profile Management".
+  The debug package that installs differs only in the debug certificate and a debug
+  profile signed by "HOS Profile Management Debug" that lists the watch (inferred from
+  this test, not from Huawei documentation).
 
 Hardware checks must include a system alarm tone configured alongside a custom app
 tone, vibration-only alarms, square-watch dismiss/snooze, round-watch reconnect and

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
-import { download } from '@/data/download'
 
 defineProps<{ zh: boolean }>()
 </script>
@@ -20,29 +19,10 @@ defineProps<{ zh: boolean }>()
     <template v-if="zh">
       <h1 class="mt-3 text-4xl font-extrabold tracking-tight">安装 GT Wake 手表应用</h1>
       <p class="mt-3 text-muted-foreground">
-        华为不会批准为同步闹钟列表而唤醒手表。已安装的应用仍可用于闹钟。
-        目前没有可供下载的手表安装包。
+        手表应用通过华为运动健康从华为应用市场安装。请在已配对手表的手机上打开华为运动健康，进入“设备” → 选择手表 → “应用市场”，然后搜索“GT Wake”。
       </p>
       <p class="mt-3 text-muted-foreground">
-        手表应用通过华为运动健康安装。请在已配对手表的手机上打开华为运动健康，进入“设备” → 选择手表 → “应用市场”，然后搜索“GT Wake”。
-      </p>
-
-      <section class="mt-8 rounded-2xl border border-border bg-card p-5">
-        <h2 class="text-xl font-bold">手表安装包</h2>
-        <a v-if="download.watchHap.available && download.watchHap.verified && download.watchHap.url"
-          :href="download.watchHap.url" download>下载 GT Wake HAP</a>
-        <p v-else class="mt-2 text-muted-foreground">目前没有可供下载的手表安装包。</p>
-        <p class="mt-2 text-muted-foreground">
-          不要卸载现有应用来解决安装错误。安装失败时，请向开发者发送完整错误信息和手表型号。
-        </p>
-        <p class="mt-2 text-muted-foreground">
-          在手表上卸载应用不会删除应用在手表上的数据。
-        </p>
-      </section>
-
-      <h2>手动安装</h2>
-      <p>
-        手动安装手表安装包需要华为的“应用调测助手”（DevEco Assistant）工具，该工具在您所在的地区可能无法获得。
+        手表应用只通过华为应用市场提供，没有可供下载的手表安装包。
       </p>
 
       <h2>如果应用市场中没有 GT Wake</h2>
@@ -58,30 +38,11 @@ defineProps<{ zh: boolean }>()
     <template v-else>
       <h1 class="mt-3 text-4xl font-extrabold tracking-tight">Install GT Wake on your watch</h1>
       <p class="mt-3 text-muted-foreground">
-        Huawei will not approve waking the watch to sync the alarm list. The installed app still runs alarms.
-        There is no watch package to download.
-      </p>
-      <p class="mt-3 text-muted-foreground">
-        Install the watch app through Huawei Health. On the phone paired with your watch, open Huawei Health,
+        Install the watch app from AppGallery through Huawei Health. On the phone paired with your watch, open Huawei Health,
         go to <strong>Devices → your watch → AppGallery</strong>, then search for <strong>GT Wake</strong>.
       </p>
-
-      <section class="mt-8 rounded-2xl border border-border bg-card p-5">
-        <h2 class="text-xl font-bold">Watch installer</h2>
-        <a v-if="download.watchHap.available && download.watchHap.verified && download.watchHap.url"
-          :href="download.watchHap.url" download>Download GT Wake HAP</a>
-        <p v-else class="mt-2 text-muted-foreground">There is no watch package to download.</p>
-        <p class="mt-2 text-muted-foreground">
-          Keep your existing app if installation fails. Send the developer the complete installation error and watch model.
-        </p>
-        <p class="mt-2 text-muted-foreground">
-          Uninstalling the watch app does not delete its data on the watch.
-        </p>
-      </section>
-
-      <h2>Manual installation</h2>
-      <p>
-        Installing a watch package by hand needs Huawei’s DevEco Assistant tool, which may not be available in your region.
+      <p class="mt-3 text-muted-foreground">
+        The watch app is only available from AppGallery. There is no watch package to download.
       </p>
 
       <h2>If GT Wake is not in AppGallery</h2>
@@ -115,8 +76,5 @@ defineProps<{ zh: boolean }>()
 }
 .policy a:hover {
   text-decoration: underline;
-}
-.policy .rounded-2xl {
-  margin-top: 1.5rem;
 }
 </style>
