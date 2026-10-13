@@ -11,14 +11,18 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.UserManager
 import android.util.Log
+import androidx.core.net.toUri
 import com.kirkouski.gtwake.companion.data.AlarmRepository
+import com.kirkouski.gtwake.companion.data.SettingsState
 import com.kirkouski.gtwake.companion.data.SettingsStore
 import com.kirkouski.gtwake.companion.data.bfu.BfuAlarmCache
 import com.kirkouski.gtwake.companion.di.IoDispatcher
 import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.scheduler.AlarmScheduler
+import com.kirkouski.gtwake.companion.wear.AlarmRingHints
 import com.kirkouski.gtwake.companion.wear.WearBridgeService
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -27,15 +31,39 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
-// reason: one handler per action (ring, dismiss, snooze) × pre-unlock variants,
-// plus lifecycle hooks, audio helpers, and notification utilities — each maps to
-// a distinct OS event; splitting would scatter the same state across more files.
-@Suppress("TooManyFunctions")
+/**
+ * One dismiss/snooze request as it reaches the service. [firedAtEpoch] and
+ * [requestStamp] are present only for occurrence-aware watch requests (and the
+ * `firedAt` of a phone-local tap from the Activity or the notification).
+ */
+internal data class RingActionRequest(
+    val alarmId: Long,
+    val fromPeer: Boolean,
+    val firedAtEpoch: Long? = null,
+    val requestStamp: Long? = null,
+    val rescheduleEpoch: Long = -1L,
+    val autoStop: Boolean = false,
+) {
+    /** Only these watch requests get a reply; everything else is legacy. */
+    val isOccurrenceAware: Boolean
+        get() = firedAtEpoch != null && requestStamp != null
+}
+
+// reason: TooManyFunctions and LargeClass share one cause. One handler per
+// action (ring, dismiss, snooze) × pre-unlock variants, plus lifecycle hooks,
+// audio helpers, and notification utilities — each maps to a distinct OS event
+// and all of them share the main-thread-only ring state (one occurrence, one
+// player, one set of timers); splitting would scatter that state across more
+// files and lose the single-owner rule.
+@Suppress("TooManyFunctions", "LargeClass")
 @AndroidEntryPoint
 class AlarmRingService : Service() {
 
@@ -48,23 +76,54 @@ class AlarmRingService : Service() {
 
     // Default-locked: a null UserManager (some OEM ROMs in the early-boot
     // window) routes to BFU; a wrong-unlocked read would crash the FGS.
+    // A field (not a getter on the system service) only so unit tests, which
+    // have no Context, can pin the unlock state.
+    private val unlockedProbe: () -> Boolean = {
+        getSystemService(UserManager::class.java)?.isUserUnlocked == true
+    }
     private val isUserUnlocked: Boolean
-        get() = getSystemService(UserManager::class.java)?.isUserUnlocked == true
+        get() = unlockedProbe()
+
+    // Unit-test seams for the two steps that need a real Context
+    // (notification building, MediaPlayer, PendingIntent). Production uses the
+    // defaults, which call the private implementations below.
+    private val foregroundStarter: (Alarm, Long) -> Unit = { alarm, firedAt -> startForegroundOnly(alarm, firedAt) }
+    private val ringPresenter: (Alarm, String?, Long) -> Unit = { alarm, uri, firedAt ->
+        startRingingAudioAndUi(alarm, uri, firedAt)
+    }
 
     private val serviceScope by lazy { CoroutineScope(SupervisorJob() + ioDispatcher) }
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    // Serializes handleDismiss and handleSnooze. Both can race on
+    // Serializes the commit of dismiss/snooze and the takeover's finalization
+    // of a superseded ring, PER ALARM ID. The race the lock exists for is
     // ACTION_DISMISS arriving while ACTION_SNOOZE is mid-flight (or the
-    // reverse): user taps Snooze on phone notification, watch's dismiss
-    // envelope races in via peer; without serialization the row could end
-    // up with enabled=false AND snoozedUntilEpoch set, a contradictory
-    // state. Mutex blocks the second handler until the first commits.
-    private val handlerMutex = Mutex()
+    // reverse) on ONE row: without serialization the row could end up with
+    // enabled=false AND snoozedUntilEpoch set, a contradictory state. A single
+    // global lock would let a stalled save of alarm A block every action on
+    // alarm B, which then rings forever. Ids are few (the user's alarms), so
+    // the map is never trimmed.
+    private val alarmMutexes = java.util.concurrent.ConcurrentHashMap<Long, Mutex>()
 
+    private fun mutexFor(alarmId: Long): Mutex = alarmMutexes.getOrPut(alarmId) { Mutex() }
+
+    // ---- Ring state: MAIN THREAD ONLY. -------------------------------------
+    // IO coroutines persist data and talk to the bridge. They return to the
+    // main thread through onMain {} and re-check the occurrence there before
+    // they change anything below, stop the foreground state, or stop the service.
     private var player: AlarmAudioPlayer? = null
     private var currentAlarmId: Long = -1L
+    private var currentFiredAtEpoch: Long = -1L
+    private var ringJob: Job? = null
     private var autoStopRunnable: Runnable? = null
+    private var autoStopRetries: Int = 0
+
+    // True while the armed auto-stop timer is the give-up deadline, i.e. the
+    // auto-stop attempt now in progress is the last one. The retry counter
+    // alone cannot say this: the watchdog counts the NEXT attempt when it arms.
+    private var autoStopFinalAttempt: Boolean = false
+    private var graceRunnable: Runnable? = null
+    private var lastStartId: Int = 0
 
     /** Ring-UI audit (see [scheduleRingUiAudit]). */
     private var ringUiAuditRunnable: Runnable? = null
@@ -83,12 +142,37 @@ class AlarmRingService : Service() {
     // startWatchCatchUp). Cancelled as soon as the ring ends.
     private var watchCatchUpJob: Job? = null
 
-    // Set the moment a dismiss/snooze starts. Cancelling watchCatchUpJob is
-    // not enough on its own: a dismiss can land while the pre-arm is still
-    // awaiting (the FSI notification with its Dismiss action is already up),
-    // before the catch-up job exists. The pre-arm then returns and would
-    // start re-sending alarm_fired for a ring that already ended.
-    @Volatile private var ringEnded: Boolean = false
+    // True once the current occurrence is over (committed action, takeover,
+    // teardown). A dismiss can land while the pre-arm is still awaiting (the
+    // FSI notification with its Dismiss action is already up), before the
+    // catch-up job exists, so every background step re-checks this.
+    private var ringEnded: Boolean = false
+
+    // True while a dismiss/snooze for the current occurrence is being saved.
+    private var ringActionStarted: Boolean = false
+
+    // A phone-local tap or the auto-stop silenced this ring. If the save then
+    // fails, the audio stays off (HEAD behaviour), and a pre-arm that is still
+    // running must not start it afterwards.
+    private var localStopRequested: Boolean = false
+
+    // In-flight actions, request results and occurrence outcomes. In memory
+    // for this service instance only (decided: no persistent receipts).
+    private val peerState = PeerActionState()
+
+    private data class SupersededRing(val key: OccurrenceKey, val watchMayBeRinging: Boolean)
+
+    private data class ActionClaim(
+        val occurrence: OccurrenceKey,
+        val ringStartedMs: Long,
+        val requestKey: PeerRequestKey?,
+    )
+
+    private sealed interface ActionResult {
+        data class Committed(val outcome: RingOutcome, val triggerEpoch: Long?) : ActionResult
+        data object Superseded : ActionResult
+        data object Failed : ActionResult
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -98,32 +182,39 @@ class AlarmRingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // stopSelfResult(lastStartId) stops the service only if no newer start
+        // is pending, so a teardown can never kill a ring that was just started.
+        lastStartId = startId
         val action = intent?.action
         val alarmId = intent?.getLongExtra(EXTRA_ALARM_ID, -1L) ?: -1L
-        val fromPeer = intent?.getBooleanExtra(EXTRA_FROM_PEER, false) ?: false
-        val rescheduleEpoch = intent?.getLongExtra(EXTRA_RESCHEDULE_EPOCH, -1L) ?: -1L
-        Log.d(TAG, "onStartCommand action=$action id=$alarmId fromPeer=$fromPeer")
+        val request = RingActionRequest(
+            alarmId = alarmId,
+            fromPeer = intent?.getBooleanExtra(EXTRA_FROM_PEER, false) ?: false,
+            firedAtEpoch = intent?.getLongExtra(EXTRA_FIRED_AT, -1L)?.takeIf { it > 0L },
+            requestStamp = intent?.getLongExtra(EXTRA_REQUEST_STAMP, -1L)?.takeIf { it > 0L },
+            rescheduleEpoch = intent?.getLongExtra(EXTRA_RESCHEDULE_EPOCH, -1L) ?: -1L,
+        )
+        Log.d(TAG, "onStartCommand action=$action id=$alarmId fromPeer=${request.fromPeer}")
 
         when (action) {
             ACTION_RING -> handleRing(alarmId)
-            ACTION_DISMISS -> handleDismiss(alarmId, fromPeer)
-            ACTION_SNOOZE -> handleSnooze(alarmId, fromPeer, rescheduleEpoch)
+            ACTION_DISMISS -> handleAction(RingActionKind.DISMISS, request)
+            ACTION_SNOOZE -> handleAction(RingActionKind.SNOOZE, request)
             else -> {
                 Log.w(TAG, "unknown action: $action")
-                stopSelf()
+                stopWhenIdle()
             }
         }
         return START_NOT_STICKY
     }
 
+    // ---------------------------------------------------------------------
+    // Ring start
+    // ---------------------------------------------------------------------
+
     private fun handleRing(alarmId: Long) {
-        if (alarmId < 0) {
-            // Even on early-exit we MUST call startForeground within 5 s of
-            // startForegroundService — Android 12+ throws
-            // ForegroundServiceDidNotStartInTimeException otherwise. Use a
-            // placeholder notification and immediately stop.
-            startForegroundPlaceholder()
-            stopForegroundAndSelf()
+        if (alarmId < 0L) {
+            bailWithPlaceholderIfIdle()
             return
         }
         if (EditingAlarmRegistry.isEditing(alarmId)) {
@@ -134,33 +225,9 @@ class AlarmRingService : Service() {
             // will re-arm; if computedFireEpoch has already passed by then,
             // the scheduler fires immediately and we re-enter here cleanly.
             Log.i(TAG, "handleRing id=$alarmId — alarm is being edited, bailing")
-            startForegroundPlaceholder()
-            stopForegroundAndSelf()
+            bailWithPlaceholderIfIdle()
             return
         }
-        // TODO(parked 2026-08-29): a second ACTION_RING silently takes over the
-        // first alarm, and the first one is never finished properly.
-        //
-        // `currentAlarmId` is a single field, so this assignment discards the
-        // previous alarm's identity. scheduleAutoStop() then removes the first
-        // alarm's auto-stop runnable, and the auto-stop that eventually fires
-        // reads `currentAlarmId` — i.e. the SECOND alarm. Net effect: the first
-        // alarm never runs dismissAction, so a one-shot stays enabled as though
-        // it never rang, and a self-destruct row is never deleted.
-        //
-        // Found by source review 2026-08-29, NOT observed on a device. Parked
-        // because the fix is a semantic decision, not a patch: when two alarms
-        // overlap, should the second queue behind the first, merge into one
-        // ring, or take over and finalise the first? The service is
-        // single-alarm throughout (one player, one FGS, one notification), so
-        // any answer touches the whole ring lifecycle.
-        //
-        // Reproduce first: two alarms ~60 s apart, do not dismiss the first,
-        // then check the first alarm's row state after the second is dismissed.
-        // Related: the notification-id TODO in AlarmNotifications.kt (same
-        // overlapping-alarm scenario, different symptom).
-        currentAlarmId = alarmId
-
         // STEP 1: SYNCHRONOUS Room read + startForeground with the REAL
         // FSI notification. Earlier versions used a placeholder→upgrade
         // pattern (post placeholder fast, async-load alarm, re-post with
@@ -185,92 +252,196 @@ class AlarmRingService : Service() {
         val alarm = runBlocking { fetchAlarmForRing(alarmId) }
         if (alarm == null) {
             Log.w(TAG, "no alarm found for id=$alarmId — placeholder + tear down")
-            startForegroundPlaceholder()
-            stopForegroundAndSelf()
+            bailWithPlaceholderIfIdle()
             return
         }
-        // A new ring takes over the service (see the TODO above): stop the
-        // previous ring's catch-up so it releases the bridge's pre-arm lock
-        // instead of delaying this alarm's own pre-arm.
-        stopWatchCatchUp()
+        // Recurrence is armed HERE, before anything can end this ring. Earlier
+        // builds armed it at the very end of the ring job, so a dismiss, a
+        // snooze or a takeover during the pre-arm window skipped it and the
+        // alarm never fired on later days. A snooze or disable that follows
+        // reuses the same request code and replaces this entry.
+        armRecurrence(alarm)
+        val superseded = takeOverService(alarm)
+        val firedAtEpoch = currentFiredAtEpoch
+        // Finalizing the previous ring is NOT part of the new ring's job:
+        // ringJob.cancel() on the next takeover would otherwise cancel a
+        // finalization that has not run yet, and the oldest of three quick
+        // alarms would lose its dismiss policy. It still runs under
+        // its alarm's mutex and the new ring never waits for it.
+        superseded?.let { launchDetached("finish superseded ring id=${it.key.alarmId}") { finishSupersededRing(it) } }
+        ringJob = serviceScope.launch { runRing(alarm, firedAtEpoch) }
+    }
+
+    // Even on early-exit we MUST call startForeground within 5 s of
+    // startForegroundService — Android 12+ throws
+    // ForegroundServiceDidNotStartInTimeException otherwise. Use a placeholder
+    // notification and immediately stop. A ring that is already running keeps
+    // the service foreground, so only an idle service needs the placeholder.
+    private fun bailWithPlaceholderIfIdle() {
+        if (currentAlarmId < 0L) {
+            startForegroundPlaceholder()
+            stopForegroundAndSelf()
+        }
+    }
+
+    private fun armRecurrence(alarm: Alarm) {
+        if (alarm.daysOfWeek == 0) return
+        // The snooze trigger that just fired is consumed (consumeFireState
+        // clears it later). If it still read a hair in the future, the
+        // calculator would re-arm that same instant instead of the next day.
+        // Side effect, debug-only: "Fire alarm now" on a recurring alarm that
+        // has a FUTURE snooze pending clears that snooze for this arm and so
+        // re-arms the normal recurrence instead of the snooze. The row's own
+        // snoozedUntilEpoch is cleared by consumeFireState right after anyway.
+        val toArm = if (alarm.snoozedUntilEpoch != null) alarm.copy(snoozedUntilEpoch = null) else alarm
+        runCatching { scheduler.schedule(toArm) }
+            .onFailure { Log.e(TAG, "recurrence scheduling failed id=${alarm.id}", it) }
+    }
+
+    /**
+     * This service owns one ring at a time. A different alarm takes over: the
+     * previous occurrence is finalized (dismiss policy + a detached watch
+     * notification) by [finishSupersededRing], launched detached from
+     * [handleRing] so the new ring never waits on it. The SAME
+     * alarm firing again (for example "Fire alarm now" tapped twice) is not a
+     * supersession: no dismiss policy is applied to it.
+     */
+    private fun takeOverService(alarm: Alarm): SupersededRing? {
+        val previous = if (currentAlarmId >= 0L) OccurrenceKey(currentAlarmId, currentFiredAtEpoch) else null
+        // The previous occurrence's ring start, captured BEFORE it is reset:
+        // the "could the watch be ringing it" check must not use the new ring's.
+        val superseded = previous?.takeIf { it.alarmId != alarm.id }
+            ?.let { SupersededRing(it, watchMayBeRinging(it.alarmId, ringStartedElapsedMs)) }
+        ringJob?.cancel()
+        ringJob = null
+        stopCurrentRingResources()
         ringStartedElapsedMs = android.os.SystemClock.elapsedRealtime()
         // Phone wall time of this ring, sent as `firedAt` so the watch can
-        // match re-sent copies. Captured once and passed down, not re-read
-        // from a field that a second ring could overwrite mid-pre-arm.
-        val firedAtEpoch = System.currentTimeMillis()
+        // match re-sent copies. Strictly increasing within this service.
+        val firedAtEpoch = maxOf(System.currentTimeMillis(), currentFiredAtEpoch + 1L)
+        // A stopped AlarmActivity (screen off, backup launch blocked) may still
+        // show an older occurrence; it follows this retained current one.
+        RingEndedSignal.setCurrent(alarm.id, firedAtEpoch)
+        currentAlarmId = alarm.id
+        currentFiredAtEpoch = firedAtEpoch
         ringEnded = false
-        startForegroundOnly(alarm)
+        ringActionStarted = false
+        localStopRequested = false
+        autoStopRetries = 0
+        autoStopFinalAttempt = false
+        foregroundStarter(alarm, firedAtEpoch)
+        // Armed at ring start (not at audio start): a failed dismiss during the
+        // pre-arm, before any audio exists, must still end up auto-stopped.
+        scheduleAutoStop(alarm.id, firedAtEpoch, AUTO_STOP_MS)
+        return superseded
+    }
 
-        serviceScope.launch {
-            // Snooze consumed: the trigger that just fired was either the
-            // alarm's normal clock-time or its snooze-deferred trigger. Either
-            // way the snoozedUntilEpoch override no longer reflects reality —
-            // the alarm is RINGING right now, not deferred. Clear it before
-            // the UI re-renders so the list shows correct state.
-            if (alarm.snoozedUntilEpoch != null) {
-                repository.clearSnoozedUntil(alarmId)
+    // Everything after the synchronous start. Runs on the IO dispatcher;
+    // every ring-state read goes through onMain.
+    // reason: the body chains NotificationCompat builders, AlarmAudioPlayer,
+    // startActivity, scheduler — anything throwing here (RemoteException,
+    // SecurityException, OOM, NotificationManagerCompat IllegalStateException)
+    // would zombie the FG notification we already showed. Catch broadly +
+    // tear down so the user can fire again.
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun runRing(alarm: Alarm, firedAtEpoch: Long) {
+        val alarmId = alarm.id
+        try {
+            val active = prepareActiveAlarm(alarmId, firedAtEpoch)
+            if (active != null) presentRing(active, firedAtEpoch)
+        } catch (e: CancellationException) {
+            // Arrives via the normal teardown path (serviceScope.cancel from
+            // onDestroy, or ringJob.cancel on takeover); swallowing it would
+            // break cancellation propagation to any nested suspend.
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "ring body threw — tearing down FG to avoid zombie", e)
+            onMain { stopForegroundAndSelf(alarmId, firedAtEpoch) }
+        }
+    }
+
+    private suspend fun prepareActiveAlarm(alarmId: Long, firedAtEpoch: Long): Alarm? {
+        if (!isCurrent(alarmId, firedAtEpoch)) return null
+        val active = fetchAlarmForRing(alarmId)
+        if (active == null || !active.enabled) {
+            Log.i(TAG, "ring superseded by committed action id=$alarmId firedAt=$firedAtEpoch")
+            onMain { stopForegroundAndSelf(alarmId, firedAtEpoch) }
+            return null
+        }
+        consumeFireState(active, firedAtEpoch)
+        return if (isCurrent(alarmId, firedAtEpoch)) active else null
+    }
+
+    // Snooze consumed: the trigger that just fired was either the alarm's
+    // normal clock-time or its snooze-deferred trigger. Either way the
+    // snoozedUntilEpoch override no longer reflects reality — the alarm is
+    // RINGING right now, not deferred. Clear it before the UI re-renders so the
+    // list shows correct state.
+    //
+    // Skip-next consumed: if a skip was active for an earlier instant,
+    // NextTriggerCalculator already advanced past it and THIS fire is the
+    // post-skip occurrence. Clear the now-stale skipNextEpoch so the row
+    // doesn't leak ambiguous state into sync hash + UI.
+    //
+    // Pre-unlock branch: Room is locked, so the cleared fields are written
+    // straight to the BFU mirror; the post-unlock reconcile copies Room INTO
+    // the BFU cache (and applies the pending BFU intents), not the reverse.
+    // Without this, a pre-unlock fire on a skipped alarm crashed the launch
+    // block before audio could play.
+    // Both clears are housekeeping: a failure is logged and the alarm rings
+    // anyway (a silent alarm is far worse than a stale list row).
+    private suspend fun consumeFireState(active: Alarm, firedAtEpoch: Long) {
+        val alarmId = active.id
+        val unlocked = isUserUnlocked
+        if (active.snoozedUntilEpoch != null) {
+            bestEffort("clear consumed snooze id=$alarmId firedAt=$firedAtEpoch") {
+                if (unlocked) {
+                    repository.clearSnoozedUntil(alarmId)
+                } else if (!bfuCache.setSnoozedUntil(alarmId, null)) {
+                    Log.e(TAG, "failed to clear consumed BFU snooze id=$alarmId firedAt=$firedAtEpoch")
+                }
             }
-            // Skip-next consumed: if a skip was active for an earlier
-            // instant, NextTriggerCalculator already advanced past it and
-            // THIS fire is the post-skip occurrence. Clear the now-stale
-            // skipNextEpoch so the row doesn't leak ambiguous state into
-            // sync hash + UI.
-            //
-            // Pre-unlock branch: Room is locked so consumePastSkip's
-            // dao.upsert would throw. Write the cleared field straight
-            // to the BFU mirror; the post-unlock reconcile will replay
-            // BFU's authoritative values into Room (rescheduleAllOnBoot
-            // → replaceAll(keep)). Without this, a pre-unlock fire on a
-            // skipped alarm previously crashed the launch block before
-            // startRingingAudioAndUi could play audio.
-            if (alarm.skipNextEpoch != null) {
-                if (isUserUnlocked) {
+        }
+        if (active.skipNextEpoch != null) {
+            bestEffort("clear consumed skip id=$alarmId firedAt=$firedAtEpoch") {
+                if (unlocked) {
                     repository.consumePastSkip(alarmId)
-                } else {
-                    bfuCache.upsert(
-                        alarm.copy(
-                            skipNextEpoch = null,
-                            updatedAtEpoch = System.currentTimeMillis(),
-                        ),
-                    )
+                } else if (bfuCache.consumePastSkip(alarmId, System.currentTimeMillis())) {
                     Log.i(TAG, "skip-next pre-unlock-cleared id=$alarmId (BFU only)")
+                } else {
+                    Log.e(TAG, "failed to clear consumed BFU skip id=$alarmId firedAt=$firedAtEpoch")
                 }
             }
-            try {
-                // STEP 2: pre-arm — if watch is paired+connected, await
-                // alarm_fired delivery up to PREARM_TIMEOUT_MS. Returns
-                // immediately false if no watch is reachable.
-                preArmWatchTimed(alarmId, alarm, firedAtEpoch)
-                // STEP 3: start audio + show AlarmActivity. By now phone +
-                // watch are both presenting (or we timed out waiting).
-                startRingingAudioAndUi(alarm, resolveAudioUri(alarm))
-                // No sync-on-fire — forceSync's sync_check/sync_replace
-                // would yank the watch off its ring screen.
-                scheduleAutoStop()
-                if (alarm.daysOfWeek != 0) {
-                    scheduler.schedule(alarm)
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                // Preserve structured-concurrency cancellation. Arrives via
-                // the normal teardown path (serviceScope.cancel from
-                // onDestroy); swallowing it would mis-log normal shutdown
-                // as an error AND break cancellation propagation to any
-                // nested suspend. Actual FG teardown is handled by
-                // stopForegroundAndSelf in onDestroy → serviceScope.cancel,
-                // so rethrowing is safe.
-                throw e
-            } catch (
-                @Suppress("TooGenericExceptionCaught")
-                // reason: the body chains NotificationCompat builders, AlarmAudioPlayer,
-                // startActivity, scheduler — anything throwing here (RemoteException,
-                // SecurityException, OOM, NotificationManagerCompat IllegalStateException)
-                // would zombie the FG placeholder we already showed. Catch broadly +
-                // tear down so the user can fire again.
-                e: Exception,
-            ) {
-                Log.e(TAG, "handleRing body threw — tearing down FG to avoid zombie", e)
-                stopForegroundAndSelf()
-            }
+        }
+    }
+
+    // reason: housekeeping steps surface Room, DataStore and file errors with
+    // no common type; none of them may stop the ring. Cancellation is rethrown.
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun bestEffort(label: String, block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "$label failed — ringing anyway", e)
+        }
+    }
+
+    private suspend fun presentRing(active: Alarm, firedAtEpoch: Long) {
+        val alarmId = active.id
+        // STEP 2: pre-arm — if watch is paired+connected, await alarm_fired
+        // delivery up to PREARM_TIMEOUT_MS. Returns immediately false if no
+        // watch is reachable.
+        preArmWatchTimed(alarmId, active, firedAtEpoch)
+        if (!isCurrent(alarmId, firedAtEpoch)) return
+        // STEP 3: start audio + show AlarmActivity. By now phone + watch are
+        // both presenting (or we timed out waiting). No sync-on-fire —
+        // forceSync's sync_check/sync_replace would yank the watch off its
+        // ring screen.
+        val audioUri = resolveAudioUri(active)
+        onMain {
+            if (isCurrentRing(alarmId, firedAtEpoch)) ringPresenter(active, audioUri, firedAtEpoch)
         }
     }
 
@@ -293,6 +464,10 @@ class AlarmRingService : Service() {
         startForeground(AlarmNotifications.NOTIFICATION_ID, notif, foregroundServiceTypeForApi())
     }
 
+    // ---------------------------------------------------------------------
+    // Watch pre-arm and catch-up
+    // ---------------------------------------------------------------------
+
     // Pre-arm with timing log; if the watch did not confirm in time, keep
     // delivering in the background (startWatchCatchUp).
     private suspend fun preArmWatchTimed(alarmId: Long, alarm: Alarm, firedAtEpoch: Long) {
@@ -301,31 +476,61 @@ class AlarmRingService : Service() {
         val watchReady = preArmWatch(alarmId, ringHints)
         val prearmTookMs = System.currentTimeMillis() - prearmStartMs
         Log.i(TAG, "preArmWatch id=$alarmId ready=$watchReady took=${prearmTookMs}ms")
-        if (!watchReady) startWatchCatchUp(alarmId, ringHints)
+        if (!watchReady) onMain { startWatchCatchUp(alarmId, firedAtEpoch, ringHints) }
     }
 
     // Thin-client envelope hints — see AlarmRingHints KDoc. Computed once per
     // ring and passed to every send (pre-arm and catch-up) so the watch rings
     // with the right pattern + Snooze gating WITHOUT a prior sync.
+    // supportsActionAck tells the watch to wait for a committed reply; it is
+    // true only when this phone can actually receive the watch's request now.
+    // In a cold process the receiver registration started in
+    // Application.onCreate is usually unfinished, so wait briefly for it
+    // (awaitReceiveReady never wakes the watch). It also fills
+    // pairedDeviceInfo, which preArmWatch reads AFTER this.
+    private suspend fun buildRingHints(alarm: Alarm, firedAtEpoch: Long): AlarmRingHints =
+        AlarmRingHints.from(alarm, readSettingsOrNull()).copy(
+            firedAtEpoch = firedAtEpoch,
+            supportsActionAck = awaitReceiveReadyIfUnlocked(),
+        )
+
+    // reason: the bridge call touches Wear Engine; a failure must only mean
+    // "not ready" (no supportsActionAck), never cancel the ring.
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun awaitReceiveReadyIfUnlocked(): Boolean {
+        if (!isUserUnlocked) return false
+        return try {
+            wearBridge.awaitReceiveReady(RECEIVE_READY_WAIT_MS)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "awaitReceiveReady failed — not advertising supportsActionAck", e)
+            false
+        }
+    }
+
     // Settings live in credential-encrypted storage: read them only once the
-    // user has unlocked, or the read throws into the broad catch in handleRing
-    // and the ring never starts.
-    private suspend fun buildRingHints(
-        alarm: Alarm,
-        firedAtEpoch: Long,
-    ): com.kirkouski.gtwake.companion.wear.AlarmRingHints {
-        val settings = if (isUserUnlocked) settingsStore.snapshot() else null
-        return com.kirkouski.gtwake.companion.wear.AlarmRingHints.from(alarm, settings)
-            .copy(firedAtEpoch = firedAtEpoch)
+    // user has unlocked. A failing read (corrupt DataStore, migration write
+    // error) must never cancel ring startup, so it degrades to "unknown".
+    // reason: DataStore surfaces IOException, CorruptionException and
+    // migration failures with no common type; the ring must start regardless.
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun readSettingsOrNull(): SettingsState? {
+        if (!isUserUnlocked) return null
+        return try {
+            settingsStore.snapshot()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "settings snapshot failed — ringing with default settings", e)
+            null
+        }
     }
 
     // Try to wake the watch so it shows its own ring page in time with the
     // phone. Returns true if a 207 (COMM_SUCCESS) came back within budget;
     // false if no watch is paired/connected OR we timed out waiting.
-    private suspend fun preArmWatch(
-        alarmId: Long,
-        ringHints: com.kirkouski.gtwake.companion.wear.AlarmRingHints,
-    ): Boolean {
+    private suspend fun preArmWatch(alarmId: Long, ringHints: AlarmRingHints): Boolean {
         val info = wearBridge.pairedDeviceInfo.value
         if (info == null || !info.connected) {
             Log.d(TAG, "preArmWatch: no connected watch (info=$info) — skipping wait")
@@ -352,54 +557,52 @@ class AlarmRingService : Service() {
     // duplicate is safe: the watch only re-acks a ring that is already up.
     // Awaiting alarm_ringing is allowed here because AlarmActivity is alive
     // for the whole ring (Wear Engine delivers only with an Activity).
-    private fun startWatchCatchUp(
-        alarmId: Long,
-        hints: com.kirkouski.gtwake.companion.wear.AlarmRingHints,
-    ) {
-        val canCatchUp = !ringEnded && isUserUnlocked &&
+    // The loop is bound to ONE occurrence: a superseded ring stops re-sending.
+    private fun startWatchCatchUp(alarmId: Long, firedAtEpoch: Long, hints: AlarmRingHints) {
+        val canCatchUp = isCurrentRing(alarmId, firedAtEpoch) && isUserUnlocked &&
             wearBridge.pairedDeviceInfo.value?.connected == true
         if (!canCatchUp) return
         watchCatchUpJob?.cancel()
         // elapsedRealtime: immune to wall-clock jumps during the window.
         val deadline = ringStartedElapsedMs + WATCH_CATCHUP_WINDOW_MS
-        watchCatchUpJob = serviceScope.launch {
-            var attempt = 0
-            while (!ringEnded && android.os.SystemClock.elapsedRealtime() < deadline) {
-                attempt++
-                val budget = minOf(
-                    WATCH_CATCHUP_ATTEMPT_MS,
-                    deadline - android.os.SystemClock.elapsedRealtime(),
-                )
-                val ready = wearBridge.sendAlarmFiredAwaiting(alarmId, budget, hints)
-                Log.i(TAG, "watch catch-up id=$alarmId attempt=$attempt ready=$ready")
-                if (ready) return@launch
-                delay(WATCH_CATCHUP_GAP_MS)
-            }
-            Log.w(TAG, "watch catch-up gave up id=$alarmId after $attempt attempt(s)")
+        watchCatchUpJob = launchDetached("watch catch-up id=$alarmId") {
+            runWatchCatchUp(alarmId, firedAtEpoch, hints, deadline)
         }
     }
 
-    private fun stopWatchCatchUp() {
-        ringEnded = true
-        watchCatchUpJob?.cancel()
-        watchCatchUpJob = null
+    private suspend fun runWatchCatchUp(alarmId: Long, firedAtEpoch: Long, hints: AlarmRingHints, deadline: Long) {
+        var attempt = 0
+        while (isCurrent(alarmId, firedAtEpoch) && android.os.SystemClock.elapsedRealtime() < deadline) {
+            attempt++
+            val budget = minOf(WATCH_CATCHUP_ATTEMPT_MS, deadline - android.os.SystemClock.elapsedRealtime())
+            val ready = wearBridge.sendAlarmFiredAwaiting(alarmId, budget, hints)
+            Log.i(TAG, "watch catch-up id=$alarmId attempt=$attempt ready=$ready")
+            if (ready) return
+            delay(WATCH_CATCHUP_GAP_MS)
+        }
+        Log.w(TAG, "watch catch-up stopped id=$alarmId after $attempt attempt(s)")
     }
 
     // Only tell the watch to stop a ring it could have received. Sending a
     // dismiss/snooze to a watch that never got alarm_fired launches the watch
-    // app just to close it again.
-    // When this ring's start is unknown (the process died mid-ring and the
-    // dismiss came from the surviving notification, so both this service and
-    // the bridge's delivery record are fresh), send anyway: a watch left
-    // ringing is worse than one extra wake.
-    private fun watchMayBeRinging(alarmId: Long): Boolean {
-        if (ringStartedElapsedMs == 0L) return true
-        val may = wearBridge.wasAlarmFiredDelivered(alarmId, ringStartedElapsedMs)
+    // app just to close it again. [ringStartedMs] is the start of the
+    // occurrence being ended, NOT whichever ring is newest.
+    // When that start is unknown (the process died mid-ring and the dismiss
+    // came from the surviving notification, so both this service and the
+    // bridge's delivery record are fresh), send anyway: a watch left ringing
+    // is worse than one extra wake.
+    private fun watchMayBeRinging(alarmId: Long, ringStartedMs: Long): Boolean {
+        if (ringStartedMs == 0L) return true
+        val may = wearBridge.wasAlarmFiredDelivered(alarmId, ringStartedMs)
         if (!may) Log.i(TAG, "watch never received alarm_fired id=$alarmId — not sending end")
         return may
     }
 
-    private fun startForegroundOnly(alarm: Alarm) {
+    // ---------------------------------------------------------------------
+    // Foreground notification, audio and UI
+    // ---------------------------------------------------------------------
+
+    private fun startForegroundOnly(alarm: Alarm, firedAtEpoch: Long) {
         // Lockscreen-penetration diagnostics. The user has hit intermittent
         // "screen didn't wake" failures (e.g. 2nd alarm in a row sometimes
         // misses). Capture the FSI-relevant device state at fire moment so
@@ -421,10 +624,10 @@ class AlarmRingService : Service() {
         val notif = AlarmNotifications.buildRingingNotification(
             context = this,
             alarm = alarm,
-            fullScreenIntent = AlarmNotifications.fullScreenPendingIntent(this, alarm.id),
-            dismissIntent = AlarmNotifications.dismissPendingIntent(this, alarm.id),
+            fullScreenIntent = AlarmNotifications.fullScreenPendingIntent(this, alarm.id, firedAtEpoch),
+            dismissIntent = AlarmNotifications.dismissPendingIntent(this, alarm.id, firedAtEpoch),
             snoozeIntent = if (alarm.isSnoozeEnabled) {
-                AlarmNotifications.snoozePendingIntent(this, alarm.id)
+                AlarmNotifications.snoozePendingIntent(this, alarm.id, firedAtEpoch)
             } else {
                 null
             },
@@ -445,36 +648,38 @@ class AlarmRingService : Service() {
 
     // Per-alarm URI → app Settings default → null (player falls back to system alarm).
     // DataStore is post-unlock only; returns null pre-BFU so bundled fallback plays.
+    // A settings failure falls back to the alarm's own URI (or null = system default).
     private suspend fun resolveAudioUri(alarm: Alarm): String? {
-        if (alarm.audioUri != null || !isUserUnlocked) return alarm.audioUri
-        val s = settingsStore.snapshot()
-        return if (alarm.isRelative) s.defaultRelativeRingtoneUri else s.defaultAbsoluteRingtoneUri
+        if (alarm.audioUri != null) return alarm.audioUri
+        val settings = readSettingsOrNull() ?: return null
+        return if (alarm.isRelative) settings.defaultRelativeRingtoneUri else settings.defaultAbsoluteRingtoneUri
     }
 
-    private fun startRingingAudioAndUi(alarm: Alarm, effectiveAudioUri: String?) {
+    // Main thread. Audio first, then the Activity: the Activity must be in
+    // the task for the whole ring (Wear Engine receive), the audio may be
+    // suppressed if a phone-local tap already silenced this occurrence.
+    private fun startRingingAudioAndUi(alarm: Alarm, effectiveAudioUri: String?, firedAtEpoch: Long) {
+        if (!isCurrentRing(alarm.id, firedAtEpoch)) return
+        startPlayback(alarm, effectiveAudioUri)
+        // Scheduled here so it covers BOTH launch paths — including the
+        // already-showing early-return in launchRingActivity, where FSI
+        // already brought the Activity up and we skip PI.send.
+        scheduleRingUiAudit(alarm.id, ringStartedElapsedMs)
+        launchRingActivity(alarm.id, firedAtEpoch)
+    }
+
+    private fun startPlayback(alarm: Alarm, effectiveAudioUri: String?) {
+        if (localStopRequested) {
+            Log.i(TAG, "audio not started id=${alarm.id} — a dismiss/snooze already silenced this ring")
+            return
+        }
+        // A ring takes ownership of one player. Stop any previous instance
+        // before replacing it, including when a newer occurrence supersedes.
         // Assign `player` BEFORE start() so that if MediaPlayer init throws
         // mid-call (audio focus denied, codec failure, broken URI), the
         // partially-initialized instance is still reachable from
-        // stopForegroundAndSelf for a release() call. Otherwise the
-        // exception bubbles up through handleRing's catch and the
-        // MediaPlayer leaks until GC.
-        // TODO(parked 2026-08-29): the previous player is never stopped.
-        //
-        // On a second ring this overwrites `player` with a new instance while
-        // the old AlarmAudioPlayer is still looping. The old one becomes
-        // unreachable, so nothing can stop() or release() it — stopForegroundAndSelf
-        // only ever sees the newest instance. Two alarm tones can end up playing
-        // at once, and the orphan survives until the process dies.
-        //
-        // Found by source review 2026-08-29, NOT observed on a device. The fix
-        // looks like a one-liner (stop the old player before replacing it) but
-        // is deliberately parked with the takeover TODO in handleRing above:
-        // both are the same unresolved question of what overlapping alarms
-        // should DO, and fixing the audio in isolation would leave the row-state
-        // half of the bug in place while making the overlap look handled.
-        //
-        // Reproduce first: two alarms ~60 s apart, do not dismiss the first,
-        // listen for a doubled tone.
+        // stopCurrentRingResources for a stop() call.
+        stopPlayback()
         val p = AlarmAudioPlayer(applicationContext)
         player = p
         // Pre-unlock: SAF/system-default URIs return null; use bundled tone.
@@ -486,45 +691,49 @@ class AlarmRingService : Service() {
             forceBundledFallback = !isUserUnlocked,
             phoneVibrationEnabled = alarm.phoneVibrationEnabled,
         )
+    }
 
-        // Scheduled here so it covers BOTH launch paths — including the
-        // isVisible early-return below, where FSI already brought the Activity
-        // up and we skip PI.send.
-        scheduleRingUiAudit(alarm.id, ringStartedElapsedMs)
+    private fun stopPlayback() {
+        player?.stop()
+        player = null
+    }
 
-        // CANONICAL Huawei Wear Engine compliance path: ensure AlarmActivity
-        // is in the task at fire time. Huawei P2P receive REQUIRES an Activity
-        // component to be present — without one, the watch can't deliver
-        // dismiss/snooze envelopes back to the phone. Watch sync is the core
-        // product feature; this guarantee is non-negotiable. See memory/
-        // wear_engine_requires_activity.md.
-        //
-        // Two paths bring AlarmActivity into the task:
-        //   1. NotificationManager's FSI dispatch when we post the notification
-        //      with setFullScreenIntent (runs as uid 10051 with the
-        //      BAL_ALLOW_NON_APP_VISIBLE_WINDOW exemption — always succeeds
-        //      when screen is locked + canFsi=true).
-        //   2. PI.send() from this service — covers the case where FSI degraded
-        //      to heads-up only (device active, FSI permission revoked, OEM
-        //      policy). Uses ActivityOptions with
-        //      setPendingIntentCreatorBackgroundActivityStartMode so it
-        //      survives Android 14+ BAL.
-        //
-        // If AlarmActivity.isVisible is already true, FSI already brought it
-        // up and PI.send would just re-enter the singleInstance task with a
-        // fresh ActivityRecord — the user would see a "second screen sliding
-        // in" ~2.6 s after FSI launch (the system animates the open
-        // transition over the already-visible Activity). Skip in that case
-        // as a UX-only optimization. The Wear Engine requirement is already
-        // satisfied by FSI's launch. Visible flag set in AlarmActivity.onStart
-        // / cleared in onStop.
-        if (AlarmActivity.isVisible.get()) {
-            Log.d(TAG, "skip PI.send — AlarmActivity already visible (FSI launched it)")
+    // CANONICAL Huawei Wear Engine compliance path: ensure AlarmActivity
+    // is in the task at fire time. Huawei P2P receive REQUIRES an Activity
+    // component to be present — without one, the watch can't deliver
+    // dismiss/snooze envelopes back to the phone. Watch sync is the core
+    // product feature; this guarantee is non-negotiable. See memory/
+    // wear_engine_requires_activity.md.
+    //
+    // Two paths bring AlarmActivity into the task:
+    //   1. NotificationManager's FSI dispatch when we post the notification
+    //      with setFullScreenIntent (runs as uid 10051 with the
+    //      BAL_ALLOW_NON_APP_VISIBLE_WINDOW exemption — always succeeds
+    //      when screen is locked + canFsi=true).
+    //   2. PI.send() from this service — covers the case where FSI degraded
+    //      to heads-up only (device active, FSI permission revoked, OEM
+    //      policy). Uses ActivityOptions with
+    //      setPendingIntentCreatorBackgroundActivityStartMode so it
+    //      survives Android 14+ BAL on pre-16 devices.
+    //
+    // PI.send() is skipped only when the Activity is visible AND already shows
+    // THIS occurrence (needsBackupLaunch). The intent is NEW_TASK | CLEAR_TASK
+    // on a singleInstance Activity, so a send while it is showing would
+    // destroy and recreate it (onNewIntent never runs on this path): the user
+    // sees a second screen slide in. A visible Activity that shows a different
+    // occurrence does need the relaunch. FSI already satisfies the Wear Engine
+    // requirement for the skipped case.
+    private fun launchRingActivity(alarmId: Long, firedAtEpoch: Long) {
+        val visible = AlarmActivity.isVisible.get()
+        if (!needsBackupLaunch(visible, AlarmActivity.shownOccurrence, alarmId, firedAtEpoch)) {
+            Log.d(TAG, "skip PI.send — AlarmActivity already shows id=$alarmId firedAt=$firedAtEpoch")
             return
         }
         val launchIntent = Intent(this, AlarmActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            putExtra(EXTRA_ALARM_ID, alarm.id)
+            putExtra(EXTRA_ALARM_ID, alarmId)
+            putExtra(EXTRA_FIRED_AT, firedAtEpoch)
+            data = "gtwake://alarm/$alarmId/activity/$firedAtEpoch".toUri()
         }
         val options = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             // reason: ActivityOptions.makeBasic() is the only API that
@@ -542,7 +751,7 @@ class AlarmRingService : Service() {
         }
         val pi = PendingIntent.getActivity(
             this,
-            alarm.id.toInt() or DIRECT_LAUNCH_REQUEST_CODE_BIT,
+            alarmId.toInt() or DIRECT_LAUNCH_REQUEST_CODE_BIT,
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             options,
@@ -602,232 +811,600 @@ class AlarmRingService : Service() {
         mainHandler.postDelayed(r, RING_UI_AUDIT_DELAY_MS)
     }
 
-    private fun scheduleAutoStop() {
+    // ---------------------------------------------------------------------
+    // Auto-stop, grace window, idle stop (main thread)
+    // ---------------------------------------------------------------------
+
+    private fun scheduleAutoStop(alarmId: Long, firedAtEpoch: Long, delayMs: Long) {
         autoStopRunnable?.let { mainHandler.removeCallbacks(it) }
+        autoStopFinalAttempt = false
         val r = Runnable {
-            Log.d(TAG, "auto-stop after ${AUTO_STOP_MS}ms")
-            handleDismiss(currentAlarmId, fromPeer = false)
+            autoStopRunnable = null
+            Log.d(TAG, "auto-stop id=$alarmId firedAt=$firedAtEpoch")
+            handleAction(
+                RingActionKind.DISMISS,
+                RingActionRequest(alarmId, fromPeer = false, firedAtEpoch = firedAtEpoch, autoStop = true),
+            )
         }
         autoStopRunnable = r
-        mainHandler.postDelayed(r, AUTO_STOP_MS)
+        mainHandler.postDelayed(r, delayMs)
     }
 
-    // ACTIVITY RULE: when fromPeer=false this awaits the watch's
-    // alarm_dismissed_ack (a Wear Engine P2P receive). That ack is only
-    // delivered while AlarmActivity is alive in the task — so AlarmActivity
-    // deliberately does NOT finishAndRemoveTask() on the dismiss tap; it
+    // After a watch request committed: audio is already off and the occurrence
+    // is marked ended, but the foreground service and AlarmActivity stay for
+    // GRACE_MS. A duplicate request inside the window is answered ok:true from
+    // memory, and the Activity is still in the task to receive it. The
+    // runnable is occurrence-checked, so a ring that took over meanwhile is
+    // never touched; stopCurrentRingResources also removes it.
+    private fun scheduleGraceTeardown(occurrence: OccurrenceKey) {
+        graceRunnable?.let { mainHandler.removeCallbacks(it) }
+        val r = Runnable {
+            graceRunnable = null
+            stopForegroundAndSelf(occurrence.alarmId, occurrence.firedAtEpoch)
+        }
+        graceRunnable = r
+        mainHandler.postDelayed(r, GRACE_MS)
+    }
+
+    // An idle service (no ring) that only answered a request has nothing left
+    // to do. The short delay lets the bridge's bounded reply leave the process.
+    private fun stopWhenIdle() {
+        if (currentAlarmId >= 0L) return
+        mainHandler.postDelayed(
+            { if (currentAlarmId < 0L) stopSelfResult(lastStartId) },
+            REPLY_FLUSH_MS,
+        )
+    }
+
+    // ---------------------------------------------------------------------
+    // Occurrence state helpers (main thread)
+    // ---------------------------------------------------------------------
+
+    private fun matchesCurrentOccurrence(alarmId: Long, firedAtEpoch: Long): Boolean =
+        currentAlarmId == alarmId && currentFiredAtEpoch == firedAtEpoch
+
+    private fun isCurrentRing(alarmId: Long, firedAtEpoch: Long): Boolean =
+        matchesCurrentOccurrence(alarmId, firedAtEpoch) && !ringEnded
+
+    private fun currentRing(): CurrentRing = CurrentRing(currentAlarmId, currentFiredAtEpoch, ringEnded)
+
+    /** Suspend helper for IO code: reads ring state on the main thread. */
+    private suspend fun isCurrent(alarmId: Long, firedAtEpoch: Long): Boolean =
+        onMain { isCurrentRing(alarmId, firedAtEpoch) }
+
+    /**
+     * Runs [block] on the main thread and returns its result. The only way IO
+     * coroutines touch ring state. If the scope is cancelled while waiting, the
+     * block is not run.
+     */
+    // reason: any Throwable from the block must reach the awaiting coroutine,
+    // or it would hang forever; it is re-thrown there, not swallowed.
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun <T> onMain(block: () -> T): T = suspendCancellableCoroutine { continuation ->
+        val posted = mainHandler.post {
+            if (continuation.isActive) {
+                try {
+                    continuation.resume(block())
+                } catch (e: Throwable) {
+                    continuation.resumeWithException(e)
+                }
+            }
+        }
+        if (!posted) continuation.resumeWithException(IllegalStateException("main looper is not accepting work"))
+    }
+
+    // reason: a detached coroutine has no caller to report to; an uncaught
+    // exception in serviceScope would crash the process mid-alarm.
+    @Suppress("TooGenericExceptionCaught")
+    private fun launchDetached(label: String, block: suspend () -> Unit): Job = serviceScope.launch {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "$label failed", e)
+        }
+    }
+
+    private fun cancelRingTimers() {
+        watchCatchUpJob?.cancel()
+        watchCatchUpJob = null
+        autoStopRunnable?.let { mainHandler.removeCallbacks(it) }
+        autoStopRunnable = null
+        autoStopFinalAttempt = false
+        ringUiAuditRunnable?.let { mainHandler.removeCallbacks(it) }
+        ringUiAuditRunnable = null
+    }
+
+    private fun stopCurrentRingResources() {
+        ringEnded = true
+        cancelRingTimers()
+        graceRunnable?.let { mainHandler.removeCallbacks(it) }
+        graceRunnable = null
+        stopPlayback()
+    }
+
+    // ---------------------------------------------------------------------
+    // Takeover finalization
+    // ---------------------------------------------------------------------
+
+    // The previous (different) alarm never got a dismiss/snooze. Apply its
+    // dismiss policy under the mutex, unless an action for it already
+    // committed. The watch is told DETACHED: the new ring must not wait for a
+    // send that has no inner timeout.
+    private suspend fun finishSupersededRing(superseded: SupersededRing) {
+        val key = superseded.key
+        try {
+            val applied = mutexFor(key.alarmId).withLock {
+                val alreadyEnded = onMain { peerState.outcomeOf(key) != null }
+                if (!alreadyEnded) {
+                    commitDismiss(key.alarmId, fromPeer = true)
+                    onMain {
+                        peerState.recordSuccess(key, RingOutcome.DISMISSED, null)
+                    }
+                }
+                !alreadyEnded
+            }
+            if (applied && superseded.watchMayBeRinging) notifyWatchEndedDetached(key)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (
+            @Suppress("TooGenericExceptionCaught")
+            // reason: finalizing the old ring is best-effort; whatever the
+            // repository throws must not stop the NEW ring from starting.
+            e: Exception,
+        ) {
+            Log.e(TAG, "failed to finalize superseded ring id=${key.alarmId} firedAt=${key.firedAtEpoch}", e)
+        }
+    }
+
+    private fun notifyWatchEndedDetached(key: OccurrenceKey) {
+        launchDetached("superseded dismiss send id=${key.alarmId}") {
+            withTimeoutOrNull(SUPERSEDED_SEND_TIMEOUT_MS) {
+                wearBridge.sendAlarmDismissed(key.alarmId, firedAt = key.firedAtEpoch)
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Dismiss / snooze
+    // ---------------------------------------------------------------------
+
+    // Admission runs on the main thread: decide, claim, silence. The commit
+    // runs on IO under the mutex and settles back on main.
+    //
+    // ACTIVITY RULE: for a phone-local action this awaits the watch's
+    // alarm_dismissed_ack/alarm_snoozed_ack (a Wear Engine P2P receive). That
+    // ack is only delivered while AlarmActivity is alive in the task — so
+    // AlarmActivity deliberately does NOT finishAndRemoveTask() on the tap; it
     // stays up showing "waiting for watch" until stopForegroundAndSelf()
-    // below emits RingEndedSignal. Do not "optimise" the Activity away.
-    // reason: complexity rose past 10 because dismissAction() now branches
-    // on KEEP/DISABLE/DELETE × fromPeer (LocalOnly vs broadcasting variant),
-    // and there's a separate pre-unlock branch + a serviceScope.launch
-    // gating on user-unlocked. Each branch maps to a distinct end state;
-    // collapsing would smear the data/peer rules.
-    @Suppress("CyclomaticComplexMethod")
-    private fun handleDismiss(alarmId: Long, fromPeer: Boolean) {
-        Log.d(TAG, "dismiss id=$alarmId fromPeer=$fromPeer")
-        if (alarmId < 0) {
-            stopForegroundAndSelf()
-            return
-        }
-        // Stop audio + vibration NOW for instant user feedback. We still
-        // need to keep the service alive a bit longer to:
-        //  (1) AWAIT the watch broadcast so the watch stops ringing too
-        //      (fire-and-forget was vulnerable to mid-flight process kill)
-        //  (2) AWAIT the dismiss action coroutine so a DELETE
-        //      (self-destruct) row + tombstone actually commits before
-        //      the OS reaps us.
-        // The notification stays up for those ~2s in the worst case but
-        // there's no audible cost.
-        player?.stop()
-        player = null
-        stopWatchCatchUp()
-        autoStopRunnable?.let { mainHandler.removeCallbacks(it) }
-        autoStopRunnable = null
-        ringUiAuditRunnable?.let { mainHandler.removeCallbacks(it) }
-        ringUiAuditRunnable = null
+    // emits RingEndedSignal. For a watch action the Activity stays for the
+    // grace window. Do not "optimise" the Activity away.
+    private fun handleAction(kind: RingActionKind, request: RingActionRequest) {
+        Log.d(
+            TAG,
+            "${kind.wire} id=${request.alarmId} fromPeer=${request.fromPeer} " +
+                "firedAt=${request.firedAtEpoch} stamp=${request.requestStamp} autoStop=${request.autoStop}",
+        )
+        val claim = admitAction(kind, request) ?: return
+        launchDetached("${kind.wire} id=${request.alarmId}") { performAction(kind, request, claim) }
+    }
 
-        if (!isUserUnlocked) {
-            // Pre-unlock: Room locked, transport-only watch send; serviceScope
-            // keeps the FGS alive so a process reap can't kill the send.
-            // markDismissed records the intent for post-unlock dismissAction.
-            Log.i(TAG, "dismiss id=$alarmId pre-unlock — notifying watch + recording intent")
-            serviceScope.launch {
-                bfuCache.markDismissed(alarmId)
-                val delivered = watchMayBeRinging(alarmId) &&
-                    (withTimeoutOrNull(PRE_UNLOCK_SEND_TIMEOUT_MS) {
-                        wearBridge.sendAlarmDismissed(alarmId)
-                    } ?: false)
-                Log.i(TAG, "dismiss id=$alarmId pre-unlock send delivered=$delivered")
-                stopForegroundAndSelf()
-            }
-            return
+    private fun admitAction(kind: RingActionKind, request: RingActionRequest): ActionClaim? {
+        val occurrence = if (request.fromPeer) admitPeerAction(kind, request) else admitLocalAction(request)
+        if (occurrence == null || !claimOccurrence(occurrence)) {
+            stopWhenIdle()
+            return null
         }
+        if (!request.fromPeer) {
+            // Phone-local: silence the phone NOW, independent of persistence
+            // (HEAD behaviour). If the save fails the ring stays current but
+            // quiet; the buttons come back and auto-stop is re-armed.
+            localStopRequested = true
+            stopPlayback()
+            // The auto-stop's OWN save can stall too. Arm the watchdog before
+            // the commit starts: it runs on the retry schedule independently of
+            // persistence, and a commit (or failure) handler disarms/reuses it.
+            if (request.autoStop) armAutoStopWatchdog(occurrence)
+        }
+        val requestKey = if (request.fromPeer) {
+            PeerRequest(request.alarmId, kind.wire, request.firedAtEpoch, request.requestStamp).requestKeyOrNull()
+        } else {
+            null
+        }
+        return ActionClaim(occurrence, ringStartedElapsedMs, requestKey)
+    }
 
-        serviceScope.launch {
-            handlerMutex.withLock {
-                // Commit local truth FIRST, then broadcast. If the OS kills
-                // us between the two, the watch can recover via the next
-                // sync hash mismatch; the phone DB can't recover its own
-                // inconsistent state, so it gets priority.
-                val alarm = repository.getById(alarmId)
-                // Reset the consecutive-snooze counter — a real dismiss
-                // ends the snooze cycle. Done BEFORE the action so DELETE
-                // (which removes the row) doesn't no-op the reset.
-                if (alarm != null) repository.resetSnoozeCounter(alarmId)
-                when (dismissAction(alarm)) {
-                    DismissAction.KEEP -> Unit
-                    DismissAction.DISABLE -> {
-                        if (fromPeer) {
-                            repository.setEnabledLocalOnly(alarmId, false)
-                        } else {
-                            repository.setEnabled(alarmId, false)
-                        }
-                    }
-                    DismissAction.DELETE -> {
-                        // Idempotent if peer originated this dismiss.
-                        repository.delete(alarmId)
-                    }
-                }
-                if (!fromPeer && watchMayBeRinging(alarmId)) {
-                    val acked = wearBridge.sendAlarmDismissedAwaiting(alarmId, BROADCAST_AWAIT_MS)
-                    Log.i(TAG, "dismiss broadcast id=$alarmId acked=$acked")
-                }
-            }
-            stopForegroundAndSelf()
+    // Reply rule of docs/sync-architecture.md ("Phone reply rule"); the decision
+    // itself is the pure PeerActionPolicy. Returns the occurrence to act on, or null (replied or
+    // ignored here).
+    private fun admitPeerAction(kind: RingActionKind, request: RingActionRequest): OccurrenceKey? {
+        val peer = PeerRequest(request.alarmId, kind.wire, request.firedAtEpoch, request.requestStamp)
+        val decision = PeerActionPolicy.decide(peerState, peer, currentRing())
+        when (decision) {
+            PeerDecision.Apply -> return peer.occurrenceOrNull()
+            PeerDecision.ApplyLegacy -> return OccurrenceKey(currentAlarmId, currentFiredAtEpoch)
+            PeerDecision.ReplayOk -> replyPeerAction(kind, request, ok = true)
+            PeerDecision.Ignore ->
+                Log.i(TAG, "${kind.wire} ignored id=${request.alarmId} firedAt=${request.firedAtEpoch} (no reply)")
+            is PeerDecision.PeerEnded ->
+                wearBridge.sendPeerEnded(request.alarmId, decision.type, decision.firedAtEpoch)
+        }
+        return null
+    }
+
+    private fun admitLocalAction(request: RingActionRequest): OccurrenceKey? {
+        val occurrence = OccurrenceKey(request.alarmId, request.firedAtEpoch ?: currentFiredAtEpoch)
+        val open = currentRing().isOpen(occurrence)
+        if (open && !ringActionStarted) return occurrence
+        if (open && request.autoStop) {
+            autoStopWhileActionInFlight(occurrence)
+            return null
+        }
+        Log.i(TAG, "stale local action ignored id=${request.alarmId} firedAt=${request.firedAtEpoch}")
+        return null
+    }
+
+    // The auto-stop fired while a dismiss/snooze for this occurrence is still
+    // being saved (possibly stalled forever). The ring must still end: silence
+    // the phone NOW, retry on the usual backoff, and when the retries run out
+    // with the action still unresolved end the ring without persistence.
+    private fun autoStopWhileActionInFlight(occurrence: OccurrenceKey) {
+        Log.w(TAG, "auto-stop while an action is in flight id=${occurrence.alarmId}; silencing and retrying")
+        localStopRequested = true
+        stopPlayback()
+        retryAutoStop(occurrence)
+    }
+
+    private fun claimOccurrence(occurrence: OccurrenceKey): Boolean {
+        if (!peerState.tryClaim(occurrence)) return false
+        if (matchesCurrentOccurrence(occurrence.alarmId, occurrence.firedAtEpoch)) ringActionStarted = true
+        return true
+    }
+
+    private fun replyPeerAction(kind: RingActionKind, request: RingActionRequest, ok: Boolean) {
+        val stamp = request.requestStamp ?: return
+        val firedAt = request.firedAtEpoch ?: return
+        wearBridge.sendPeerActionAck(request.alarmId, kind.wire, stamp, firedAt, ok)
+    }
+
+    // The occurrence this watch request referred to is over: tell the watch how.
+    private fun replyPeerEnded(request: RingActionRequest, occurrence: OccurrenceKey) {
+        if (!request.isOccurrenceAware) return
+        val type = PeerActionPolicy.endedType(peerState.outcomeOf(occurrence))
+        wearBridge.sendPeerEnded(occurrence.alarmId, type, occurrence.firedAtEpoch)
+    }
+
+    private suspend fun performAction(kind: RingActionKind, request: RingActionRequest, claim: ActionClaim) {
+        when (val result = commitAction(kind, request, claim)) {
+            is ActionResult.Committed -> if (!request.fromPeer) finishLocalAction(claim, result)
+            ActionResult.Superseded -> onMain { settleSuperseded(request, claim) }
+            ActionResult.Failed -> onMain { settleFailed(kind, request, claim) }
         }
     }
 
-    // ACTIVITY RULE: same as handleDismiss — when fromPeer=false this awaits
-    // the watch's alarm_snoozed_ack (a P2P receive), which only arrives
-    // while AlarmActivity is alive in the task. AlarmActivity stays up
-    // ("waiting for watch") until stopForegroundAndSelf() emits
-    // RingEndedSignal.
-    // reason: 3 paths (pre-unlock, snooze-disabled→dismiss, happy path)
-    // sharing player/handler teardown; splitting smears the Mutex contract.
-    @Suppress("LongMethod", "CyclomaticComplexMethod")
-    private fun handleSnooze(alarmId: Long, fromPeer: Boolean, rescheduleEpochFromPeer: Long) {
-        Log.d(TAG, "snooze id=$alarmId fromPeer=$fromPeer reschedule=$rescheduleEpochFromPeer")
-        // Stop audio + vibration NOW (same rationale as handleDismiss) —
-        // no user wants a snooze tap that keeps the alarm playing for
-        // another 2s while the watch ACK arrives.
-        player?.stop()
-        player = null
-        stopWatchCatchUp()
-        autoStopRunnable?.let { mainHandler.removeCallbacks(it) }
-        autoStopRunnable = null
-        ringUiAuditRunnable?.let { mainHandler.removeCallbacks(it) }
-        ringUiAuditRunnable = null
+    // Commit local truth FIRST, then tell the watch. If the OS kills us between
+    // the two, the watch can recover via the next sync hash mismatch; the phone
+    // DB can't recover its own inconsistent state, so it gets priority.
+    // The occurrence check happens INSIDE the mutex: a takeover that finalized
+    // this occurrence first wins, and this action is abandoned untouched.
+    // reason: the commit touches Room, DataStore-backed repository code, the
+    // BFU file cache and AlarmManager; any failure must become a reportable
+    // Failed result (ok:false / ActionFailed), never an uncaught exception.
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun commitAction(
+        kind: RingActionKind,
+        request: RingActionRequest,
+        claim: ActionClaim,
+    ): ActionResult = try {
+        mutexFor(claim.occurrence.alarmId).withLock {
+            if (!onMain { currentRing().isOpen(claim.occurrence) }) {
+                ActionResult.Superseded
+            } else {
+                val committed = commitRow(kind, request)
+                onMain { markCommitted(kind, request, claim, committed) }
+                committed
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.e(TAG, "${kind.wire} failed id=${request.alarmId} firedAt=${claim.occurrence.firedAtEpoch}", e)
+        ActionResult.Failed
+    }
 
+    private suspend fun commitRow(kind: RingActionKind, request: RingActionRequest): ActionResult.Committed =
+        when (kind) {
+            RingActionKind.DISMISS -> {
+                commitDismiss(request.alarmId, request.fromPeer)
+                ActionResult.Committed(RingOutcome.DISMISSED, null)
+            }
+            RingActionKind.SNOOZE -> commitSnooze(request)
+        }
+
+    private suspend fun commitDismiss(alarmId: Long, fromPeer: Boolean) {
         if (!isUserUnlocked) {
-            // Pre-unlock: schedule directly via AlarmManager (direct-boot
-            // OK); BFU cache carries per-alarm snoozeMinutes.
-            serviceScope.launch {
-                val alarm = bfuCache.getAll().firstOrNull { it.id == alarmId }
-                if (alarm == null) {
-                    Log.w(TAG, "snooze id=$alarmId pre-unlock — not in BFU cache, dropping snooze")
-                    stopForegroundAndSelf()
-                    return@launch
-                }
-                if (!alarm.isSnoozeEnabled) {
-                    Log.i(TAG, "snooze id=$alarmId pre-unlock — snooze-disabled, collapse to dismiss")
-                    bfuCache.markDismissed(alarmId)
-                    val delivered = watchMayBeRinging(alarmId) &&
-                        (withTimeoutOrNull(PRE_UNLOCK_SEND_TIMEOUT_MS) {
-                            wearBridge.sendAlarmDismissed(alarmId)
-                        } ?: false)
-                    Log.i(TAG, "snooze→dismiss id=$alarmId pre-unlock send delivered=$delivered")
-                    stopForegroundAndSelf()
-                    return@launch
-                }
-                val trigger = System.currentTimeMillis() + alarm.snoozeMinutes * 60_000L
-                scheduler.scheduleAt(alarm, trigger)
-                // Pre-unlock: Room is locked so we can't bump consecutiveSnoozeCount
-                // directly. Record the bump in BFU; post-unlock reconcile drains
-                // it into Room so the cap applies uniformly across the unlock
-                // boundary. Without this, lockscreen-snoozers escape the cap.
-                if (!fromPeer) {
-                    bfuCache.markPendingSnoozeBump(alarmId)
-                }
-                val delivered = watchMayBeRinging(alarmId) &&
-                    (withTimeoutOrNull(PRE_UNLOCK_SEND_TIMEOUT_MS) {
-                        wearBridge.sendAlarmSnoozed(alarmId, trigger)
-                    } ?: false)
-                Log.i(
-                    TAG,
-                    "snooze id=$alarmId pre-unlock — +${alarm.snoozeMinutes}min " +
-                        "trigger=$trigger delivered=$delivered fromPeer=$fromPeer " +
-                        "(BFU bump=${!fromPeer})",
-                )
-                stopForegroundAndSelf()
+            check(bfuCache.markDismissed(alarmId)) {
+                "failed to persist pre-unlock dismissal id=$alarmId"
             }
             return
         }
-
-        serviceScope.launch {
-            // Read the row OUTSIDE the Mutex to decide whether to collapse to
-            // dismiss. `snoozeMinutes` is a config field; it doesn't race
-            // against the dismiss path (which mutates `enabled` /
-            // `snoozedUntilEpoch`), so the read is safe without locking.
-            val alarm = repository.getById(alarmId)
-            if (alarm == null) {
-                Log.w(TAG, "snooze id=$alarmId — row missing, skipping")
-                stopForegroundAndSelf()
-                return@launch
+        val alarm = repository.getById(alarmId)
+        // The mutation that IS the commit comes first and alone, so a later
+        // failure can never leave a change behind an ok:false.
+        when (dismissAction(alarm)) {
+            DismissAction.KEEP -> if (alarm != null) repository.resetSnoozeCounter(alarmId)
+            DismissAction.DISABLE -> {
+                if (fromPeer) repository.setEnabledLocalOnly(alarmId, false)
+                else repository.setEnabled(alarmId, false)
+                bestEffort("reset snooze counter id=$alarmId") { repository.resetSnoozeCounter(alarmId) }
             }
-            if (!fromPeer && !alarm.isSnoozeEnabled) {
-                // Snooze was disabled on this alarm — stale notification
-                // action button was tapped. Treat as a dismiss: from the
-                // user's perspective the alarm went silent, and we need
-                // the dismiss-side state transitions (self-destruct DELETE,
-                // recurring DISABLE if applicable, snoozedUntilEpoch=null)
-                // to actually commit. handleDismiss owns its own launch +
-                // Mutex acquisition; calling it from here just schedules the
-                // dismiss coroutine and returns — Mutex serializes the two.
-                Log.i(TAG, "snooze id=$alarmId — snooze disabled, collapsing to dismiss")
-                handleDismiss(alarmId, fromPeer = false)
-                return@launch
-            }
-            handlerMutex.withLock {
-                // Commit local truth FIRST, then broadcast — matches
-                // handleDismiss ordering so a process kill between the two
-                // leaves the phone consistent; the watch recovers via the
-                // next sync hash mismatch.
-                val trigger = if (fromPeer && rescheduleEpochFromPeer > 0L) {
-                    rescheduleEpochFromPeer
-                } else {
-                    System.currentTimeMillis() + alarm.snoozeMinutes * 60_000L
-                }
-                repository.snoozeAt(alarmId, trigger, fromPeer = fromPeer)
-                if (!fromPeer && watchMayBeRinging(alarmId)) {
-                    val acked = wearBridge.sendAlarmSnoozedAwaiting(
-                        alarmId,
-                        trigger,
-                        BROADCAST_AWAIT_MS,
-                    )
-                    Log.i(TAG, "snooze broadcast id=$alarmId acked=$acked trigger=$trigger")
-                }
-            }
-            stopForegroundAndSelf()
+            DismissAction.DELETE -> repository.delete(alarmId)
         }
     }
 
-    private fun stopForegroundAndSelf() {
-        stopWatchCatchUp()
+    private suspend fun commitSnooze(request: RingActionRequest): ActionResult.Committed {
+        val alarmId = request.alarmId
+        val row = if (isUserUnlocked) {
+            repository.getById(alarmId)
+        } else {
+            bfuCache.getAll().firstOrNull { it.id == alarmId }
+        }
+        val alarm = row ?: error("alarm row missing during snooze")
+
+        if (!alarm.isSnoozeEnabled) {
+            if (request.fromPeer) error("watch requested snooze for a snooze-disabled alarm")
+            Log.i(TAG, "snooze id=$alarmId — snooze disabled, applying dismiss policy")
+            commitDismiss(alarmId, fromPeer = false)
+            return ActionResult.Committed(RingOutcome.DISMISSED, null)
+        }
+        // AlarmSchedulerImpl swallows the SecurityException of setAlarmClock, so
+        // a snooze that cannot be armed would otherwise look committed (ok:true)
+        // and never ring again. Refuse BEFORE any mutation; the ring continues.
+        check(scheduler.canScheduleExact()) { "exact alarms not permitted; snooze id=$alarmId cannot be armed" }
+        val trigger = if (request.fromPeer && request.rescheduleEpoch > 0L) {
+            request.rescheduleEpoch
+        } else {
+            System.currentTimeMillis() + alarm.snoozeMinutes * 60_000L
+        }
+        if (isUserUnlocked) {
+            repository.snoozeAt(alarmId, trigger, fromPeer = request.fromPeer)
+                ?: error("snooze transaction rejected for id=$alarmId")
+        } else {
+            commitPreUnlockSnooze(alarm, trigger)
+        }
+        return ActionResult.Committed(RingOutcome.SNOOZED, trigger)
+    }
+
+    // Pre-unlock: Room is locked. The BFU cache records the snooze trigger and
+    // the pending counter bump in ONE write; only after that succeeds is the
+    // alarm armed, so a failed save never leaves an armed alarm with no record.
+    // If arming fails the record is rolled back.
+    private suspend fun commitPreUnlockSnooze(alarm: Alarm, trigger: Long) {
+        check(bfuCache.recordPreUnlockSnooze(alarm.id, trigger)) {
+            "failed to persist BFU snooze id=${alarm.id} trigger=$trigger"
+        }
+        // scheduleAtChecked reports false when AlarmManager refused the
+        // alarm (SecurityException), which scheduleAt swallows.
+        val armed = runCatching { scheduler.scheduleAtChecked(alarm, trigger) }
+        if (armed.getOrDefault(false)) return
+        Log.e(TAG, "pre-unlock snooze arming failed id=${alarm.id}; rolling back", armed.exceptionOrNull())
+        // Restores the previous trigger and removes exactly the one bump this
+        // snooze added; earlier successful snoozes keep their counts.
+        bfuCache.undoPreUnlockSnooze(alarm.id, alarm.snoozedUntilEpoch)
+        error("pre-unlock snooze could not be armed id=${alarm.id}")
+    }
+
+    // Main thread, inside the mutex, right after the row was written. Nothing
+    // here may throw: a committed action must always reply ok:true, so a
+    // failure after this point can only be logged.
+    //
+    // A takeover can run on the main thread between commitAction's open check
+    // and this hop. The commit is then still recorded (outcome, replay) and
+    // still answered ok:true, but it must not touch the ring state, timers or
+    // player: those now belong to the NEWER occurrence.
+    // reason: see above — a throw would turn a committed action into ok:false.
+    @Suppress("TooGenericExceptionCaught")
+    private fun markCommitted(
+        kind: RingActionKind,
+        request: RingActionRequest,
+        claim: ActionClaim,
+        committed: ActionResult.Committed,
+    ) {
+        val occurrence = claim.occurrence
+        peerState.recordSuccess(occurrence, committed.outcome, claim.requestKey)
+        val stillCurrent = matchesCurrentOccurrence(occurrence.alarmId, occurrence.firedAtEpoch)
+        try {
+            if (stillCurrent) {
+                ringEnded = true
+                cancelRingTimers()
+                stopPlayback()
+            }
+            if (request.fromPeer) finishPeerCommit(kind, request, occurrence, stillCurrent)
+        } catch (e: Exception) {
+            Log.e(TAG, "post-commit step failed id=${occurrence.alarmId} (action stays committed)", e)
+        }
+    }
+
+    // Watch-originated commit. Occurrence-aware: audio is already off, keep the
+    // service + Activity for the grace window (only if this occurrence is still
+    // the current one), reply ok:true either way. Legacy: HEAD behaviour, tear
+    // down at once (current ring only) and never reply.
+    private fun finishPeerCommit(
+        kind: RingActionKind,
+        request: RingActionRequest,
+        occurrence: OccurrenceKey,
+        stillCurrent: Boolean,
+    ) {
+        if (!request.isOccurrenceAware) {
+            if (stillCurrent) stopForegroundAndSelf(occurrence.alarmId, occurrence.firedAtEpoch)
+            return
+        }
+        if (stillCurrent) {
+            RingEndedSignal.emitWatchActionCommitted(occurrence.alarmId, occurrence.firedAtEpoch)
+            scheduleGraceTeardown(occurrence)
+        }
+        replyPeerAction(kind, request, ok = true)
+    }
+
+    // The takeover finalized this occurrence before the commit could run.
+    private fun settleSuperseded(request: RingActionRequest, claim: ActionClaim) {
+        peerState.release(claim.occurrence)
+        Log.i(TAG, "action abandoned id=${request.alarmId} firedAt=${claim.occurrence.firedAtEpoch} — superseded")
+        if (request.fromPeer) replyPeerEnded(request, claim.occurrence)
+    }
+
+    // Nothing was committed. While the occurrence is still current the ring
+    // carries on (watch: ok:false; phone: ActionFailed so the buttons return
+    // and auto-stop is guaranteed). If it ended meanwhile, answer as ended.
+    private fun settleFailed(kind: RingActionKind, request: RingActionRequest, claim: ActionClaim) {
+        val occurrence = claim.occurrence
+        peerState.release(occurrence)
+        val stillOpen = currentRing().isOpen(occurrence)
+        if (stillOpen) ringActionStarted = false
+        when {
+            request.fromPeer && stillOpen -> {
+                replyPeerAction(kind, request, ok = false)
+                onActionFailedRingContinues(request, occurrence)
+            }
+            request.fromPeer -> replyPeerEnded(request, occurrence)
+            stillOpen -> onActionFailedRingContinues(request, occurrence)
+        }
+    }
+
+    // The ring carries on after a failed action. Tell the Activity (a phone tap
+    // that was ignored while a WATCH action was in flight leaves it on
+    // "waiting for watch") and make sure an auto-stop is armed.
+    private fun onActionFailedRingContinues(request: RingActionRequest, occurrence: OccurrenceKey) {
+        RingEndedSignal.emitActionFailed(occurrence.alarmId, occurrence.firedAtEpoch)
+        when {
+            // The auto-stop's own save failed fast and its watchdog is already
+            // armed for the next attempt; only the last attempt ends here.
+            request.autoStop && autoStopFinalAttempt -> giveUpAutoStop(occurrence)
+            request.autoStop && autoStopRunnable == null -> retryAutoStop(occurrence)
+            // The auto-stop already ran (and lost the claim to this action), so
+            // nothing is armed any more.
+            !request.autoStop && autoStopRunnable == null ->
+                scheduleAutoStop(occurrence.alarmId, occurrence.firedAtEpoch, AUTO_STOP_RETRY_MS)
+        }
+    }
+
+    // Armed when an auto-stop claims its occurrence, BEFORE the save. Next
+    // attempt on the 30/60/120 s backoff; for the last attempt a give-up
+    // deadline instead. A committed action cancels it through
+    // cancelRingTimers (it is the autoStopRunnable).
+    private fun armAutoStopWatchdog(occurrence: OccurrenceKey) {
+        if (autoStopRetries < AUTO_STOP_MAX_RETRIES) {
+            autoStopRetries++
+            val delayMs = AUTO_STOP_RETRY_MS shl (autoStopRetries - 1)
+            scheduleAutoStop(occurrence.alarmId, occurrence.firedAtEpoch, delayMs)
+            return
+        }
         autoStopRunnable?.let { mainHandler.removeCallbacks(it) }
-        autoStopRunnable = null
-        ringUiAuditRunnable?.let { mainHandler.removeCallbacks(it) }
-        ringUiAuditRunnable = null
-        player?.stop()
-        player = null
+        val giveUp = Runnable {
+            autoStopRunnable = null
+            if (isCurrentRing(occurrence.alarmId, occurrence.firedAtEpoch)) giveUpAutoStop(occurrence)
+        }
+        autoStopRunnable = giveUp
+        autoStopFinalAttempt = true
+        mainHandler.postDelayed(giveUp, AUTO_STOP_RETRY_MS shl (AUTO_STOP_MAX_RETRIES - 1))
+    }
+
+    private fun retryAutoStop(occurrence: OccurrenceKey) {
+        if (autoStopRetries >= AUTO_STOP_MAX_RETRIES) {
+            giveUpAutoStop(occurrence)
+            return
+        }
+        autoStopRetries++
+        val delayMs = AUTO_STOP_RETRY_MS shl (autoStopRetries - 1)
+        Log.w(TAG, "auto-stop could not be saved id=${occurrence.alarmId}; retry $autoStopRetries in ${delayMs}ms")
+        scheduleAutoStop(occurrence.alarmId, occurrence.firedAtEpoch, delayMs)
+    }
+
+    // The save keeps failing. A ring that can never stop is worse than an
+    // unsaved dismiss, so end it WITHOUT persistence and say so loudly.
+    private fun giveUpAutoStop(occurrence: OccurrenceKey) {
+        Log.e(
+            TAG,
+            "auto-stop gave up id=${occurrence.alarmId} firedAt=${occurrence.firedAtEpoch}: " +
+                "dismiss could NOT be saved after $AUTO_STOP_MAX_RETRIES retries; ending ring WITHOUT saving",
+        )
+        peerState.recordOutcome(occurrence, RingOutcome.DISMISSED)
+        // A stalled save may still hold the claim; release it so a watch retry
+        // in the grace window gets the peer-ended reply, not silence.
+        peerState.release(occurrence)
+        ringEnded = true
+        cancelRingTimers()
+        stopPlayback()
+        if (watchMayBeRinging(occurrence.alarmId, ringStartedElapsedMs)) notifyWatchEndedDetached(occurrence)
+        scheduleGraceTeardown(occurrence)
+    }
+
+    // Phone-local action committed: tell the watch and wait for its ack while
+    // AlarmActivity stays up ("waiting for watch"), then tear down. Audio and
+    // vibration were silenced at the tap.
+    private suspend fun finishLocalAction(claim: ActionClaim, committed: ActionResult.Committed) {
+        val occurrence = claim.occurrence
+        try {
+            if (watchMayBeRinging(occurrence.alarmId, claim.ringStartedMs)) {
+                broadcastToWatch(occurrence, committed)
+            }
+        } finally {
+            onMain { stopForegroundAndSelf(occurrence.alarmId, occurrence.firedAtEpoch) }
+        }
+    }
+
+    private suspend fun broadcastToWatch(occurrence: OccurrenceKey, committed: ActionResult.Committed) {
+        val id = occurrence.alarmId
+        val firedAt = occurrence.firedAtEpoch
+        val unlocked = isUserUnlocked
+        val trigger = committed.triggerEpoch
+        if (committed.outcome == RingOutcome.SNOOZED && trigger != null) {
+            if (unlocked) {
+                val acked = wearBridge.sendAlarmSnoozedAwaiting(id, trigger, BROADCAST_AWAIT_MS, firedAt = firedAt)
+                Log.i(TAG, "snooze broadcast id=$id acked=$acked trigger=$trigger")
+            } else {
+                val delivered = withTimeoutOrNull(PRE_UNLOCK_SEND_TIMEOUT_MS) {
+                    wearBridge.sendAlarmSnoozed(id, trigger, firedAt = firedAt)
+                } ?: false
+                Log.i(TAG, "snooze id=$id pre-unlock delivered=$delivered trigger=$trigger")
+            }
+        } else if (unlocked) {
+            val acked = wearBridge.sendAlarmDismissedAwaiting(id, BROADCAST_AWAIT_MS, firedAt = firedAt)
+            Log.i(TAG, "dismiss broadcast id=$id acked=$acked")
+        } else {
+            val delivered = withTimeoutOrNull(PRE_UNLOCK_SEND_TIMEOUT_MS) {
+                wearBridge.sendAlarmDismissed(id, firedAt = firedAt)
+            } ?: false
+            Log.i(TAG, "dismiss id=$id pre-unlock send delivered=$delivered")
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Teardown
+    // ---------------------------------------------------------------------
+
+    // Main thread only. Occurrence-checked: a teardown that belongs to an
+    // earlier ring is ignored, so it can never stop a newer alarm's service.
+    private fun stopForegroundAndSelf(
+        alarmId: Long = currentAlarmId,
+        firedAtEpoch: Long = currentFiredAtEpoch,
+    ) {
+        if (alarmId >= 0L && !matchesCurrentOccurrence(alarmId, firedAtEpoch)) {
+            Log.i(TAG, "stale teardown ignored id=$alarmId firedAt=$firedAtEpoch")
+            return
+        }
+        stopCurrentRingResources()
         // Signal the AlarmActivity to finish itself. Critical for the
         // peer-driven path (watch dismiss/snooze): without this, the
         // service stops but the full-screen Activity stays on the phone
         // until the user manually dismisses it. Emit BEFORE stopForeground
         // so the Activity has the signal in flight as it tears down.
-        RingEndedSignal.emitRingEnded()
+        RingEndedSignal.emitRingEnded(alarmId, firedAtEpoch)
+        RingEndedSignal.clearCurrent(alarmId, firedAtEpoch)
+        currentAlarmId = -1L
         stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        stopSelfResult(lastStartId)
     }
 
     // onDestroy: `serviceScope.cancel()` is non-blocking. If the OS reaps the
@@ -835,12 +1412,14 @@ class AlarmRingService : Service() {
     // but tombstone+broadcast chains can take longer), the write may be
     // truncated. Trade-off accepted: blocking onDestroy violates the Service
     // lifecycle contract; non-blocking is the correct call. Critical writes
-    // are committed BEFORE the broadcast (see handleDismiss/handleSnooze
-    // ordering) so the phone DB stays consistent even on mid-flight kill.
+    // are committed BEFORE the broadcast (see commitAction ordering) so the
+    // phone DB stays consistent even on mid-flight kill.
     override fun onDestroy() {
         serviceScope.cancel()
-        player?.stop()
-        player = null
+        ringJob?.cancel()
+        ringJob = null
+        mainHandler.removeCallbacksAndMessages(null)
+        stopCurrentRingResources()
         super.onDestroy()
     }
 
@@ -851,7 +1430,27 @@ class AlarmRingService : Service() {
         const val EXTRA_ALARM_ID = "alarm_id"
         const val EXTRA_FROM_PEER = "from_peer"
         const val EXTRA_RESCHEDULE_EPOCH = "reschedule_epoch"
+        const val EXTRA_FIRED_AT = "fired_at"
+        const val EXTRA_REQUEST_STAMP = "request_stamp"
         private const val AUTO_STOP_MS = 5L * 60_000L
+
+        // When the auto-stop's own dismiss cannot be saved: retry after 30 s,
+        // then 60 s, then 120 s; after that end the ring without saving.
+        private const val AUTO_STOP_RETRY_MS = 30_000L
+        private const val AUTO_STOP_MAX_RETRIES = 3
+
+        // How long the foreground service and AlarmActivity outlive a committed
+        // watch action. Long enough for the watch's duplicate request (about
+        // 2.5 s after the first) and one retry to be answered ok:true.
+        private const val GRACE_MS = 6_000L
+
+        // An idle service that only answered a request waits this long before
+        // stopping, so the bridge's bounded (about 4 s) reply can leave.
+        private const val REPLY_FLUSH_MS = 4_500L
+
+        // The watch is told about a superseded ring in the background; give up
+        // after this long.
+        private const val SUPERSEDED_SEND_TIMEOUT_MS = 5_000L
 
         // Grace before auditing whether the ring UI appeared. Must outlast the
         // window-transition + Activity onCreate that a successful FSI still has
@@ -873,6 +1472,10 @@ class AlarmRingService : Service() {
         // Pre-arm returns EARLY as soon as the watch's `alarm_ringing` reply
         // arrives, so this is a worst-case cap, not a fixed delay.
         private const val PREARM_TIMEOUT_MS = 10_000L
+
+        // Cold process: how long ring start waits for the P2P receiver
+        // registration before deciding whether to advertise supportsActionAck.
+        private const val RECEIVE_READY_WAIT_MS = 1_500L
 
         // Background re-send of alarm_fired after the pre-arm times out (see
         // startWatchCatchUp). The window covers slow cold starts without
@@ -902,10 +1505,23 @@ class AlarmRingService : Service() {
         private const val TAG = "AlarmRing"
 
         // Request-code high bit for the direct-launch PendingIntent that
-        // bypasses the FGS BAL block (see startRingingAudioAndUi). Distinct
+        // bypasses the FGS BAL block (see launchRingActivity). Distinct
         // from AlarmNotifications.FULL_SCREEN_BIT (0x08000000) so the two
         // PIs don't collide on FLAG_UPDATE_CURRENT.
         private const val DIRECT_LAUNCH_REQUEST_CODE_BIT = 0x04000000
+
+        /**
+         * Pure helper (unit-tested): whether the service must send the backup
+         * launch of AlarmActivity. Only an Activity that is visible AND shows
+         * this exact occurrence makes the launch redundant; relaunching it
+         * would destroy and recreate it (second screen sliding in).
+         */
+        internal fun needsBackupLaunch(
+            visible: Boolean,
+            shown: Pair<Long, Long>?,
+            alarmId: Long,
+            firedAtEpoch: Long,
+        ): Boolean = !(visible && shown == Pair(alarmId, firedAtEpoch))
 
         // Pure helper extracted for unit testing. Decides what to do to the
         // alarm row when the user dismisses (or the ring cycle auto-stops).

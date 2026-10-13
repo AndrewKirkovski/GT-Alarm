@@ -29,17 +29,23 @@ class AlarmSchedulerImpl @Inject constructor(
     }
 
     override fun scheduleAt(alarm: Alarm, triggerAtMillis: Long) {
+        scheduleAtChecked(alarm, triggerAtMillis)
+    }
+
+    override fun scheduleAtChecked(alarm: Alarm, triggerAtMillis: Long): Boolean {
         // FLAG_UPDATE_CURRENT (default flags) always returns a non-null PI;
         // the null path only exists when callers pass FLAG_NO_CREATE — and
         // cancel() is the only such caller, not scheduleAt.
         val firePi = checkNotNull(firePendingIntent(alarm.id))
         val showPi = showPendingIntent(alarm.id)
         val info = AlarmManager.AlarmClockInfo(triggerAtMillis, showPi)
-        try {
+        return try {
             alarmManager.setAlarmClock(info, firePi)
             Log.d(TAG, "scheduled alarm id=${alarm.id} trigger=$triggerAtMillis")
+            true
         } catch (se: SecurityException) {
             Log.w(TAG, "SecurityException scheduling alarm id=${alarm.id}: ${se.message}")
+            false
         }
     }
 

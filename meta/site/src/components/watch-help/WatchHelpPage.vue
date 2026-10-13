@@ -186,6 +186,9 @@ const vibIcons = [Vibrate, MoonStar, BedDouble, AudioWaveform]
       </div>
 
       <p class="mt-4 text-muted-foreground">{{ t.listWhy }}</p>
+      <p class="mt-2 text-sm">
+        <a class="text-primary hover:underline" :href="`mailto:${t.listSupportEmail}`">{{ t.listSupportText }}</a>
+      </p>
       <p class="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
         <Smartphone class="h-5 w-5 text-muted-foreground" aria-hidden="true" />
         <span class="sr-only">{{ t.listPathLabel }}:</span>
@@ -193,6 +196,9 @@ const vibIcons = [Vibrate, MoonStar, BedDouble, AudioWaveform]
           <ChevronRight v-if="i > 0" class="h-4 w-4 text-muted-foreground" aria-hidden="true" />
           <span class="wh-chip">{{ step }}</span>
         </template>
+      </p>
+      <p class="mt-3 text-sm">
+        <RouterLink :to="t.installPathTo" class="text-primary hover:underline">{{ t.installPath }}</RouterLink>
       </p>
     </section>
 

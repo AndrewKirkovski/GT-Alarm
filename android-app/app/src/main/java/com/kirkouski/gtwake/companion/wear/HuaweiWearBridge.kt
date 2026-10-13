@@ -93,6 +93,8 @@ class HuaweiWearBridge @Inject constructor(
 
     @Volatile
     private var connectionMonitor: MonitorListener? = null
+    @Volatile
+    private var connectionMonitorDeviceUuid: String? = null
 
     // Per-connection bg-delivery guard (see WearBridgeService.markBgDelivered).
     // Reset to null on any disconnect so a fresh connection re-delivers once.
@@ -112,8 +114,76 @@ class HuaweiWearBridge @Inject constructor(
     private var attachJob: Job? = null
 
     private val connectionMutex = Mutex()
+    private val connectionMonitorMutex = Mutex()
+    @Volatile
     private var pairedDevice: Device? = null
+    private var pairedDeviceResolvedAtElapsedMs: Long = 0L
+
+    // Uuid of the device the receiver is registered for. Cleared together with
+    // [receiverRegistered] in exactly one place ([unregisterReceiverLocked]).
+    @Volatile
+    private var receiverDeviceUuid: String? = null
+    @Volatile
     private var receiverRegistered: Boolean = false
+
+    // True after a register call that did not report success. A timed-out or
+    // failed Task may still have registered late, so the next register is
+    // always preceded by an unregister (idempotent). Guarded by connectionMutex.
+    private var receiverRegistrationUncertain: Boolean = false
+
+    // Unregister calls whose Task has not reached a terminal result (success or
+    // failure) yet. A timed-out unregister is still pending in the SDK and may
+    // complete later, possibly after a newer register, and remove it. While any
+    // entry is live we never register. Entries are removed by the Task's own
+    // listener (UI thread, however late), so the set is concurrent and removal
+    // of an already-removed (abandoned) entry is a harmless no-op: it can never
+    // go "negative".
+    private class PendingUnregister(val dispatchedAtMs: Long)
+
+    private val pendingUnregisters: MutableSet<PendingUnregister> =
+        java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    // Safety valve clock (SystemClock.elapsedRealtime is 0 in JVM unit tests).
+    @Volatile
+    internal var elapsedClock: () -> Long = { android.os.SystemClock.elapsedRealtime() }
+
+    // Entries still tracked, including ones that are only waiting to be abandoned.
+    internal val outstandingUnregisterCount: Int
+        get() = pendingUnregisters.size
+
+    /**
+     * True while a timed-out unregister may still complete. An unregister that
+     * has been pending longer than [ABANDON_UNREGISTER_AFTER_MS] is treated as
+     * lost (a hung Huawei Health binder call that will never answer): it is
+     * dropped from the set so registration cannot stay blocked until the
+     * process restarts. If it does complete after all, its listener finds the
+     * entry gone and does nothing.
+     */
+    private fun hasOutstandingUnregister(): Boolean {
+        val now = elapsedClock()
+        var blocking = false
+        val entries = pendingUnregisters.iterator()
+        while (entries.hasNext()) {
+            val entry = entries.next()
+            if (now - entry.dispatchedAtMs > ABANDON_UNREGISTER_AFTER_MS) {
+                Log.w(TAG, "unregister outstanding for ${now - entry.dispatchedAtMs}ms — treating it as abandoned")
+                entries.remove()
+            } else {
+                blocking = true
+            }
+        }
+        return blocking
+    }
+
+    // Uuid of the device last seen CONNECTED. forceScreenRefresh is armed only
+    // when this changes, not on every re-resolve. Guarded by connectionMutex.
+    private var lastConnectedDeviceUuid: String? = null
+
+    // (alarmId, firedAt) of the ring for which a reply WITH firedAt already
+    // matched. From then on a legacy reply (no firedAt) must not satisfy a
+    // pending request of that ring: an updated watch always sends firedAt, so a
+    // legacy-shaped message in that ring is a stale or foreign copy.
+    private val strictRing = java.util.concurrent.atomic.AtomicReference<Pair<Long, Long>?>(null)
 
     // Separate mutex for the ping-wake poll. Without this, concurrent sends
     // each launch their own ensurePeerAppRunning, all miss the cache
@@ -157,11 +227,16 @@ class HuaweiWearBridge @Inject constructor(
     // Pending sync_check round-trip. Held while forceSync's hash-precheck
     // is awaiting the watch's response. Stored as AtomicReference so the
     // receiver's read + complete is atomic against requestRemoteHash's
-    // clear-on-finally: getAndSet(null) gives us a happens-before edge
+    // clear-on-finally: compareAndSet gives us a happens-before edge
     // without acquiring pendingHashMutex (which would deadlock if the
     // receiver fires inside requestRemoteHash's withLock block).
+    private data class PendingHashRequest(
+        val updatedAtEpoch: Long,
+        val deferred: CompletableDeferred<IncomingMessage.SyncHash>,
+    )
+
     private val pendingHashRequest =
-        java.util.concurrent.atomic.AtomicReference<CompletableDeferred<String>?>(null)
+        java.util.concurrent.atomic.AtomicReference<PendingHashRequest?>(null)
     private val pendingHashMutex = Mutex()
 
     // Pending bg-file → `bg_received` app-level ack. The watch's file handler
@@ -178,8 +253,15 @@ class HuaweiWearBridge @Inject constructor(
     // the list, which is the only proof the JS layer applied it (207 only means
     // Wear Engine accepted delivery; the thin-client watch may terminate mid-send
     // before its receiver activated). pushFileReplace retries until this resolves.
+    private data class PendingAlarmsAck(
+        val hash: String,
+        val updatedAtEpoch: Long,
+        val requireStamp: Boolean,
+        val deferred: CompletableDeferred<Unit>,
+    )
+
     private val pendingAlarmsAck =
-        java.util.concurrent.atomic.AtomicReference<Pair<String, CompletableDeferred<Unit>>?>(null)
+        java.util.concurrent.atomic.AtomicReference<PendingAlarmsAck?>(null)
 
     // Pending alarm_fired → alarm_ringing round-trip. AlarmRingService
     // calls sendAlarmFiredAwaiting BEFORE starting phone audio; the watch
@@ -188,6 +270,8 @@ class HuaweiWearBridge @Inject constructor(
     // beating watch by 500-1000ms on a cold-launch.
     private data class PendingRing(
         val alarmId: Long,
+        val firedAtEpoch: Long?,
+        val requestStamp: Long,
         val deferred: CompletableDeferred<Unit>,
     )
 
@@ -215,6 +299,8 @@ class HuaweiWearBridge @Inject constructor(
     // sends `alarm_dismissed_ack` after `onPeerEndedRing(alarmId)` runs.
     private data class PendingAck(
         val alarmId: Long,
+        val firedAtEpoch: Long?,
+        val updatedAtEpoch: Long,
         val deferred: CompletableDeferred<Unit>,
     )
 
@@ -235,7 +321,7 @@ class HuaweiWearBridge @Inject constructor(
      */
     private fun completePendingAck(
         slot: java.util.concurrent.atomic.AtomicReference<PendingAck?>,
-        ackedAlarmId: Long,
+        ack: IncomingMessage.AlarmDismissedAck,
         label: String,
     ) {
         // Watch's application-level ack also proves the receiver is bound
@@ -244,16 +330,62 @@ class HuaweiWearBridge @Inject constructor(
         // any subsequent send in the immediate window.
         lastConfirmedRunningAtMs = System.currentTimeMillis()
         val pending = slot.get() ?: run {
-            Log.d(TAG, "$label id=$ackedAlarmId but no pending request — dropping")
+            Log.d(TAG, "$label id=${ack.alarmId} but no pending request — dropping")
             return
         }
-        val matches = pending.alarmId == ackedAlarmId && !pending.deferred.isCompleted
+        val matches = replyMatches(
+            pending.alarmId,
+            pending.firedAtEpoch,
+            pending.updatedAtEpoch,
+            ack.alarmId,
+            ack.firedAtEpoch,
+            ack.updatedAtEpoch,
+            ack.ok,
+        ) && !pending.deferred.isCompleted
         if (matches && slot.compareAndSet(pending, null)) {
+            noteStrictMatch(pending.alarmId, pending.firedAtEpoch, ack.firedAtEpoch)
             pending.deferred.complete(Unit)
-            Log.i(TAG, "$label received id=$ackedAlarmId — watch confirmed action")
+            Log.i(TAG, "$label received id=${ack.alarmId} — watch confirmed action")
             return
         }
-        Log.d(TAG, "$label id=$ackedAlarmId mismatched pending (got ${pending.alarmId}) — dropping")
+        Log.d(TAG, "$label id=${ack.alarmId} mismatched or negative ACK (pending=${pending.alarmId}) — dropping")
+    }
+
+    /**
+     * Decides whether a watch reply satisfies the phone's pending request.
+     *
+     * - A reply WITHOUT `firedAt` is legacy (released watches, 1.0.11 and
+     *   older, never send it): it matches by alarm ID only, the rule these
+     *   builds were written against. The phone always stores `firedAt` in its
+     *   pending request now, so requiring it on both sides would reject every
+     *   released watch.
+     * - A reply WITH `firedAt` comes from an occurrence-aware watch: `firedAt`
+     *   AND the request stamp must match, and `ok` must not be false.
+     * - Once a strict reply matched for a ring ([noteStrictMatch]), legacy
+     *   replies no longer match that ring.
+     */
+    // reason: the seven values are the two sides of one correlation; a wrapper type would only rename them.
+    @Suppress("LongParameterList")
+    private fun replyMatches(
+        pendingAlarmId: Long,
+        pendingFiredAt: Long?,
+        pendingStamp: Long,
+        replyAlarmId: Long,
+        replyFiredAt: Long?,
+        replyStamp: Long,
+        replyOk: Boolean?,
+    ): Boolean {
+        if (replyOk == false || pendingAlarmId != replyAlarmId) return false
+        if (replyFiredAt == null) {
+            return pendingFiredAt == null || strictRing.get() != (pendingAlarmId to pendingFiredAt)
+        }
+        return replyFiredAt == pendingFiredAt && replyStamp == pendingStamp
+    }
+
+    private fun noteStrictMatch(alarmId: Long, pendingFiredAt: Long?, replyFiredAt: Long?) {
+        if (pendingFiredAt != null && replyFiredAt != null) {
+            strictRing.set(alarmId to pendingFiredAt)
+        }
     }
 
     /**
@@ -275,8 +407,17 @@ class HuaweiWearBridge @Inject constructor(
             Log.d(TAG, "alarm_ringing id=${msg.alarmId} but no pending request — dropping")
             return
         }
-        val matches = pending.alarmId == msg.alarmId && !pending.deferred.isCompleted
+        val matches = replyMatches(
+            pending.alarmId,
+            pending.firedAtEpoch,
+            pending.requestStamp,
+            msg.alarmId,
+            msg.firedAtEpoch,
+            msg.updatedAtEpoch,
+            null,
+        ) && !pending.deferred.isCompleted
         if (matches && pendingAlarmRinging.compareAndSet(pending, null)) {
+            noteStrictMatch(pending.alarmId, pending.firedAtEpoch, msg.firedAtEpoch)
             pending.deferred.complete(Unit)
             Log.i(TAG, "alarm_ringing received id=${msg.alarmId} — watch ring confirmed")
             return
@@ -303,6 +444,8 @@ class HuaweiWearBridge @Inject constructor(
         }
     }
 
+    // reason: ACK routing checks independent correlation fields before claiming a pending request.
+    @Suppress("ComplexCondition")
     private val receiver: Receiver = Receiver { message ->
         val bytes = message.data ?: return@Receiver
         val parent = attachJob ?: return@Receiver
@@ -338,11 +481,18 @@ class HuaweiWearBridge @Inject constructor(
             // wait so it stops retrying. Meta envelope (no alarmId) — handled raw.
             if (json.optString("type") == "alarms_received") {
                 val ackHash = json.optString("hash")
+                val ackStamp = json.optLong("updatedAtEpoch", 0L)
                 val pending = pendingAlarmsAck.get()
-                if (pending != null && pending.first == ackHash && !pending.second.isCompleted) {
+                // Released watches stamp this ack with their OWN clock, so a
+                // pending replace that does not require a stamp (legacy file
+                // push) accepts any stamp when the hash matches.
+                if (pending != null && pending.hash == ackHash &&
+                    (!pending.requireStamp || ackStamp == pending.updatedAtEpoch) &&
+                    !pending.deferred.isCompleted
+                ) {
                     pendingAlarmsAck.compareAndSet(pending, null)
-                    pending.second.complete(Unit)
-                    Log.i(TAG, "alarms_received ack hash=$ackHash — watch confirmed")
+                    pending.deferred.complete(Unit)
+                    Log.i(TAG, "alarms_received ack hash=$ackHash stamp=$ackStamp — watch confirmed")
                 } else {
                     Log.d(TAG, "alarms_received ack hash=$ackHash (no matching pending)")
                 }
@@ -355,14 +505,15 @@ class HuaweiWearBridge @Inject constructor(
             }
             // SyncHash is a meta-protocol response — route to the pending
             // request continuation, NOT to the LWW-applying handler.
-            // getAndSet(null) atomically claims the deferred so a
-            // concurrent timeout-finally in requestRemoteHash either sees
-            // the cleared ref (we won the race) or already cleared it (we
-            // lost — fall through to handler.handle, which logs+drops).
+            // compareAndSet atomically claims a matching deferred. A stamped
+            // reply for another request must not consume the live request.
             if (parsed is IncomingMessage.SyncHash) {
-                val pending = pendingHashRequest.getAndSet(null)
-                if (pending != null && !pending.isCompleted) {
-                    pending.complete(parsed.hash)
+                val pending = pendingHashRequest.get()
+                if (pending != null && !pending.deferred.isCompleted &&
+                    (parsed.updatedAtEpoch == 0L || parsed.updatedAtEpoch == pending.updatedAtEpoch) &&
+                    pendingHashRequest.compareAndSet(pending, null)
+                ) {
+                    pending.deferred.complete(parsed)
                     Log.d(TAG, "sync-check response received hash=${parsed.hash}")
                     return@launch
                 }
@@ -383,11 +534,20 @@ class HuaweiWearBridge @Inject constructor(
             // that Wear Engine's transport ACK'd at 207. Routed via
             // shared completePendingAck helper.
             if (parsed is IncomingMessage.AlarmDismissedAck) {
-                completePendingAck(pendingDismissAck, parsed.alarmId, "alarm_dismissed_ack")
+                completePendingAck(pendingDismissAck, parsed, "alarm_dismissed_ack")
                 return@launch
             }
             if (parsed is IncomingMessage.AlarmSnoozedAck) {
-                completePendingAck(pendingSnoozeAck, parsed.alarmId, "alarm_snoozed_ack")
+                completePendingAck(
+                    pendingSnoozeAck,
+                    IncomingMessage.AlarmDismissedAck(
+                        parsed.alarmId,
+                        parsed.updatedAtEpoch,
+                        parsed.firedAtEpoch,
+                        parsed.ok,
+                    ),
+                    "alarm_snoozed_ack",
+                )
                 return@launch
             }
             // WatchScreen is the watch's reply to our phone-initiated
@@ -419,7 +579,7 @@ class HuaweiWearBridge @Inject constructor(
         return at >= sinceElapsedMs
     }
 
-    override suspend fun sendAlarmDismissed(alarmId: Long): Boolean {
+    override suspend fun sendAlarmDismissed(alarmId: Long, firedAt: Long?): Boolean {
         val now = System.currentTimeMillis()
         if (!validateStamp("sendAlarmDismissed", now)) return false
         return performSend(
@@ -427,12 +587,17 @@ class HuaweiWearBridge @Inject constructor(
                 put("type", "alarm_dismissed")
                 put("alarmId", alarmId)
                 put("updatedAtEpoch", now)
+                firedAt?.let { put("firedAt", it) }
             },
             retryOnError = true,
         )
     }
 
-    override suspend fun sendAlarmSnoozed(alarmId: Long, rescheduleEpoch: Long): Boolean {
+    override suspend fun sendAlarmSnoozed(
+        alarmId: Long,
+        rescheduleEpoch: Long,
+        firedAt: Long?,
+    ): Boolean {
         val now = System.currentTimeMillis()
         if (!validateStamp("sendAlarmSnoozed", now)) return false
         return performSend(
@@ -441,6 +606,7 @@ class HuaweiWearBridge @Inject constructor(
                 put("alarmId", alarmId)
                 put("updatedAtEpoch", now)
                 put("rescheduleEpoch", rescheduleEpoch)
+                firedAt?.let { put("firedAt", it) }
             },
             retryOnError = true,
         )
@@ -472,7 +638,7 @@ class HuaweiWearBridge @Inject constructor(
         val envelope = buildAlarmFiredEnvelope(alarmId, now, ringHints)
         return pendingAlarmRingingMutex.withLock {
             val deferred = CompletableDeferred<Unit>()
-            pendingAlarmRinging.set(PendingRing(alarmId, deferred))
+            pendingAlarmRinging.set(PendingRing(alarmId, ringHints?.firedAtEpoch, now, deferred))
             try {
                 val outcome = withTimeoutOrNull(timeoutMs) {
                     val sent = performSend(envelope, retryOnError = true)
@@ -513,18 +679,25 @@ class HuaweiWearBridge @Inject constructor(
     // Suspending dismiss: wait up to timeoutMs for the WATCH'S APPLICATION-
     // LEVEL ACK (`alarm_dismissed_ack` envelope). See sendAwaitingAck for
     // the full retry-layering rationale.
-    override suspend fun sendAlarmDismissedAwaiting(alarmId: Long, timeoutMs: Long): Boolean {
+    override suspend fun sendAlarmDismissedAwaiting(
+        alarmId: Long,
+        timeoutMs: Long,
+        firedAt: Long?,
+    ): Boolean {
         val now = System.currentTimeMillis()
         if (!validateStamp("sendAlarmDismissedAwaiting", now)) return false
         val envelope = JSONObject().apply {
             put("type", "alarm_dismissed")
             put("alarmId", alarmId)
             put("updatedAtEpoch", now)
+            firedAt?.let { put("firedAt", it) }
         }
         return sendAwaitingAck(
             "sendAlarmDismissedAwaiting",
             envelope,
             alarmId,
+            firedAt,
+            now,
             pendingDismissAck,
             pendingDismissAckMutex,
             timeoutMs,
@@ -540,7 +713,7 @@ class HuaweiWearBridge @Inject constructor(
     //
     // ACTIVITY RULE (see class header): the watch's ack is a P2P *receive*
     // — it is only delivered while an Activity is alive in the task. The
-    // caller (AlarmRingService.handleDismiss/handleSnooze) MUST keep
+    // caller (AlarmRingService's phone-side dismiss/snooze path) MUST keep
     // AlarmActivity alive for the whole of this call, or the await below
     // times out unconditionally.
     //
@@ -558,16 +731,20 @@ class HuaweiWearBridge @Inject constructor(
     //
     // Every round force-repings (bypasses the 30 s cache) so a channel
     // that degraded since the fire's wake-protocol is re-woken first.
+    // reason: the shared retry path needs request identity, ACK slot, mutex, and caller budget.
+    @Suppress("LongParameterList")
     private suspend fun sendAwaitingAck(
         label: String,
         envelope: JSONObject,
         alarmId: Long,
+        firedAt: Long?,
+        updatedAtEpoch: Long,
         slot: java.util.concurrent.atomic.AtomicReference<PendingAck?>,
         mutex: Mutex,
         timeoutMs: Long,
     ): Boolean = mutex.withLock {
         val deferred = CompletableDeferred<Unit>()
-        slot.set(PendingAck(alarmId, deferred))
+        slot.set(PendingAck(alarmId, firedAt, updatedAtEpoch, deferred))
         try {
             val outcome = withTimeoutOrNull(timeoutMs) {
                 val device = ensurePairedDevice() ?: return@withTimeoutOrNull false
@@ -613,6 +790,7 @@ class HuaweiWearBridge @Inject constructor(
         alarmId: Long,
         rescheduleEpoch: Long,
         timeoutMs: Long,
+        firedAt: Long?,
     ): Boolean {
         val now = System.currentTimeMillis()
         if (!validateStamp("sendAlarmSnoozedAwaiting", now)) return false
@@ -621,15 +799,107 @@ class HuaweiWearBridge @Inject constructor(
             put("alarmId", alarmId)
             put("updatedAtEpoch", now)
             put("rescheduleEpoch", rescheduleEpoch)
+            firedAt?.let { put("firedAt", it) }
         }
         return sendAwaitingAck(
             "sendAlarmSnoozedAwaiting",
             envelope,
             alarmId,
+            firedAt,
+            now,
             pendingSnoozeAck,
             pendingSnoozeAckMutex,
             timeoutMs,
         )
+    }
+
+    override fun sendPeerActionAck(
+        alarmId: Long,
+        type: String,
+        requestStamp: Long,
+        firedAtEpoch: Long?,
+        ok: Boolean,
+    ) {
+        val ackType = when (type) {
+            "alarm_dismissed" -> "alarm_dismissed_ack"
+            "alarm_snoozed" -> "alarm_snoozed_ack"
+            else -> {
+                Log.w(TAG, "sendPeerActionAck dropped unknown type=$type")
+                return
+            }
+        }
+        // Only occurrence-aware requests (they carried firedAt) get a reply;
+        // released watches ignore the ack type and must not be woken for it.
+        if (firedAtEpoch == null || requestStamp <= 0L) {
+            Log.d(TAG, "sendPeerActionAck skipped id=$alarmId type=$type — legacy request, no reply")
+            return
+        }
+        sendPeerReply(JSONObject().apply {
+            put("type", ackType)
+            put("alarmId", alarmId)
+            put("updatedAtEpoch", requestStamp)
+            put("firedAt", firedAtEpoch)
+            put("ok", ok)
+        })
+    }
+
+    override fun sendPeerEnded(alarmId: Long, type: String, firedAtEpoch: Long) {
+        if (type != "alarm_dismissed" && type != "alarm_snoozed") {
+            Log.w(TAG, "sendPeerEnded dropped unknown type=$type")
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (!validateStamp("sendPeerEnded", now)) return
+        // Same shape the phone sends for its own dismiss/snooze (no
+        // rescheduleEpoch: it is optional on the watch and unknown here).
+        sendPeerReply(JSONObject().apply {
+            put("type", type)
+            put("alarmId", alarmId)
+            put("updatedAtEpoch", now)
+            put("firedAt", firedAtEpoch)
+        })
+    }
+
+    override val isReceiveReady: Boolean
+        get() = receiverRegistered && receiverDeviceUuid != null
+
+    private fun sendPeerReply(envelope: JSONObject) {
+        scope.launch { sendPeerReplyBounded(envelope) }
+    }
+
+    /**
+     * Reply to a watch request: NO ping or wake (the watch app is running, it
+     * is waiting for this), and NOT a connection error on failure (a closed
+     * watch app is expected). Retries a failed transport send with short
+     * delays; the whole attempt is bounded by [PEER_REPLY_TOTAL_MS].
+     */
+    private suspend fun sendPeerReplyBounded(envelope: JSONObject): Boolean {
+        val type = envelope.optString("type")
+        val bytes = envelope.toString().toByteArray(Charsets.UTF_8)
+        val sent = withTimeoutOrNull(PEER_REPLY_TOTAL_MS) {
+            val device = pairedDevice ?: ensurePairedDevice()
+            var delivered = false
+            var attempt = 0
+            while (device != null && !delivered && attempt < PEER_REPLY_MAX_ATTEMPTS) {
+                attempt++
+                delivered = sendBytesQuietly(device, bytes, PEER_REPLY_SEND_TIMEOUT_MS)
+                if (!delivered && attempt < PEER_REPLY_MAX_ATTEMPTS) delay(PEER_REPLY_RETRY_DELAY_MS * attempt)
+            }
+            delivered
+        } ?: false
+        if (sent) Log.d(TAG, "peer reply sent type=$type") else Log.w(TAG, "peer reply NOT delivered type=$type")
+        return sent
+    }
+
+    // reason: Wear Engine reports binder and transport failures as RuntimeException.
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun sendBytesQuietly(device: Device, bytes: ByteArray, timeoutMs: Long): Boolean = try {
+        sendOnce(device, Message.Builder().setPayload(bytes).build(), timeoutMs)
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: RuntimeException) {
+        Log.w(TAG, "quiet send threw: ${e.message}")
+        false
     }
 
     // File-transfer path for the shared default watch background.
@@ -688,7 +958,9 @@ class HuaweiWearBridge @Inject constructor(
         pendingBgAck.set(pair)
         val msg = Message.Builder().setPayload(bgFile).setDescription(bgFile.name).build()
         val sent = try {
-            sendOnce(device, msg)
+            sendOnce(device, msg, FILE_SEND_TIMEOUT_MS)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: RuntimeException) {
             Log.w(TAG, "uploadDefaultWatchBackground threw (attempt=$attempt): ${e.message}")
             invalidateAndMarkError()
@@ -725,7 +997,7 @@ class HuaweiWearBridge @Inject constructor(
         // this send is the only delivery.
         scope.launch {
             if (performSend(envelope, retryOnError = true)) {
-                performSend(buildSyncDoneEnvelope(), retryOnError = false)
+                sendWithoutWake(buildSyncDoneEnvelope())
             }
         }
         // The watch no longer holds our image — allow a re-deliver if the user
@@ -755,11 +1027,15 @@ class HuaweiWearBridge @Inject constructor(
     }
 
     override fun setIncomingHandler(handler: IncomingMessageHandler?) {
-        // Idempotent on same non-null re-install — re-launching
-        // ensureReceiverRegistered can interrupt awaitTask between SDK
-        // register and our local flag. null path is NOT skipped
-        // (force-detach must always run).
-        if (handler != null && incomingHandler === handler) return
+        // Re-installing the SAME handler must not cancel attachJob: it is the
+        // parent of in-flight receive coroutines, and cancelling it would drop
+        // a watch message that is being handled right now. Just make sure the
+        // registration exists (repairs one that did not complete).
+        val currentJob = attachJob
+        if (handler != null && incomingHandler === handler && currentJob?.isActive == true) {
+            if (!receiverRegistered) scope.launch(currentJob) { ensureReceiverRegistered() }
+            return
+        }
         attachJob?.cancel()
         incomingHandler = handler
         if (handler != null) {
@@ -788,9 +1064,14 @@ class HuaweiWearBridge @Inject constructor(
     }
 
     override fun stopConnectionMonitor() {
-        val listener = connectionMonitor ?: return
-        connectionMonitor = null
-        scope.launch { awaitTask("unregisterConnectionMonitor") { monitorClient.unregister(listener) } }
+        scope.launch {
+            connectionMonitorMutex.withLock {
+                val listener = connectionMonitor ?: return@withLock
+                connectionMonitor = null
+                connectionMonitorDeviceUuid = null
+                awaitTaskCompleted("unregisterConnectionMonitor") { monitorClient.unregister(listener) }
+            }
+        }
     }
 
     // Authoritative, low-traffic connection read that seeds/refreshes statusFlow.
@@ -809,15 +1090,55 @@ class HuaweiWearBridge @Inject constructor(
         }
     }
 
-    private suspend fun seedConnectionStatus() {
-        if (!ensurePermissionGranted()) {
-            setStatus(WatchSyncStatus.NOT_CONNECTED, "seed:no-permission")
-            return
+    // Result of asking Huawei Health for the bonded devices. [Failed] (a null
+    // from a failed or timed-out Task) says nothing about the watch, so it must
+    // never clear the cached device or the registration; only a definite answer
+    // ([Denied] or [Devices], even an empty list) may.
+    private sealed interface BondedLookup {
+        data object Failed : BondedLookup
+        data object Denied : BondedLookup
+        data class Devices(val devices: List<Device>) : BondedLookup
+    }
+
+    private suspend fun lookupBondedDevices(op: String, beforeQuery: () -> Unit = {}): BondedLookup {
+        return when (hasWatchPermission()) {
+            null -> BondedLookup.Failed
+            false -> BondedLookup.Denied
+            true -> {
+                beforeQuery()
+                awaitTask(op) { HiWear.getDeviceClient(context).bondedDevices }
+                    ?.let { BondedLookup.Devices(it) }
+                    ?: BondedLookup.Failed
+            }
         }
-        val devices = awaitTask("getBondedDevices(status)") {
-            HiWear.getDeviceClient(context).bondedDevices
-        }.orEmpty()
-        val connected = devices.firstOrNull { it.isConnected }
+    }
+
+    // Keeps the device we already hold (registered, else cached) while it is
+    // still bonded and connected, so two connected bonded devices or an unstable
+    // list order cannot flip the selection on every 2 s re-resolve (each flip
+    // would unregister and re-register the receiver).
+    private fun selectDevice(devices: List<Device>): Device? {
+        val heldUuid = receiverDeviceUuid ?: pairedDevice?.uuid
+        return devices.firstOrNull { it.isConnected && it.uuid == heldUuid }
+            ?: devices.firstOrNull { it.isConnected }
+            ?: devices.firstOrNull()
+    }
+
+    private suspend fun seedConnectionStatus() {
+        when (val lookup = lookupBondedDevices("getBondedDevices(status)")) {
+            BondedLookup.Failed -> Log.w(TAG, "seedConnectionStatus: lookup failed — keeping cached device")
+            BondedLookup.Denied -> {
+                updatePairedDevice(null)
+                setStatus(WatchSyncStatus.NOT_CONNECTED, "seed:no-permission")
+            }
+            is BondedLookup.Devices -> applySeededDevices(lookup.devices)
+        }
+    }
+
+    private suspend fun applySeededDevices(devices: List<Device>) {
+        val selected = selectDevice(devices)
+        val connected = selected?.takeIf { it.isConnected }
+        updatePairedDevice(selected)
         if (connected != null) {
             setStatus(WatchSyncStatus.CONNECTED, "seed:bonded-connected")
         } else {
@@ -837,40 +1158,107 @@ class HuaweiWearBridge @Inject constructor(
     // WearEngineException (RuntimeException) / IllegalStateException on HMS
     // hiccups; a leak would unwind the launch coroutine. The monitor is
     // best-effort (the seed already set a correct status), so log and move on.
-    @Suppress("TooGenericExceptionCaught")
-    private suspend fun registerConnectionMonitor() {
-        if (connectionMonitor != null || !ensurePermissionGranted()) return
-        val device = awaitTask("getBondedDevices(monitor)") {
-            HiWear.getDeviceClient(context).bondedDevices
-        }.orEmpty().firstOrNull() ?: return
+    // reason: monitor setup has separate permission, device-selection, replacement, and recovery branches.
+    @Suppress("TooGenericExceptionCaught", "CyclomaticComplexMethod")
+    private suspend fun registerConnectionMonitor(): Unit = connectionMonitorMutex.withLock {
+        val lookup = lookupBondedDevices("getBondedDevices(monitor)")
+        if (lookup == BondedLookup.Failed) {
+            // Unknown, not "gone": keep the monitor and the cached device.
+            Log.w(TAG, "registerConnectionMonitor: lookup failed — keeping monitor and device")
+            return@withLock
+        }
+        if (lookup == BondedLookup.Denied) {
+            val previous = connectionMonitor
+            connectionMonitor = null
+            connectionMonitorDeviceUuid = null
+            if (previous != null) {
+                awaitTaskCompleted("unregisterConnectionMonitor(no-permission)") {
+                    monitorClient.unregister(previous)
+                }
+            }
+            return@withLock
+        }
+        val devices = (lookup as? BondedLookup.Devices)?.devices ?: return@withLock
+        val device = selectDevice(devices)
+        updatePairedDevice(device)
+        if (connectionMonitorDeviceUuid == device?.uuid) return@withLock
+        connectionMonitor?.let { previous ->
+            awaitTaskCompleted("replaceConnectionMonitor") { monitorClient.unregister(previous) }
+            connectionMonitor = null
+            connectionMonitorDeviceUuid = null
+        }
+        if (device == null) return@withLock
         try {
             // Don't trust the change payload (its int mapping is undocumented);
             // use the event only as a trigger to re-run the local query.
-            val listener = MonitorListener { _, _, _ -> scope.launch { seedConnectionStatus() } }
-            connectionMonitor = listener
-            // Best-effort: awaitTask logs+swallows a register failure. If it
-            // doesn't take, the onStart seed still kept status correct, and the
-            // next onStop→onStart cycle re-registers.
-            awaitTask("registerConnectionMonitor") {
+            val listener = MonitorListener { _, _, _ ->
+                scope.launch {
+                    seedConnectionStatus()
+                    registerConnectionMonitor()
+                }
+            }
+            // Best-effort: if registration fails, the onStart seed still kept
+            // status correct and the next onStop→onStart cycle retries.
+            val registered = awaitTaskCompleted("registerConnectionMonitor") {
                 monitorClient.register(device, MonitorItem.MONITOR_ITEM_CONNECTION, listener)
             }
-            Log.i(TAG, "connection monitor register attempted")
+            if (registered) {
+                connectionMonitor = listener
+                connectionMonitorDeviceUuid = device.uuid
+                Log.i(TAG, "connection monitor registered uuid=${device.uuid}")
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: RuntimeException) {
             Log.w(TAG, "connection monitor setup threw: ${e.message}", e)
             connectionMonitor = null
+            connectionMonitorDeviceUuid = null
         }
     }
 
     private suspend fun detachReceiver() {
         connectionMutex.withLock {
-            if (!receiverRegistered) return@withLock
-            awaitTask("unregisterReceiver") { p2pClient.unregisterReceiver(receiver) }
-            receiverRegistered = false
+            if (!receiverRegistered && !receiverRegistrationUncertain) return@withLock
+            unregisterReceiverLocked("unregisterReceiver")
         }
+    }
+
+    /**
+     * The only place that clears receiver ownership. Unregister is idempotent
+     * and its result is ignored: either way the phone no longer wants the
+     * receiver registered. Caller holds [connectionMutex].
+     */
+    private suspend fun unregisterReceiverLocked(op: String): Boolean {
+        val outcome = awaitTaskOutcome(op, pendingUnregisters) { p2pClient.unregisterReceiver(receiver) }
+        receiverRegistered = false
+        receiverDeviceUuid = null
+        // A timeout proves nothing: the registration may still exist, so keep
+        // the flag and let the next attempt unregister again before registering.
+        // A definite answer (success, or the SDK failing the call) settles it,
+        // unless an EARLIER unregister is still pending and could remove a new
+        // registration when it finally completes.
+        val settled = outcome != TaskOutcome.TIMED_OUT && !hasOutstandingUnregister()
+        receiverRegistrationUncertain = !settled
+        return settled
     }
 
     private fun sendJson(envelope: JSONObject, retryOnError: Boolean = false) {
         scope.launch { performSend(envelope, retryOnError) }
+    }
+
+    // reason: Wear Engine reports binder and transport failures as RuntimeException.
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun sendWithoutWake(envelope: JSONObject): Boolean {
+        val device = pairedDevice ?: return false
+        return try {
+            val bytes = envelope.toString().toByteArray(Charsets.UTF_8)
+            sendOnce(device, Message.Builder().setPayload(bytes).build(), SEND_TIMEOUT_MS)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "sendWithoutWake failed type=${envelope.optString("type")}: ${e.message}")
+            false
+        }
     }
 
     // reason: Wear Engine surfaces ALL failure modes via WearEngineException
@@ -895,6 +1283,8 @@ class HuaweiWearBridge @Inject constructor(
         val msg = Message.Builder().setPayload(bytes).build()
         val result = try {
             sendOnce(device, msg)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: RuntimeException) {
             Log.w(TAG, "send threw: ${e.message}", e)
             invalidateAndMarkError()
@@ -947,6 +1337,8 @@ class HuaweiWearBridge @Inject constructor(
             val msg = Message.Builder().setPayload(bytes).build()
             val ok = try {
                 sendOnce(device, msg)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: RuntimeException) {
                 Log.w(TAG, "retrySend attempt=$attempt threw: ${e.message}", e)
                 invalidateAndMarkError()
@@ -1017,6 +1409,8 @@ class HuaweiWearBridge @Inject constructor(
             iteration++
             val code = try {
                 pingPeer(device)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: RuntimeException) {
                 Log.w(TAG, "pollUntilRunning: ping threw: ${e.message}")
                 return false
@@ -1060,10 +1454,17 @@ class HuaweiWearBridge @Inject constructor(
         @Suppress("UNREACHABLE_CODE") return false
     }
 
-    // reason: ForbiddenVoid suppressed because Task<Void> is the Huawei SDK
-    // signature; replacing with Task<*> loses the type information.
+    private suspend fun sendOnce(device: Device, msg: Message, timeoutMs: Long = SEND_TIMEOUT_MS): Boolean =
+        withTimeoutOrNull(timeoutMs) { sendOnceUnbounded(device, msg) } ?: run {
+            // A SendCallback that never fires must not hold the caller (and any
+            // mutex it owns) forever; treat it like a failed send.
+            Log.w(TAG, "send timed out after ${timeoutMs}ms")
+            false
+        }
+
+    // reason: ForbiddenVoid suppressed because Task<Void> is the Huawei SDK signature.
     @Suppress("ForbiddenVoid")
-    private suspend fun sendOnce(device: Device, msg: Message): Boolean =
+    private suspend fun sendOnceUnbounded(device: Device, msg: Message): Boolean =
         suspendCancellableCoroutine { cont ->
             // Per Huawei Wear Engine docs, onSendResult is the source of
             // truth for actual delivery (207 = COMM_SUCCESS, 206 = COMM_FAIL).
@@ -1098,8 +1499,11 @@ class HuaweiWearBridge @Inject constructor(
 
     private suspend fun invalidateAndMarkError() {
         connectionMutex.withLock {
+            // Forces a re-resolve. The receiver registration is deliberately
+            // left alone: a failed SEND says nothing about the phone-side
+            // RECEIVE registration, and clearing the flag without unregistering
+            // made the next send register a second time.
             pairedDevice = null
-            receiverRegistered = false
             // A 206/send-throw means the receiver channel is no longer
             // hot — drop the "peer is running" confirmation so the next
             // send re-polls instead of trusting a stale cache hit.
@@ -1110,44 +1514,82 @@ class HuaweiWearBridge @Inject constructor(
         }
     }
 
-    private suspend fun ensurePairedDevice(): Device? = connectionMutex.withLock {
-        pairedDevice?.let {
-            setStatus(WatchSyncStatus.CONNECTED, "ensurePaired:cached")
-            return@withLock it
+    private suspend fun ensurePairedDevice(): Device? {
+        val candidate = connectionMutex.withLock { resolvePairedDeviceLocked() }
+        if (candidate != null && incomingHandler != null) ensureReceiverRegisteredFor(candidate)
+        return candidate
+    }
+
+    // Caller holds connectionMutex. A failed lookup keeps the cached device (and
+    // so the registration) instead of treating "could not ask" as "no watch".
+    private suspend fun resolvePairedDeviceLocked(): Device? {
+        val nowElapsed = android.os.SystemClock.elapsedRealtime()
+        val cached = pairedDevice
+        if (cached != null && cached.isConnected && nowElapsed - pairedDeviceResolvedAtElapsedMs < DEVICE_CACHE_MS) {
+            setStatus(WatchSyncStatus.CONNECTED, "ensurePaired:elapsed-cache")
+            return cached
         }
-        val candidate = if (!ensurePermissionGranted()) {
-            null
-        } else {
-            setStatus(WatchSyncStatus.CONNECTING, "ensurePaired:resolving")
-            val devices = awaitTask("getBondedDevices") {
-                HiWear.getDeviceClient(context).bondedDevices
-            }.orEmpty()
-            Log.i(TAG, "bondedDevices count=${devices.size}")
-            devices.forEachIndexed { i, d ->
-                Log.i(
-                    TAG,
-                    "  [$i] name='${d.name}' model='${d.model}' connected=${d.isConnected} uuid=${d.uuid}",
-                )
-            }
-            devices.firstOrNull { it.isConnected } ?: devices.firstOrNull()
+        val lookup = lookupBondedDevices("getBondedDevices") {
+            // Only a first connect shows "connecting". A routine re-resolve of a
+            // known watch (2 s cache expiry) must not flicker the status.
+            if (cached == null) setStatus(WatchSyncStatus.CONNECTING, "ensurePaired:resolving")
         }
+        if (lookup == BondedLookup.Failed) {
+            Log.w(TAG, "ensurePairedDevice: lookup failed — keeping cached device=${cached != null}")
+            setStatus(
+                if (cached?.isConnected == true) WatchSyncStatus.CONNECTED else WatchSyncStatus.NOT_CONNECTED,
+                "ensurePaired:lookup-failed",
+            )
+            return cached
+        }
+        val devices = (lookup as? BondedLookup.Devices)?.devices.orEmpty()
+        if (lookup is BondedLookup.Devices) logBondedDevices(devices)
+        val resolved = selectDevice(devices)
         setStatus(
-            if (candidate?.isConnected == true) WatchSyncStatus.CONNECTED else WatchSyncStatus.NOT_CONNECTED,
-            "ensurePaired:resolved candidate=${candidate != null} connected=${candidate?.isConnected}",
+            if (resolved?.isConnected == true) WatchSyncStatus.CONNECTED else WatchSyncStatus.NOT_CONNECTED,
+            "ensurePaired:resolved candidate=${resolved != null} connected=${resolved?.isConnected}",
         )
-        _pairedDeviceInfo.value = candidate?.let {
+        commitPairedDeviceLocked(resolved, nowElapsed)
+        return resolved
+    }
+
+    private fun logBondedDevices(devices: List<Device>) {
+        Log.i(TAG, "bondedDevices count=${devices.size}")
+        devices.forEachIndexed { i, d ->
+            Log.i(TAG, "  [$i] name='${d.name}' model='${d.model}' connected=${d.isConnected} uuid=${d.uuid}")
+        }
+    }
+
+    /**
+     * Adopt [resolved] as the paired device. If the receiver is registered for a
+     * different device (or the watch is gone) it is unregistered first, so a
+     * registration never outlives its device. Caller holds [connectionMutex].
+     */
+    private suspend fun commitPairedDeviceLocked(resolved: Device?, nowElapsed: Long) {
+        if (receiverRegistered && receiverDeviceUuid != resolved?.uuid) {
+            unregisterReceiverLocked("unregisterReceiver(device-change)")
+        }
+        _pairedDeviceInfo.value = resolved?.let {
             PairedDeviceInfo(
                 displayName = normalizeDeviceLabel(it.name, it.model),
                 connected = it.isConnected,
             )
         }
-        pairedDevice = candidate
-        // Fresh (re)connect: this branch only runs when pairedDevice was null
-        // (steady state returns early above). Flag the next screen handshake to
-        // bypass the model gate so the F4 bg reconcile re-runs even if the watch
-        // was reset without a model change.
-        if (candidate?.isConnected == true) forceScreenRefresh = true
-        candidate
+        pairedDevice = resolved
+        pairedDeviceResolvedAtElapsedMs = nowElapsed
+        // The next watch-screen handshake is refreshed only when the watch
+        // becomes connected or the connected device changes, not on every
+        // re-resolve of the same connected watch.
+        val connectedUuid = resolved?.takeIf { it.isConnected }?.uuid
+        if (connectedUuid != null && connectedUuid != lastConnectedDeviceUuid) forceScreenRefresh = true
+        lastConnectedDeviceUuid = connectedUuid
+    }
+
+    private suspend fun updatePairedDevice(candidate: Device?) {
+        connectionMutex.withLock {
+            commitPairedDeviceLocked(candidate, android.os.SystemClock.elapsedRealtime())
+        }
+        if (candidate != null && incomingHandler != null) ensureReceiverRegisteredFor(candidate)
     }
 
     // Registers the P2P receiver. NOTE: registration is process-scoped
@@ -1157,16 +1599,63 @@ class HuaweiWearBridge @Inject constructor(
     // an Activity must also be alive for replies/acks to arrive.
     private suspend fun ensureReceiverRegistered() {
         val device = ensurePairedDevice() ?: return
+        // With a handler installed, ensurePairedDevice already made its one
+        // register attempt for this pass. A second attempt here would repeat a
+        // timed-out pre-register unregister and double the wait (10 s) inside
+        // awaitReceiveReady's budget.
+        if (incomingHandler == null) ensureReceiverRegisteredFor(device)
+    }
+
+    private suspend fun ensureReceiverRegisteredFor(device: Device) {
         connectionMutex.withLock {
-            if (pairedDevice !== device) return@withLock
-            if (receiverRegistered) return@withLock
-            val ok = awaitTask("registerReceiver") {
+            if (pairedDevice?.uuid != device.uuid) return@withLock
+            if (receiverRegistered && receiverDeviceUuid == device.uuid) return@withLock
+            // An earlier unregister that timed out has not finished in the SDK.
+            // It could complete after a new register and remove it, whatever
+            // order the SDK uses. Wait for its own completion listener to clear
+            // the marker; do not even queue another unregister behind it.
+            if (hasOutstandingUnregister()) {
+                receiverRegistrationUncertain = true
+                Log.w(TAG, "earlier unregister still outstanding — not registering now, will retry")
+                return@withLock
+            }
+            // Never register on top of a registration that may exist: one for
+            // another device, or one whose last register call did not report
+            // success (it may still complete late).
+            // If that unregister itself times out it may still complete AFTER a
+            // new register and silently remove it (reception gone while the
+            // flags say ready). So register only after an answered unregister;
+            // otherwise stay not-ready with the flag set. A later call (send,
+            // awaitReceiveReady, handler install, seed) tries the unregister again.
+            if ((receiverRegistered || receiverRegistrationUncertain) &&
+                !unregisterReceiverLocked("unregisterReceiver(pre-register)")
+            ) {
+                Log.w(TAG, "pre-register unregister timed out — not registering now, will retry")
+                return@withLock
+            }
+            // Uncertain BEFORE the call and settled only by a definite result.
+            // If this coroutine is cancelled mid-flight (a caller timeout, a
+            // replaced handler) the Task may still register later, and the flag
+            // stays set so the next register is preceded by an unregister.
+            receiverRegistrationUncertain = true
+            val outcome = awaitTaskOutcome("registerReceiver") {
                 p2pClient.registerReceiver(device, receiver)
             }
-            if (ok != null) {
-                receiverRegistered = true
-            }
+            val ok = outcome == TaskOutcome.SUCCESS
+            receiverRegistered = ok
+            receiverDeviceUuid = if (ok) device.uuid else null
+            receiverRegistrationUncertain = outcome == TaskOutcome.TIMED_OUT
         }
+    }
+
+    override suspend fun awaitReceiveReady(timeoutMs: Long): Boolean {
+        if (isReceiveReady) return true
+        // Nothing to register for until the app installed its handler.
+        if (incomingHandler == null) return false
+        // Device lookup + register only: no ping, no send, so the watch is never
+        // woken. Cancellation at the timeout releases connectionMutex.
+        withTimeoutOrNull(timeoutMs) { ensureReceiverRegistered() }
+        return isReceiveReady
     }
 
     override suspend fun hasWatchPermission(): Boolean? =
@@ -1185,21 +1674,85 @@ class HuaweiWearBridge @Inject constructor(
     ): T? {
         return try {
             val task = block()
-            suspendCancellableCoroutine { cont ->
-                task.addOnSuccessListener { result ->
-                    if (cont.isActive) cont.resumeWith(Result.success(result))
-                }.addOnFailureListener { e ->
-                    Log.w(TAG, "$op failed: ${e.message}")
-                    if (cont.isActive) cont.resumeWith(Result.success(null))
-                }
-                cont.invokeOnCancellation {
-                    Log.d(TAG, "$op cancelled")
+            // Bounded: a Task that never completes would otherwise hold the
+            // connection mutex (and every send behind it) forever. Timeout is
+            // a failure (null), the same as a failed Task.
+            val result = withTimeoutOrNull(SDK_WAIT_TIMEOUT_MS) {
+                suspendCancellableCoroutine<T?> { cont ->
+                    task.addOnSuccessListener { value ->
+                        if (cont.isActive) cont.resumeWith(Result.success(value))
+                    }.addOnFailureListener { e ->
+                        Log.w(TAG, "$op failed: ${e.message}")
+                        if (cont.isActive) cont.resumeWith(Result.success(null))
+                    }
+                    cont.invokeOnCancellation {
+                        Log.d(TAG, "$op cancelled")
+                    }
                 }
             }
+            if (result == null) Log.w(TAG, "$op gave no result (failed or timed out)")
+            result
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: RuntimeException) {
             Log.w(TAG, "$op threw: ${e.message}", e)
             null
         }
+    }
+
+    private suspend fun awaitTaskCompleted(op: String, block: () -> Task<*>): Boolean =
+        awaitTaskOutcome(op, block = block) == TaskOutcome.SUCCESS
+
+    // A Task that does not answer is NOT the same as one that failed: the SDK
+    // may still complete it later. Register/unregister need the difference.
+    private enum class TaskOutcome { SUCCESS, FAILED, TIMED_OUT }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun awaitTaskOutcome(
+        op: String,
+        outstanding: MutableSet<PendingUnregister>? = null,
+        block: () -> Task<*>,
+    ): TaskOutcome = try {
+        val task = block()
+        // Listeners are attached right here, before any suspension point, so they
+        // exist even if this coroutine is cancelled or times out. They keep
+        // running after that: when the Task finally reaches a terminal result
+        // (success or failure, possibly on the UI thread, possibly much later)
+        // it removes its entry from `outstanding` (a no-op if it was abandoned).
+        val release: () -> Unit = if (outstanding == null) {
+            {}
+        } else {
+            val entry = PendingUnregister(elapsedClock())
+            outstanding.add(entry)
+            ({ outstanding.remove(entry) })
+        }
+        val done = CompletableDeferred<Boolean>()
+        // release() BEFORE complete(): complete() can resume the waiting
+        // coroutine on another thread, which must not still see this entry.
+        // Removing an entry twice (or after it was abandoned) is a no-op.
+        task.addOnSuccessListener {
+            release()
+            done.complete(true)
+        }.addOnFailureListener { e ->
+            Log.w(TAG, "$op failed: ${e.message}")
+            release()
+            done.complete(false)
+        }
+        // Bounded like awaitTask: a Task that never completes must not hold a lock forever.
+        val completed = withTimeoutOrNull(SDK_WAIT_TIMEOUT_MS) { done.await() }
+        when (completed) {
+            true -> TaskOutcome.SUCCESS
+            false -> TaskOutcome.FAILED
+            null -> {
+                Log.w(TAG, "$op timed out after ${SDK_WAIT_TIMEOUT_MS}ms")
+                TaskOutcome.TIMED_OUT
+            }
+        }
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: RuntimeException) {
+        Log.w(TAG, "$op threw: ${e.message}", e)
+        TaskOutcome.FAILED
     }
 
     // The per-alarm `alarm` payload object. Shared by buildAlarmEnvelope
@@ -1280,6 +1833,10 @@ class HuaweiWearBridge @Inject constructor(
         put("type", "alarm_fired")
         put("alarmId", alarmId)
         put("updatedAtEpoch", now)
+        // Advertised only when the ring service verified the phone can receive
+        // the watch's reply (unlocked + receiver registered). Otherwise the
+        // watch completes on transport 207 like released builds.
+        if (ringHints?.supportsActionAck == true) put("supportsActionAck", true)
         // Hints are nullable so the legacy missed-cache path (no domain Alarm
         // resolvable) still ships a valid envelope; the watch falls back to
         // its AlarmStore for the missing fields.
@@ -1294,20 +1851,13 @@ class HuaweiWearBridge @Inject constructor(
         }
     }
 
-    private fun buildAlarmEnvelope(type: String, alarm: Alarm): JSONObject = JSONObject().apply {
-        put("type", type)
-        put("alarmId", alarm.id)
-        put("updatedAtEpoch", alarm.updatedAtEpoch)
-        put("alarm", buildAlarmPayload(alarm))
-    }
-
     // Authoritative full-state replace for force-sync (see
     // docs/sync-architecture.md §5.7). The watch replaces its whole
     // AlarmStore with this list and tombstones the dropped ids — that
     // is what prunes watch-only rows an additive push can never remove.
-    private fun buildSyncReplaceEnvelope(alarms: List<Alarm>): JSONObject = JSONObject().apply {
+    private fun buildSyncReplaceEnvelope(alarms: List<Alarm>, updatedAtEpoch: Long): JSONObject = JSONObject().apply {
         put("type", "sync_replace")
-        put("updatedAtEpoch", System.currentTimeMillis())
+        put("updatedAtEpoch", updatedAtEpoch)
         put("alarms", JSONArray().apply { alarms.forEach { put(buildAlarmPayload(it)) } })
     }
 
@@ -1334,12 +1884,18 @@ class HuaweiWearBridge @Inject constructor(
     // ping-throw / ping-not-installed / wake-failed / already-in-sync /
     // pushed-result); collapsing would require a wrapper type or nested
     // when, neither of which is clearer. The push itself is delegated to
-    // pushFullReplace / pushAdditive so the bulk of the complexity is out.
+    // pushFullReplace so the bulk of the complexity is out.
     // reason: CyclomaticComplexMethod — the chain of distinct connection/
     // wake guards still sits near the threshold; each guard is a separate
     // user-visible outcome and extracting them would smear the when-cases.
     @Suppress("TooGenericExceptionCaught", "ReturnCount", "CyclomaticComplexMethod")
-    override suspend fun forceSync(freshAlarms: suspend () -> List<Alarm>): ForceSyncResult {
+    override suspend fun forceSync(freshAlarms: suspend () -> List<Alarm>): ForceSyncResult =
+        withTimeoutOrNull(MANUAL_SYNC_TIMEOUT_MS) { forceSyncWithinDeadline(freshAlarms) }
+            ?: ForceSyncResult.Error("Watch sync timed out after ${MANUAL_SYNC_TIMEOUT_MS}ms")
+
+    // reason: each guard maps to a distinct actionable sync outcome.
+    @Suppress("TooGenericExceptionCaught", "ReturnCount", "CyclomaticComplexMethod")
+    private suspend fun forceSyncWithinDeadline(freshAlarms: suspend () -> List<Alarm>): ForceSyncResult {
         if (!ensurePermissionGranted()) {
             Log.w(TAG, "forceSync: not authorized")
             return ForceSyncResult.NotAuthorized
@@ -1357,6 +1913,8 @@ class HuaweiWearBridge @Inject constructor(
         // distinct UI outcome instead of trying N doomed sends.
         val pingCode = try {
             pingPeer(device)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: RuntimeException) {
             Log.w(TAG, "forceSync: ping threw: ${e.message}", e)
             return ForceSyncResult.Error(e.message.orEmpty())
@@ -1383,7 +1941,8 @@ class HuaweiWearBridge @Inject constructor(
         // TOCTOU window where the user could add/edit/delete an alarm; by
         // re-fetching `alarms` AFTER the response, we hash the latest
         // state and avoid skipping a needed push.
-        val remoteHash = requestRemoteHash(SYNC_CHECK_TIMEOUT_MS)
+        val remote = requestRemoteHash(SYNC_CHECK_TIMEOUT_MS)
+        val remoteHash = remote?.hash
         val alarms = freshAlarms()
         Log.i(TAG, "forceSync alarms=${alarms.size}")
         val localHash = AlarmHash.compute(alarms)
@@ -1392,15 +1951,15 @@ class HuaweiWearBridge @Inject constructor(
             // Still send sync_done so a watch woken purely for the
             // sync_check terminates promptly instead of waiting out its
             // drain timer.
-            sendJson(buildSyncDoneEnvelope())
+            sendWithoutWake(buildSyncDoneEnvelope())
             return ForceSyncResult.AlreadyInSync(alarms.size)
         }
         Log.i(TAG, "forceSync: hashes differ local=$localHash remote=${remoteHash ?: "<timeout>"} — full push")
-        val result = pushFullReplace(alarms)
+        val result = pushFullReplace(alarms, remote?.supportsCommitAck == true)
         // Always mark the sync finished — both the replaced path here and
         // the matched path above — so the watch's syncing page closes on
         // the explicit signal rather than its drain-quiescence fallback.
-        sendJson(buildSyncDoneEnvelope())
+        sendWithoutWake(buildSyncDoneEnvelope())
         return result
     }
 
@@ -1410,11 +1969,14 @@ class HuaweiWearBridge @Inject constructor(
      * PRUNES watch-only rows (the watch replaces its store wholesale), so the
      * hash converges. Small lists go as a TEXT message; lists over the
      * text-message ceiling ([SYNC_REPLACE_MAX_BYTES]) go as a FILE transfer
-     * ([pushFileReplace]) which has no ~1 KB limit. The additive burst is only a
-     * last-ditch fallback if the file path itself fails (it cannot prune).
+     * ([pushFileReplace]) which has no ~1 KB limit. Both paths require a
+     * persisted commit acknowledgement or a legacy hash verification.
      */
-    private suspend fun pushFullReplace(alarms: List<Alarm>): ForceSyncResult {
-        val envelope = buildSyncReplaceEnvelope(alarms)
+    @Suppress("ReturnCount")
+    private suspend fun pushFullReplace(alarms: List<Alarm>, supportsCommitAck: Boolean): ForceSyncResult {
+        val stamp = System.currentTimeMillis()
+        val envelope = buildSyncReplaceEnvelope(alarms, stamp)
+        val hash = AlarmHash.compute(alarms)
         val sizeBytes = envelope.toString().toByteArray(Charsets.UTF_8).size
         if (sizeBytes > SYNC_REPLACE_MAX_BYTES) {
             Log.i(
@@ -1422,21 +1984,19 @@ class HuaweiWearBridge @Inject constructor(
                 "forceSync: sync_replace ${sizeBytes}B over ${SYNC_REPLACE_MAX_BYTES}B text cap " +
                     "— sending as file transfer (n=${alarms.size})",
             )
-            val fileResult = pushFileReplace(alarms)
-            return if (fileResult is ForceSyncResult.Ok) {
-                fileResult
-            } else {
-                Log.w(TAG, "forceSync: file replace failed ($fileResult) — additive fallback")
-                pushAdditive(alarms)
-            }
+            return pushFileReplace(alarms, stamp, hash, supportsCommitAck)
+        }
+        if (supportsCommitAck) {
+            val committed = sendTextReplaceAndAwaitAck(envelope, hash, stamp)
+            return if (committed) ForceSyncResult.Ok(alarms.size)
+            else ForceSyncResult.Error("Watch did not confirm saved alarm list")
         }
         val delivered = performSend(envelope, retryOnError = true)
         Log.i(TAG, "forceSync done sync_replace ${sizeBytes}B delivered=$delivered n=${alarms.size}")
-        return if (delivered) {
-            ForceSyncResult.Ok(alarms.size)
-        } else {
-            ForceSyncResult.Error("Watch comm failed (sync_replace not delivered)")
-        }
+        if (!delivered) return ForceSyncResult.Error("Watch comm failed (sync_replace not delivered)")
+        val committed = awaitRemoteHashConvergence(hash, LEGACY_COMMIT_VERIFY_TIMEOUT_MS)
+        return if (committed) ForceSyncResult.Ok(alarms.size)
+        else ForceSyncResult.Error("Watch alarm list was not confirmed")
     }
 
     /**
@@ -1448,9 +2008,13 @@ class HuaweiWearBridge @Inject constructor(
      * receiver activates. The watch replaces its store wholesale + tombstones the
      * dropped ids, so this still prunes. The temp file is removed on every exit.
      */
-    private suspend fun pushFileReplace(alarms: List<Alarm>): ForceSyncResult {
-        val hash = AlarmHash.compute(alarms)
-        val file = writeAlarmsSyncFile(buildSyncReplaceEnvelope(alarms).toString(), hash)
+    private suspend fun pushFileReplace(
+        alarms: List<Alarm>,
+        stamp: Long,
+        hash: String,
+        supportsCommitAck: Boolean,
+    ): ForceSyncResult {
+        val file = writeAlarmsSyncFile(buildSyncReplaceEnvelope(alarms, stamp).toString(), hash)
             ?: return ForceSyncResult.Error("Failed to stage alarm-sync file")
         return try {
             var attempt = 0
@@ -1459,7 +2023,16 @@ class HuaweiWearBridge @Inject constructor(
                 attempt++
                 val device = ensurePairedDevice()
                 if (device != null && ensurePeerAppRunning(device, force = true)) {
-                    if (sendAlarmsFileAndAwaitAck(device, file, hash, alarms.size, attempt)) {
+                    if (sendAlarmsFileAndAwaitAck(
+                            device,
+                            file,
+                            hash,
+                            stamp,
+                            supportsCommitAck,
+                            alarms.size,
+                            attempt,
+                        )
+                    ) {
                         result = ForceSyncResult.Ok(alarms.size)
                     }
                 } else {
@@ -1473,42 +2046,74 @@ class HuaweiWearBridge @Inject constructor(
         }
     }
 
-    // reason: TooGenericExceptionCaught — sendOnce surfaces every transport
-    // failure as WearEngineException (RuntimeException); a narrower catch would
-    // miss real 206/binder errors. Mirrors sendBgFileAndAwaitAck.
-    @Suppress("TooGenericExceptionCaught")
+    // reason: transport errors use RuntimeException; all request identity and retry fields
+    // are needed to correlate the persisted ACK to this file transfer.
+    @Suppress("TooGenericExceptionCaught", "LongParameterList")
     private suspend fun sendAlarmsFileAndAwaitAck(
         device: Device,
         file: java.io.File,
         hash: String,
+        stamp: Long,
+        requireStamp: Boolean,
         n: Int,
         attempt: Int,
     ): Boolean {
         val ackDeferred = CompletableDeferred<Unit>()
-        val pair = hash to ackDeferred
+        val pair = PendingAlarmsAck(hash, stamp, requireStamp, ackDeferred)
         pendingAlarmsAck.set(pair)
         val msg = Message.Builder().setPayload(file).setDescription(file.name).build()
-        val sent = try {
-            sendOnce(device, msg)
-        } catch (e: RuntimeException) {
-            Log.w(TAG, "pushFileReplace send threw (attempt=$attempt): ${e.message}")
-            invalidateAndMarkError()
-            false
-        }
-        if (!sent) {
-            invalidateAndMarkError()
+        try {
+            val sent = try {
+                sendOnce(device, msg, FILE_SEND_TIMEOUT_MS)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: RuntimeException) {
+                Log.w(TAG, "pushFileReplace send threw (attempt=$attempt): ${e.message}")
+                invalidateAndMarkError()
+                false
+            }
+            if (!sent) {
+                invalidateAndMarkError()
+                return false
+            }
+            Log.i(TAG, "pushFileReplace sent ${file.name} n=$n attempt=$attempt — awaiting ack")
+            val acked = withTimeoutOrNull(SYNC_COMMIT_ACK_TIMEOUT_MS) { ackDeferred.await() } != null
+            if (requireStamp) {
+                if (acked) Log.i(TAG, "pushFileReplace confirmed n=$n after $attempt attempt(s)")
+                else Log.w(TAG, "pushFileReplace no ack (attempt=$attempt) — retrying")
+                return acked
+            }
+            if (!acked) Log.w(TAG, "pushFileReplace no legacy ack (attempt=$attempt) — verifying hash")
+            // A legacy file ACK may be emitted before its async store write
+            // finishes, so verify convergence even when the ACK arrived.
+            return awaitRemoteHashConvergence(hash, LEGACY_COMMIT_VERIFY_TIMEOUT_MS)
+        } finally {
             pendingAlarmsAck.compareAndSet(pair, null)
-            return false
         }
-        Log.i(TAG, "pushFileReplace sent ${file.name} n=$n attempt=$attempt — awaiting ack")
-        val acked = withTimeoutOrNull(BG_ACK_TIMEOUT_MS) { ackDeferred.await() } != null
-        pendingAlarmsAck.compareAndSet(pair, null)
-        if (acked) {
-            Log.i(TAG, "pushFileReplace confirmed n=$n after $attempt attempt(s)")
-        } else {
-            Log.w(TAG, "pushFileReplace no ack (attempt=$attempt) — retrying")
+    }
+
+    // reason: the finally block must clear this exact pending ACK slot on every result.
+    @Suppress("ReturnFromFinally")
+    private suspend fun sendTextReplaceAndAwaitAck(envelope: JSONObject, hash: String, stamp: Long): Boolean {
+        val deferred = CompletableDeferred<Unit>()
+        val pending = PendingAlarmsAck(hash, stamp, requireStamp = true, deferred = deferred)
+        pendingAlarmsAck.set(pending)
+        return try {
+            // 207 only proves the Wear Engine layer took the message. If no ack
+            // follows, re-send the whole (idempotent) replace for another round
+            // instead of giving up after the first silent drop.
+            var acked = false
+            var round = 0
+            while (!acked && round < SYNC_COMMIT_ROUNDS) {
+                round++
+                val sent = performSend(envelope, retryOnError = true)
+                acked = sent && withTimeoutOrNull(SYNC_COMMIT_ACK_TIMEOUT_MS) { deferred.await(); true } == true
+                if (!acked) Log.w(TAG, "sync_replace: no app-ack round=$round sent=$sent")
+            }
+            acked
+        } finally {
+            pendingAlarmsAck.compareAndSet(pending, null)
         }
-        return acked
     }
 
     // Stage the sync_replace JSON to a private cache file named with the list's
@@ -1520,25 +2125,18 @@ class HuaweiWearBridge @Inject constructor(
         null
     }
 
-    /**
-     * Legacy additive push — one `alarm_added` per alarm. Only used as
-     * the over-cap fallback for [pushFullReplace]; it cannot remove
-     * watch-only rows, so the hash will not converge if the watch holds
-     * extras. Kept solely so an unrealistically large list still syncs
-     * its additions rather than failing outright.
-     */
-    private suspend fun pushAdditive(alarms: List<Alarm>): ForceSyncResult {
-        var ok = 0
-        for (alarm in alarms) {
-            if (!validateStamp("forceSync.send", alarm.updatedAtEpoch)) continue
-            val delivered = performSend(buildAlarmEnvelope("alarm_added", alarm), retryOnError = true)
-            if (delivered) ok++
-        }
-        Log.i(TAG, "forceSync additive fallback done sent=$ok of=${alarms.size}")
-        return when {
-            ok == alarms.size -> ForceSyncResult.Ok(ok)
-            ok == 0 -> ForceSyncResult.Error("Watch comm failed (0/${alarms.size} delivered)")
-            else -> ForceSyncResult.Error("Partial: $ok/${alarms.size} delivered")
+    private suspend fun awaitRemoteHashConvergence(hash: String, timeoutMs: Long): Boolean {
+        val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs
+        while (true) {
+            val remainingMs = deadline - android.os.SystemClock.elapsedRealtime()
+            if (remainingMs <= 0L) return false
+            val requestBudgetMs = minOf(SYNC_CHECK_TIMEOUT_MS, remainingMs)
+            val remote = withTimeoutOrNull(requestBudgetMs) {
+                requestRemoteHash(requestBudgetMs)
+            }
+            if (remote?.hash == hash) return true
+            val pauseMs = minOf(LEGACY_HASH_RETRY_DELAY_MS, deadline - android.os.SystemClock.elapsedRealtime())
+            if (pauseMs > 0L) delay(pauseMs)
         }
     }
 
@@ -1552,11 +2150,16 @@ class HuaweiWearBridge @Inject constructor(
     // the receiver lock-free atomic claim of the deferred via getAndSet,
     // avoiding a mutex re-entry deadlock if the response fires while we
     // still hold pendingHashMutex.
-    private suspend fun requestRemoteHash(timeoutMs: Long): String? = pendingHashMutex.withLock {
-        val deferred = CompletableDeferred<String>()
-        pendingHashRequest.set(deferred)
+    private suspend fun requestRemoteHash(timeoutMs: Long): IncomingMessage.SyncHash? = pendingHashMutex.withLock {
+        val stamp = System.currentTimeMillis()
+        val deferred = CompletableDeferred<IncomingMessage.SyncHash>()
+        val pending = PendingHashRequest(stamp, deferred)
+        pendingHashRequest.set(pending)
         try {
-            val envelope = JSONObject().apply { put("type", "sync_check") }
+            val envelope = JSONObject().apply {
+                put("type", "sync_check")
+                put("updatedAtEpoch", stamp)
+            }
             val sent = performSend(envelope, retryOnError = false)
             if (!sent) {
                 Log.w(TAG, "requestRemoteHash: sync_check send failed — falling back to full push")
@@ -1571,7 +2174,7 @@ class HuaweiWearBridge @Inject constructor(
             // compareAndSet so we don't accidentally clear a deferred set
             // by a re-entrant caller (shouldn't happen — pendingHashMutex
             // serializes — but defense in depth against future refactors).
-            pendingHashRequest.compareAndSet(deferred, null)
+            pendingHashRequest.compareAndSet(pending, null)
         }
     }
 
@@ -1615,7 +2218,7 @@ class HuaweiWearBridge @Inject constructor(
         // would silently skip the reconcile of some later, unrelated reply.
         skipNextBgReconcile = false
         // The watch was woken only for this; let it close.
-        performSend(buildSyncDoneEnvelope(), retryOnError = false)
+        sendWithoutWake(buildSyncDoneEnvelope())
         Log.i(TAG, "refreshWatchScreen model='$model' known=$known")
         return known
     }
@@ -1672,6 +2275,8 @@ class HuaweiWearBridge @Inject constructor(
         val reconciler = watchBgReconciler ?: return
         try {
             reconciler(marker)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: RuntimeException) {
             Log.w(TAG, "reconcileWatchBgMarker threw: ${e.message}", e)
         } catch (e: java.io.IOException) {
@@ -1684,15 +2289,18 @@ class HuaweiWearBridge @Inject constructor(
     // the type information from the SDK.
     @Suppress("ForbiddenVoid")
     private suspend fun pingPeer(device: Device): Int =
-        suspendCancellableCoroutine { cont ->
-            val task = p2pClient.ping(device, PingCallback { code ->
-                if (cont.isActive) cont.resumeWith(Result.success(code))
-            })
-            task.addOnFailureListener { e ->
-                Log.w(TAG, "ping Task failed: ${e.message}")
-                if (cont.isActive) cont.resumeWith(Result.success(PING_FAILED_SENTINEL))
+        // Bounded so a ping callback that never fires cannot hold wakeMutex.
+        withTimeoutOrNull(SDK_WAIT_TIMEOUT_MS) {
+            suspendCancellableCoroutine<Int> { cont ->
+                val task = p2pClient.ping(device, PingCallback { code ->
+                    if (cont.isActive) cont.resumeWith(Result.success(code))
+                })
+                task.addOnFailureListener { e ->
+                    Log.w(TAG, "ping Task failed: ${e.message}")
+                    if (cont.isActive) cont.resumeWith(Result.success(PING_FAILED_SENTINEL))
+                }
             }
-        }
+        } ?: PING_FAILED_SENTINEL.also { Log.w(TAG, "ping timed out after ${SDK_WAIT_TIMEOUT_MS}ms") }
 
     // reason: Wear Engine's requestPermission is documented to throw
     // RuntimeException when Huawei Health / HMS Core is missing or out of
@@ -1788,6 +2396,38 @@ class HuaweiWearBridge @Inject constructor(
         // 400 ms poll delay catches the 201→202 transition within ~one
         // extra poll.
         const val PING_WAKE_TIMEOUT_MS = 10_000L
+        private const val DEVICE_CACHE_MS = 2_000L
+
+        // Upper bound for one SDK wait that is not a message send: a Task result
+        // (bonded devices, permission, register/unregister) or a ping callback.
+        // Without it a Task that never completes holds connectionMutex or
+        // wakeMutex, and every send queues behind it forever.
+        private const val SDK_WAIT_TIMEOUT_MS = 5_000L
+
+        // A timed-out unregister still pending after this long is treated as lost
+        // (hung binder call) so registration is not blocked until the process
+        // restarts. Far above any plausible late completion.
+        private const val ABANDON_UNREGISTER_AFTER_MS = 60_000L
+
+        // Upper bound for one send callback. The alarm-path budgets (pre-arm
+        // 10 s, retry deadline 12 s) are larger than this on purpose.
+        private const val SEND_TIMEOUT_MS = 8_000L
+
+        // File transfers (default picture, alarm-list file) take longer.
+        private const val FILE_SEND_TIMEOUT_MS = 30_000L
+
+        // Replies to a watch request (sendPeerActionAck / sendPeerEnded): no
+        // wake, a few quick retries, never longer than the total below.
+        private const val PEER_REPLY_TOTAL_MS = 4_000L
+        private const val PEER_REPLY_SEND_TIMEOUT_MS = 1_500L
+        private const val PEER_REPLY_RETRY_DELAY_MS = 300L
+        private const val PEER_REPLY_MAX_ATTEMPTS = 4
+        private const val MANUAL_SYNC_TIMEOUT_MS = 60_000L
+        private const val SYNC_COMMIT_ACK_TIMEOUT_MS = 4_000L
+
+        // Rounds of send + ack wait for a text sync_replace (inside the 60 s
+        // manual-sync deadline).
+        private const val SYNC_COMMIT_ROUNDS = 2
 
         // Wake budget for the manual "Sync now" tap only — see forceSync.
         const val FORCE_SYNC_WAKE_TIMEOUT_MS = 25_000L
@@ -1844,6 +2484,8 @@ class HuaweiWearBridge @Inject constructor(
         // generous headroom even on a slow BT link. On timeout we fall
         // through to a full push — never user-blocking.
         const val SYNC_CHECK_TIMEOUT_MS = 2_000L
+        private const val LEGACY_COMMIT_VERIFY_TIMEOUT_MS = 10_000L
+        private const val LEGACY_HASH_RETRY_DELAY_MS = 250L
 
         // In-flight window for the model-gated screen_request. A watch that's
         // up replies in well under a second; 5 s comfortably covers a slow BT

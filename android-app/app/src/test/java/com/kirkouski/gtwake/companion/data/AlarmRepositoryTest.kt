@@ -31,10 +31,15 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AlarmRepositoryTest {
+
+    @get:Rule
+    val tmp = TemporaryFolder()
 
     private lateinit var dao: FakeAlarmDao
     private lateinit var scheduler: AlarmScheduler
@@ -62,6 +67,8 @@ class AlarmRepositoryTest {
         // writes; the cache's correctness is covered separately. Suspending
         // upsert/remove/replaceAll are no-ops here.
         bfuCache = mockk(relaxed = true)
+        // Relaxed mocks return false for Boolean; the real scheduler arms by default.
+        every { scheduler.scheduleAtChecked(any(), any()) } returns true
         // Context is only used by rescheduleAllOnBoot() for the missed
         // notification — these unit tests don't exercise that path. A
         // relaxed mock is enough; if a test ever hits it, the NotificationManager
@@ -99,7 +106,7 @@ class AlarmRepositoryTest {
 
     @Test
     fun `syncWatchNow with list sync on pushes settings and the list`() = runTest {
-        coEvery { settingsStore.snapshot() } returns SettingsState(watchListSync = true)
+        coEvery { settingsStore.snapshot() } returns SettingsState(watchListSync = true, watchListSyncUnlocked = true)
         coEvery { wearBridge.forceSync(any()) } returns ForceSyncResult.Ok(0)
 
         val result = repo.syncWatchNow()
@@ -110,8 +117,20 @@ class AlarmRepositoryTest {
     }
 
     @Test
+    fun `locked legacy enabled preference cannot send or clear the watch list`() = runTest {
+        coEvery { settingsStore.snapshot() } returns SettingsState(watchListSync = true)
+
+        assertEquals(ForceSyncResult.ListSyncOff, repo.syncWatchNow())
+        assertEquals(ForceSyncResult.ListSyncOff, repo.setWatchListSync(false))
+
+        verify(exactly = 0) { wearBridge.sendSettingsChanged(any(), any()) }
+        coVerify(exactly = 0) { wearBridge.forceSync(any()) }
+        coVerify(exactly = 0) { settingsStore.setWatchListSync(any()) }
+    }
+
+    @Test
     fun `turning list sync off stores it and pushes an empty list`() = runTest {
-        coEvery { settingsStore.snapshot() } returns SettingsState(watchListSync = false)
+        coEvery { settingsStore.snapshot() } returns SettingsState(watchListSync = false, watchListSyncUnlocked = true)
         val pushed = mutableListOf<List<Alarm>>()
         coEvery { wearBridge.forceSync(any()) } coAnswers {
             val supplier = firstArg<suspend () -> List<Alarm>>()
@@ -128,7 +147,7 @@ class AlarmRepositoryTest {
 
     @Test
     fun `turning list sync on stores it and pushes the real list`() = runTest {
-        coEvery { settingsStore.snapshot() } returns SettingsState(watchListSync = true)
+        coEvery { settingsStore.snapshot() } returns SettingsState(watchListSync = true, watchListSyncUnlocked = true)
         val pushed = mutableListOf<List<Alarm>>()
         coEvery { wearBridge.forceSync(any()) } coAnswers {
             val supplier = firstArg<suspend () -> List<Alarm>>()
@@ -252,7 +271,7 @@ class AlarmRepositoryTest {
 
         assertNotNull(trigger)
         assertTrue("snooze must return a future trigger time", trigger!! >= before + 5 * 60_000L - 100L)
-        verify { scheduler.scheduleAt(match { it.id == 11L }, eq(trigger)) }
+        verify { scheduler.scheduleAtChecked(match { it.id == 11L }, eq(trigger)) }
     }
 
     @Test
@@ -269,14 +288,14 @@ class AlarmRepositoryTest {
             "snooze must honor alarm's own 7-min duration",
             trigger!! >= before + 7 * 60_000L - 100L && trigger <= before + 7 * 60_000L + 1_000L,
         )
-        verify { scheduler.scheduleAt(match { it.id == 12L }, eq(trigger)) }
+        verify { scheduler.scheduleAtChecked(match { it.id == 12L }, eq(trigger)) }
     }
 
     @Test
     fun `snooze on missing alarm returns null and does not schedule`() = runTest {
         val trigger = repo.snooze(999L)
         assertNull(trigger)
-        verify(exactly = 0) { scheduler.scheduleAt(any(), any()) }
+        verify(exactly = 0) { scheduler.scheduleAtChecked(any(), any()) }
     }
 
     @Test
@@ -290,7 +309,7 @@ class AlarmRepositoryTest {
         val trigger = repo.snooze(13L)
 
         assertNull(trigger)
-        verify(exactly = 0) { scheduler.scheduleAt(any(), any()) }
+        verify(exactly = 0) { scheduler.scheduleAtChecked(any(), any()) }
     }
 
     @Test
@@ -440,6 +459,114 @@ class AlarmRepositoryTest {
         assertEquals(2, dao.getById(1L)?.consecutiveSnoozeCount)
     }
 
+    // Fails before the change: scheduleAt ran first, so it is called even though the UPDATE throws.
+    @Test
+    fun `snoozeAt with a failing UPDATE arms nothing and changes nothing`() = runTest {
+        dao.upsert(recurringRow())
+        dao.failSetSnooze = true
+
+        val thrown = runCatching { repo.snoozeAt(1L, System.currentTimeMillis() + 60_000L) }.exceptionOrNull()
+
+        assertNotNull(thrown)
+        verify(exactly = 0) { scheduler.scheduleAtChecked(any(), any()) }
+        assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
+        assertNull(dao.getById(1L)?.snoozedUntilEpoch)
+    }
+
+    // Fails before the change: scheduleAt was called before the UPDATE, so the recorded order is reversed.
+    @Test
+    fun `snoozeAt writes the UPDATE before arming AlarmManager`() = runTest {
+        dao.upsert(recurringRow())
+        every { scheduler.scheduleAtChecked(any(), any()) } answers { dao.events += "scheduleAt"; true }
+
+        repo.snoozeAt(1L, 1_800_000_000_000L)
+
+        assertEquals(listOf("setSnooze", "scheduleAt"), dao.events)
+        assertEquals(1, dao.getById(1L)?.consecutiveSnoozeCount)
+        assertEquals(1_800_000_000_000L, dao.getById(1L)?.snoozedUntilEpoch)
+    }
+
+    @Test
+    fun `snooze with a failing UPDATE arms nothing`() = runTest {
+        dao.upsert(recurringRow().copy(snoozeMinutes = 5))
+        dao.failSetSnooze = true
+
+        runCatching { repo.snooze(1L) }
+
+        verify(exactly = 0) { scheduler.scheduleAtChecked(any(), any()) }
+    }
+
+    // Fails before the change: the refusal was swallowed, the row kept the snooze and snoozeAt returned the trigger.
+    @Test
+    fun `snoozeAt reverts the row and throws when arming is refused`() = runTest {
+        dao.upsert(recurringRow().copy(consecutiveSnoozeCount = 1, snoozedUntilEpoch = 5L))
+        every { scheduler.scheduleAtChecked(any(), any()) } returns false
+
+        val thrown = runCatching { repo.snoozeAt(1L, 1_800_000_000_000L) }.exceptionOrNull()
+
+        assertNotNull(thrown)
+        assertEquals(1, dao.getById(1L)?.consecutiveSnoozeCount)
+        assertEquals(5L, dao.getById(1L)?.snoozedUntilEpoch)
+        coVerify(exactly = 0) { bfuCache.upsert(any()) }
+    }
+
+    @Test
+    fun `snooze reverts the row and returns null when arming is refused`() = runTest {
+        dao.upsert(recurringRow().copy(snoozeMinutes = 5))
+        every { scheduler.scheduleAtChecked(any(), any()) } returns false
+
+        assertNull(repo.snooze(1L))
+
+        assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
+        assertNull(dao.getById(1L)?.snoozedUntilEpoch)
+        coVerify(exactly = 0) { bfuCache.upsert(any()) }
+    }
+
+    // Fails before the change: the widget/BFU exception propagated out of snoozeAt after the arm.
+    @Test
+    fun `snoozeAt still returns the trigger when follow-ups fail after a successful arm`() = runTest {
+        dao.upsert(recurringRow())
+        coEvery { widgetRefresher.refresh() } throws IllegalStateException("widget")
+        coEvery { bfuCache.upsert(any()) } throws IllegalStateException("bfu")
+
+        assertEquals(1_800_000_000_000L, repo.snoozeAt(1L, 1_800_000_000_000L))
+        assertEquals(1, dao.getById(1L)?.consecutiveSnoozeCount)
+    }
+
+    // Fails before the change: the widget exception propagated out after the row was already changed.
+    @Test
+    fun `setEnabledLocalOnly keeps the change when the widget refresh throws`() = runTest {
+        dao.upsert(recurringRow())
+        coEvery { widgetRefresher.refresh() } throws IllegalStateException("widget")
+
+        repo.setEnabledLocalOnly(1L, false)
+
+        assertEquals(false, dao.getById(1L)?.enabled)
+        verify { scheduler.cancel(1L) }
+    }
+
+    @Test
+    fun `delete keeps the change when mirrors and widget throw`() = runTest {
+        dao.upsert(recurringRow())
+        coEvery { widgetRefresher.refresh() } throws IllegalStateException("widget")
+        coEvery { bfuCache.remove(any()) } throws IllegalStateException("bfu")
+        coEvery { tombstones.add(any(), any(), any()) } throws IllegalStateException("tomb")
+
+        repo.delete(1L)
+
+        assertNull(dao.getById(1L))
+    }
+
+    @Test
+    fun `resetSnoozeCounter keeps the reset when the BFU mirror throws`() = runTest {
+        dao.upsert(recurringRow().copy(consecutiveSnoozeCount = 2))
+        coEvery { bfuCache.dropPendingSnoozeBumps(any()) } throws IllegalStateException("bfu")
+
+        repo.resetSnoozeCounter(1L)
+
+        assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
+    }
+
     @Test
     fun `resetSnoozeCounter clears the counter`() = runTest {
         dao.upsert(AlarmEntity(
@@ -451,6 +578,165 @@ class AlarmRepositoryTest {
         repo.resetSnoozeCounter(1L)
 
         assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
+    }
+
+    // --- Disable is all-or-nothing (R4-1) ----------------------------------
+
+    private suspend fun seedEnabledSnoozed() {
+        dao.upsert(recurringRow().copy(snoozedUntilEpoch = 1_800_000_000_000L, consecutiveSnoozeCount = 2))
+    }
+
+    // Fails before the change: cancel/row read/mirror exceptions escaped after the commit.
+    @Test
+    fun `setEnabledLocalOnly false commits one statement and swallows later failures`() = runTest {
+        seedEnabledSnoozed()
+        every { scheduler.cancel(any()) } throws IllegalStateException("cancel boom")
+        dao.failGetById = true
+        coEvery { bfuCache.upsert(any()) } throws IllegalStateException("bfu boom")
+
+        repo.setEnabledLocalOnly(1L, false)
+
+        dao.failGetById = false
+        assertEquals(1, dao.disableCalls)
+        assertEquals(false, dao.getById(1L)?.enabled)
+        assertNull(dao.getById(1L)?.snoozedUntilEpoch)
+    }
+
+    // Fails before the change: same escape path.
+    @Test
+    fun `setEnabled false commits one statement and swallows later failures`() = runTest {
+        seedEnabledSnoozed()
+        every { scheduler.cancel(any()) } throws IllegalStateException("cancel boom")
+        dao.failGetById = true
+        coEvery { bfuCache.upsert(any()) } throws IllegalStateException("bfu boom")
+
+        repo.setEnabled(1L, false)
+
+        dao.failGetById = false
+        assertEquals(1, dao.disableCalls)
+        assertEquals(false, dao.getById(1L)?.enabled)
+        assertNull(dao.getById(1L)?.snoozedUntilEpoch)
+    }
+
+    @Test
+    fun `setEnabled true still propagates a scheduler failure`() = runTest {
+        dao.upsert(recurringRow().copy(enabled = false))
+        every { scheduler.schedule(any()) } throws IllegalStateException("schedule boom")
+
+        val failure = runCatching { repo.setEnabled(1L, true) }.exceptionOrNull()
+
+        assertTrue(failure is IllegalStateException)
+    }
+
+    // Fails before the change: the unguarded post-reset row read threw.
+    @Test
+    fun `resetSnoozeCounter swallows a failing post-reset row read`() = runTest {
+        seedEnabledSnoozed()
+        dao.failGetById = true
+
+        repo.resetSnoozeCounter(1L)
+
+        dao.failGetById = false
+        assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
+    }
+
+    private fun repoWith(cache: BfuAlarmCache) = AlarmRepository(
+        dao = dao,
+        scheduler = scheduler,
+        wearBridge = wearBridge,
+        tombstones = tombstones,
+        widgetRefresher = widgetRefresher,
+        settingsStore = settingsStore,
+        bfuCache = cache,
+        appContext = appContext,
+        ioDispatcher = UnconfinedTestDispatcher(),
+    )
+
+    private fun recurringRow() = AlarmEntity(
+        id = 1L, label = "x", hour = 7, minute = 0, daysOfWeek = DaysOfWeek.WEEKDAYS,
+        enabled = true, audioUri = null, audioName = null, isVibrationOnly = false,
+        updatedAtEpoch = 1L, consecutiveSnoozeCount = 0,
+    )
+
+    private fun recurringAlarm() = Alarm(
+        id = 1L, hour = 7, minute = 0, daysOfWeek = DaysOfWeek.WEEKDAYS,
+        enabled = true, updatedAtEpoch = 1L,
+    )
+
+    // Fails before the change: Room ends at 2 (the two bumps survive the dismiss and are applied).
+    @Test
+    fun `two pre-unlock snoozes then dismiss then unlock leaves the Room count at zero`() = runTest {
+        val cache = BfuAlarmCache(java.io.File(tmp.root, "bfu.json"))
+        dao.upsert(recurringRow())
+        cache.replaceAll(listOf(recurringAlarm()))
+        cache.recordPreUnlockSnooze(1L, 1_800_000_000_000L)
+        cache.recordPreUnlockSnooze(1L, 1_800_000_300_000L)
+        cache.markDismissed(1L)
+
+        repoWith(cache).rescheduleAllOnBoot()
+
+        assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
+    }
+
+    @Test
+    fun `snooze after a pre-unlock dismiss still counts at unlock`() = runTest {
+        val cache = BfuAlarmCache(java.io.File(tmp.root, "bfu.json"))
+        dao.upsert(recurringRow())
+        cache.replaceAll(listOf(recurringAlarm()))
+        cache.recordPreUnlockSnooze(1L, 1_800_000_000_000L)
+        cache.markDismissed(1L)
+        cache.recordPreUnlockSnooze(1L, 1_800_000_300_000L)
+
+        repoWith(cache).rescheduleAllOnBoot()
+
+        assertEquals(1, dao.getById(1L)?.consecutiveSnoozeCount)
+    }
+
+    // Fails before the change: the pending bump stays and the next unlock adds it to the reset count.
+    @Test
+    fun `resetSnoozeCounter also drops pending BFU bumps`() = runTest {
+        val cache = BfuAlarmCache(java.io.File(tmp.root, "bfu.json"))
+        dao.upsert(recurringRow().copy(consecutiveSnoozeCount = 2))
+        cache.replaceAll(listOf(recurringAlarm()))
+        cache.recordPreUnlockSnooze(1L, 1_800_000_000_000L)
+
+        repoWith(cache).resetSnoozeCounter(1L)
+
+        assertTrue(cache.drainPendingSnoozeBumps().isEmpty())
+        assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
+    }
+
+    // Fails before the change: the Room count stays 4 because applyPendingDismissals never reset it.
+    @Test
+    fun `applyPendingDismissals resets the Room counter for each drained id`() = runTest {
+        dao.upsert(recurringRow().copy(consecutiveSnoozeCount = 4))
+        coEvery { bfuCache.drainPendingDismissals() } returns setOf(1L)
+
+        repo.rescheduleAllOnBoot()
+
+        assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
+    }
+
+    @Test
+    fun `unlock reconciliation retains snooze trigger committed before unlock`() = runTest {
+        val trigger = System.currentTimeMillis() + 600_000L
+        dao.upsert(AlarmEntity(
+            id = 1L, label = "x", hour = 7, minute = 0, daysOfWeek = DaysOfWeek.WEEKDAYS,
+            enabled = true, audioUri = null, audioName = null, isVibrationOnly = false,
+            updatedAtEpoch = 1L, consecutiveSnoozeCount = 0,
+        ))
+        every { bfuCache.getAll() } returns listOf(Alarm(
+            id = 1L, hour = 7, minute = 0, daysOfWeek = DaysOfWeek.WEEKDAYS,
+            enabled = true, updatedAtEpoch = 1L, snoozedUntilEpoch = trigger,
+        ))
+        coEvery { bfuCache.drainPendingSnoozes() } returns
+            mapOf(1L to BfuAlarmCache.PendingSnooze(1, trigger))
+
+        repo.rescheduleAllOnBoot()
+
+        assertEquals(trigger, dao.getById(1L)?.snoozedUntilEpoch)
+        assertEquals(1, dao.getById(1L)?.consecutiveSnoozeCount)
+        verify { scheduler.rescheduleAll(match { it.single().snoozedUntilEpoch == trigger }) }
     }
 
     @Test
@@ -573,13 +859,18 @@ class AlarmRepositoryTest {
 private class FakeAlarmDao : AlarmDao {
     private val rows = MutableStateFlow<Map<Long, AlarmEntity>>(emptyMap())
     private var nextId = 1L
+    var disableCalls = 0
+    var failGetById = false
 
     override fun observeAll(): Flow<List<AlarmEntity>> =
         rows.map { map -> map.values.sortedBy { it.id } }
 
     override suspend fun getAll(): List<AlarmEntity> = rows.value.values.toList()
 
-    override suspend fun getById(id: Long): AlarmEntity? = rows.value[id]
+    override suspend fun getById(id: Long): AlarmEntity? {
+        if (failGetById) error("getById boom")
+        return rows.value[id]
+    }
 
     override suspend fun upsert(entity: AlarmEntity): Long {
         val id = if (entity.id == 0L) nextId++ else entity.id.also { if (it >= nextId) nextId = it + 1 }
@@ -588,21 +879,20 @@ private class FakeAlarmDao : AlarmDao {
         return id
     }
 
-    override suspend fun delete(entity: AlarmEntity) {
-        rows.update { it - entity.id }
-    }
-
     override suspend fun deleteById(id: Long) {
         rows.update { it - id }
-    }
-
-    override suspend fun setEnabled(id: Long, enabled: Boolean) {
-        rows.update { map -> map[id]?.let { map + (id to it.copy(enabled = enabled)) } ?: map }
     }
 
     override suspend fun setEnabledStamped(id: Long, enabled: Boolean, stamp: Long) {
         rows.update { map ->
             map[id]?.let { map + (id to it.copy(enabled = enabled, updatedAtEpoch = stamp)) } ?: map
+        }
+    }
+
+    override suspend fun disableStamped(id: Long, stamp: Long) {
+        disableCalls++
+        rows.update { map ->
+            map[id]?.let { map + (id to it.copy(enabled = false, snoozedUntilEpoch = null, updatedAtEpoch = stamp)) } ?: map
         }
     }
 
@@ -615,6 +905,17 @@ private class FakeAlarmDao : AlarmDao {
     override suspend fun setConsecutiveSnoozeCount(id: Long, count: Int) {
         rows.update { map ->
             map[id]?.let { map + (id to it.copy(consecutiveSnoozeCount = count)) } ?: map
+        }
+    }
+
+    var failSetSnooze = false
+    val events = mutableListOf<String>()
+
+    override suspend fun setSnooze(id: Long, until: Long?, count: Int) {
+        if (failSetSnooze) throw IllegalStateException("simulated UPDATE failure")
+        events += "setSnooze"
+        rows.update { map ->
+            map[id]?.let { map + (id to it.copy(snoozedUntilEpoch = until, consecutiveSnoozeCount = count)) } ?: map
         }
     }
 }

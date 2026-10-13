@@ -263,4 +263,7 @@
     <string name="watch_picture_clear_confirm_body">Часы проснутся и ненадолго откроют GT Wake, чтобы убрать картинку.</string>
     <string name="watch_picture_confirm_ok">Продолжить</string>
     <string name="field_watch_vibration_hint">Режим «Не беспокоить», режим сна или вибрация «Нет» на часах могут её отключить.</string>
+    <string name="help_watch_sync_title">Синхронизация списка будильников</string>
+    <string name="help_watch_sync_body">Huawei не одобряет пробуждение часов для синхронизации списка будильников, поэтому эта настройка удалена. Будильники по-прежнему звонят на часах. Если у вас есть вопросы, свяжитесь с разработчиком.</string>
+    <string name="watch_list_sync_unlocked">Настройка синхронизации списка будильников разблокирована. Её можно включить в Настройках.</string>
 </resources>

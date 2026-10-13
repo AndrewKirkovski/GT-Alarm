@@ -246,4 +246,7 @@
     <string name="watch_picture_clear_confirm_body">手表将被唤醒并短暂打开 GT Wake 以移除图片。</string>
     <string name="watch_picture_confirm_ok">继续</string>
     <string name="field_watch_vibration_hint">手表上的勿扰模式、睡眠模式或振动设为“无”可能会使振动静音。</string>
+    <string name="help_watch_sync_title">闹钟列表同步</string>
+    <string name="help_watch_sync_body">华为不会批准唤醒手表以同步闹钟列表，因此此设置已被移除。手表上的闹钟仍可正常响铃。如有疑问，请联系开发者。</string>
+    <string name="watch_list_sync_unlocked">已解锁闹钟列表同步设置。您可以在设置中启用它。</string>
 </resources>

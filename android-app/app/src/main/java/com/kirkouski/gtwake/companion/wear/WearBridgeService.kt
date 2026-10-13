@@ -60,10 +60,10 @@ interface WearBridgeService {
     fun sendAlarmFired(alarmId: Long, ringHints: AlarmRingHints?)
 
     /** Pre-unlock dismiss — awaits transport 207 only (no app-level receiver pre-unlock). */
-    suspend fun sendAlarmDismissed(alarmId: Long): Boolean
+    suspend fun sendAlarmDismissed(alarmId: Long, firedAt: Long? = null): Boolean
 
     /** Pre-unlock snooze (transport-only, like [sendAlarmDismissed]). */
-    suspend fun sendAlarmSnoozed(alarmId: Long, rescheduleEpoch: Long): Boolean
+    suspend fun sendAlarmSnoozed(alarmId: Long, rescheduleEpoch: Long, firedAt: Long? = null): Boolean
 
     /**
      * Pre-arm: send `alarm_fired` then await the watch's `alarm_ringing`
@@ -97,14 +97,61 @@ interface WearBridgeService {
      * service doesn't tear down (and risk process-kill) before the watch
      * has heard about the dismiss — otherwise the watch keeps ringing.
      */
-    suspend fun sendAlarmDismissedAwaiting(alarmId: Long, timeoutMs: Long): Boolean
+    suspend fun sendAlarmDismissedAwaiting(
+        alarmId: Long,
+        timeoutMs: Long,
+        firedAt: Long? = null,
+    ): Boolean
 
     /** Same rationale as [sendAlarmDismissedAwaiting] but for snooze. */
     suspend fun sendAlarmSnoozedAwaiting(
         alarmId: Long,
         rescheduleEpoch: Long,
         timeoutMs: Long,
+        firedAt: Long? = null,
     ): Boolean
+
+    /**
+     * Reply to a watch-originated ring action (`alarm_dismissed_ack` /
+     * `alarm_snoozed_ack`). Only for occurrence-aware requests (the request
+     * carried `firedAt`); released watches ignore this type. Sent WITHOUT a
+     * wake: the watch app is running because it is waiting for this reply.
+     * Transport retries on 206 are bounded to a few seconds.
+     */
+    fun sendPeerActionAck(
+        alarmId: Long,
+        type: String,
+        requestStamp: Long,
+        firedAtEpoch: Long?,
+        ok: Boolean,
+    ) = Unit
+
+    /**
+     * Tell the watch that this ring occurrence is already over on the phone,
+     * using the existing peer-ended envelope (`alarm_dismissed` or
+     * `alarm_snoozed` with `firedAt`). Used only to answer a watch request
+     * for an occurrence that is no longer current. Sent WITHOUT a wake, with
+     * the same bounded transport retry as [sendPeerActionAck].
+     */
+    fun sendPeerEnded(alarmId: Long, type: String, firedAtEpoch: Long) = Unit
+
+    /**
+     * True when watch messages can reach the phone: the P2P receiver is
+     * registered for the current device. The ring service advertises
+     * `supportsActionAck` in `alarm_fired` only while this holds.
+     */
+    val isReceiveReady: Boolean
+        get() = false
+
+    /**
+     * Make sure the P2P receiver is registered (device lookup + register),
+     * waiting at most [timeoutMs]. Called by the ring service before it builds
+     * the `alarm_fired` hints: on a cold-process alarm the registration that
+     * Application.onCreate starts is usually not finished yet, and without it
+     * the ring would never advertise `supportsActionAck`. Returns
+     * [isReceiveReady] afterwards. Never wakes or pings the watch.
+     */
+    suspend fun awaitReceiveReady(timeoutMs: Long): Boolean = isReceiveReady
 
     /**
      * Upload the shared default watch-side background image to the paired

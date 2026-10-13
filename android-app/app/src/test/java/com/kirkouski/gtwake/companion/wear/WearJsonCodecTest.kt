@@ -20,6 +20,46 @@ class WearJsonCodecTest {
     }
 
     @Test
+    fun `sync hash carries optional commit capability and request stamp`() {
+        val modern = WearJsonCodec.parseIncoming(JSONObject().apply {
+            put("type", "sync_hash")
+            put("hash", "89abcdef")
+            put("supportsCommitAck", true)
+            put("updatedAtEpoch", 1_700_000_000_000L)
+        }) as IncomingMessage.SyncHash
+        assertEquals(true, modern.supportsCommitAck)
+        assertEquals(1_700_000_000_000L, modern.updatedAtEpoch)
+
+        val legacy = WearJsonCodec.parseIncoming(JSONObject().apply {
+            put("type", "sync_hash")
+            put("hash", "89abcdef")
+        }) as IncomingMessage.SyncHash
+        assertEquals(false, legacy.supportsCommitAck)
+        assertEquals(0L, legacy.updatedAtEpoch)
+    }
+
+    @Test
+    fun `ring action and acknowledgement preserve optional occurrence and result`() {
+        val action = WearJsonCodec.parseIncoming(JSONObject().apply {
+            put("type", "alarm_snoozed")
+            put("alarmId", 7L)
+            put("updatedAtEpoch", 700L)
+            put("firedAt", 1_700_000_000_000L)
+        }) as IncomingMessage.AlarmSnoozed
+        assertEquals(1_700_000_000_000L, action.firedAtEpoch)
+
+        val ack = WearJsonCodec.parseIncoming(JSONObject().apply {
+            put("type", "alarm_snoozed_ack")
+            put("alarmId", 7L)
+            put("updatedAtEpoch", 700L)
+            put("firedAt", 1_700_000_000_000L)
+            put("ok", false)
+        }) as IncomingMessage.AlarmSnoozedAck
+        assertEquals(action.firedAtEpoch, ack.firedAtEpoch)
+        assertEquals(false, ack.ok)
+    }
+
+    @Test
     fun `parseIncoming returns null when type empty string`() {
         val json = JSONObject().apply {
             put("type", "")
@@ -685,5 +725,30 @@ class WearJsonCodecTest {
             0,
             parseWithExtras { put("consecutiveSnoozeCount", 42) }.consecutiveSnoozeCount,
         )
+    }
+
+    // Pins the released 1.0.11 watch envelopes: no firedAt and no ok. The bridge
+    // treats "firedAt == null" as the legacy marker, so the codec must keep
+    // reporting null (not 0) for these.
+    @Test fun `released watch envelopes parse with null firedAt and null ok`() {
+        val text = checkNotNull(javaClass.classLoader?.getResourceAsStream("fixtures/released-1.0.11-envelopes.json"))
+            .bufferedReader(Charsets.UTF_8).use { it.readText() }
+        val released = JSONObject(text).getJSONObject("watchToPhone")
+        fun parse(name: String) = WearJsonCodec.parseIncoming(JSONObject(released.getJSONObject(name).toString()))
+
+        val ringing = parse("alarm_ringing") as IncomingMessage.AlarmRinging
+        assertNull(ringing.firedAtEpoch)
+        assertEquals(1_760_000_003_000L, ringing.updatedAtEpoch)
+
+        val dismissedAck = parse("alarm_dismissed_ack") as IncomingMessage.AlarmDismissedAck
+        assertNull(dismissedAck.firedAtEpoch)
+        assertNull(dismissedAck.ok)
+
+        val snoozedAck = parse("alarm_snoozed_ack") as IncomingMessage.AlarmSnoozedAck
+        assertNull(snoozedAck.firedAtEpoch)
+        assertNull(snoozedAck.ok)
+
+        assertNull((parse("alarm_dismissed") as IncomingMessage.AlarmDismissed).firedAtEpoch)
+        assertNull((parse("alarm_snoozed") as IncomingMessage.AlarmSnoozed).firedAtEpoch)
     }
 }

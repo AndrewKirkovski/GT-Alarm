@@ -49,11 +49,17 @@ internal object WearJsonCodec {
         },
         "alarm_deleted" to { id, ts, _ -> IncomingMessage.AlarmDeleted(id, ts) },
         "alarm_fired" to { id, ts, _ -> IncomingMessage.AlarmFired(id, ts) },
-        "alarm_dismissed" to { id, ts, _ -> IncomingMessage.AlarmDismissed(id, ts) },
-        "alarm_snoozed" to { id, ts, _ -> IncomingMessage.AlarmSnoozed(id, ts) },
-        "alarm_ringing" to { id, ts, _ -> IncomingMessage.AlarmRinging(id, ts) },
-        "alarm_dismissed_ack" to { id, ts, _ -> IncomingMessage.AlarmDismissedAck(id, ts) },
-        "alarm_snoozed_ack" to { id, ts, _ -> IncomingMessage.AlarmSnoozedAck(id, ts) },
+        "alarm_dismissed" to { id, ts, j ->
+            IncomingMessage.AlarmDismissed(id, ts, optionalPositiveLong(j, "firedAt"))
+        },
+        "alarm_snoozed" to { id, ts, j -> IncomingMessage.AlarmSnoozed(id, ts, optionalPositiveLong(j, "firedAt")) },
+        "alarm_ringing" to { id, ts, j -> IncomingMessage.AlarmRinging(id, ts, optionalPositiveLong(j, "firedAt")) },
+        "alarm_dismissed_ack" to { id, ts, j ->
+            IncomingMessage.AlarmDismissedAck(id, ts, optionalPositiveLong(j, "firedAt"), optionalBoolean(j, "ok"))
+        },
+        "alarm_snoozed_ack" to { id, ts, j ->
+            IncomingMessage.AlarmSnoozedAck(id, ts, optionalPositiveLong(j, "firedAt"), optionalBoolean(j, "ok"))
+        },
     )
 
     // reason: ReturnCount covers the distinct meta-envelope shapes handled
@@ -78,7 +84,12 @@ internal object WearJsonCodec {
                 Log.w(TAG, "sync_hash dropped — malformed hash='$hash'")
                 return null
             }
-            return IncomingMessage.SyncHash(alarmId = 0L, updatedAtEpoch = 0L, hash = hash)
+            return IncomingMessage.SyncHash(
+                alarmId = 0L,
+                updatedAtEpoch = json.optLong("updatedAtEpoch", 0L).coerceAtLeast(0L),
+                hash = hash,
+                supportsCommitAck = json.optBoolean("supportsCommitAck", false),
+            )
         }
         // Watch screen report — meta-protocol (no alarmId/LWW stamp), the
         // watch's reply to a phone screen_request. Parsed in a helper to keep
@@ -94,6 +105,12 @@ internal object WearJsonCodec {
             DISPATCH[type]?.invoke(alarmId, ts, json)
         }
     }
+
+    private fun optionalPositiveLong(json: JSONObject, key: String): Long? =
+        if (!json.has(key) || json.isNull(key)) null else json.optLong(key, -1L).takeIf { it > 0L }
+
+    private fun optionalBoolean(json: JSONObject, key: String): Boolean? =
+        if (!json.has(key) || json.isNull(key)) null else json.optBoolean(key)
 
     // Parse a `watch_screen` reply. Validates dims into a sane pixel range
     // (drop out-of-range — would otherwise exceed the encoder's MAX_DIM guard)

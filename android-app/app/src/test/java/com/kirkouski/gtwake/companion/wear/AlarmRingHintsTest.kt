@@ -55,6 +55,24 @@ class AlarmRingHintsTest {
     }
 
     @Test
+    fun `locked stored list sync preference is not exposed in ring hints`() {
+        val hints = AlarmRingHints.from(
+            alarm(),
+            SettingsState(watchListSync = true, watchListSyncUnlocked = false),
+        )
+        assertEquals(false, hints.listSync)
+    }
+
+    @Test
+    fun `unlocked list sync preference is exposed in ring hints`() {
+        val hints = AlarmRingHints.from(
+            alarm(),
+            SettingsState(watchListSync = true, watchListSyncUnlocked = true),
+        )
+        assertEquals(true, hints.listSync)
+    }
+
+    @Test
     fun `pattern flows through as enum name`() {
         listOf(
             VibrationPattern.PULSE,

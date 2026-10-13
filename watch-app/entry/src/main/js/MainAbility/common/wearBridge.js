@@ -11,6 +11,7 @@
 // setPeerFingerPrint(watch_bundle_base64_pubkey) call.
 import { P2pClient, Message, Builder } from '../wearEngine/wearengine.js';
 import Logger from './logger.js';
+import Ticker from './ticker.js';
 
 // PHONE_PKG_NAME is the Android phone APK's applicationId. Used by
 // setPeerPkgName so the watch's P2pClient knows which peer to send to.
@@ -47,36 +48,35 @@ var fileHandler = null;
 // which bundle's receiver actually fired.
 var pageTag = 'app';
 
+function noop() {}
+
 function ensureClient() {
     if (client === null) {
         client = new P2pClient();
         client.setPeerPkgName(PHONE_PKG_NAME);
         client.setPeerFingerPrint(PHONE_CERT_SHA256);
-        Logger.i('wearBridge.ensureClient created (pkg+fp set, wrapper-required)');
     }
     return client;
 }
 
 function dispatchIncoming(rawMessage) {
     if (!incomingHandler) {
-        Logger.w('wearBridge.incoming no handler set — dropping');
         return;
     }
     if (typeof rawMessage !== 'string') {
-        Logger.w('wearBridge.incoming non-string payload');
         return;
     }
     var parsed = null;
     try {
         parsed = JSON.parse(rawMessage);
     } catch (e) {
-        Logger.err('wearBridge.incoming JSON.parse', e);
+        Logger.err('bad JSON', e);
         return;
     }
     try {
         incomingHandler(parsed);
     } catch (e) {
-        Logger.err('wearBridge.incoming handler threw', e);
+        Logger.err('handler threw', e);
     }
 }
 
@@ -93,7 +93,6 @@ function dispatchIncoming(rawMessage) {
 // idempotent operation.
 function installReceiver() {
     var c = ensureClient();
-    Logger.i('wearBridge[' + pageTag + '].registerReceiver call');
     c.registerReceiver({
         onSuccess: function () {
             Logger.i('wearBridge[' + pageTag + '].registerReceiver onSuccess');
@@ -106,8 +105,6 @@ function installReceiver() {
             // (string) for plain text messages. File messages arrive as
             // `{ isFileType: true, name: ..., mode: ... }` — we don't use those.
             if (data && data.isFileType) {
-                Logger.i('wearBridge[' + pageTag + '].onReceiveMessage file=' +
-                    data.name);
                 if (fileHandler) {
                     try {
                         fileHandler(data.name);
@@ -143,11 +140,9 @@ function installReceiver() {
 // GT 6 Pro when peer is unreachable — the JS callback just never fires and
 // the caller hangs forever otherwise).
 var SEND_TIMEOUT_MS = 3000;
+var sendSequence = 0;
 
 function sendOnceWithResult(envelope, cb) {
-    var c = ensureClient();
-    var payload = JSON.stringify(envelope);
-    var builder = new Builder();
     // CRITICAL: use setDescription (string path) NOT setPayload (ArrayBuffer
     // path). setPayload(jsString) calls setBufferPlayload internally, which
     // does `new Uint16Array(string)` — that yields zeros, then
@@ -156,36 +151,37 @@ function sendOnceWithResult(envelope, cb) {
     // callback. Matches HMS-Core official demo's setDescription("hello
     // wearEngine") pattern exactly. Verified by reading wearengine.js
     // 5.0.2.306 lines 430-457 against HMS demo index.js.
-    builder.setDescription(payload);
-    var msg = new Message();
-    msg.builder = builder;
     var settled = false;
-    function settle(success, reason) {
+    var timeoutId = 'wearSend' + (++sendSequence);
+    var settle = function (success, reason) {
         if (settled) return;
         settled = true;
+        Ticker.clear(timeoutId);
         if (cb) cb(success, reason);
-    }
-    var timeoutId = setTimeout(function () {
+    };
+    Ticker.set(timeoutId, SEND_TIMEOUT_MS, function () {
         settle(false, 'timeout');
-    }, SEND_TIMEOUT_MS);
+    });
     try {
+        var c = ensureClient();
+        var builder = new Builder();
+        builder.setDescription(JSON.stringify(envelope));
+        var msg = new Message();
+        msg.builder = builder;
         c.send(msg, {
-            onSuccess: function () {},
+            onSuccess: noop,
             onFailure: function () {
-                clearTimeout(timeoutId);
                 settle(false, 'fail');
             },
             onSendResult: function (resultCode) {
                 var code = resultCode && typeof resultCode === 'object'
                     ? resultCode.code
                     : resultCode;
-                clearTimeout(timeoutId);
                 settle(code === 207, '' + code);
             },
-            onSendProgress: function () {},
+            onSendProgress: noop,
         });
     } catch (e) {
-        clearTimeout(timeoutId);
         settle(false, 'throw');
     }
 }
@@ -211,7 +207,9 @@ function sendJson(envelope) {
 // first successful attempt or after `maxAttempts` failures. Callers like
 // ring.js use it to expedite app.terminate after the ack lands instead
 // of waiting out the hard-cap.
-function sendJsonWithRetry(envelope, maxAttempts, attempt, terminalCb) {
+// Optional isLive() is checked before every retry: once it returns false the
+// chain stops silently, so a request the page has given up on is never re-sent.
+function sendJsonWithRetry(envelope, maxAttempts, attempt, terminalCb, isLive) {
     if (!maxAttempts) maxAttempts = 3;
     if (!attempt) attempt = 1;
     sendOnceWithResult(envelope, function (success, reason) {
@@ -223,9 +221,10 @@ function sendJsonWithRetry(envelope, maxAttempts, attempt, terminalCb) {
             if (terminalCb) terminalCb(false, reason);
             return;
         }
-        setTimeout(function () {
-            sendJsonWithRetry(envelope, maxAttempts, attempt + 1, terminalCb);
-        }, 500);
+        Ticker.set('wearRetry' + (++sendSequence), 500, function () {
+            if (isLive && !isLive()) return;
+            sendJsonWithRetry(envelope, maxAttempts, attempt + 1, terminalCb, isLive);
+        });
     });
 }
 
@@ -267,32 +266,39 @@ export default {
     // full alarm list (debounced forceSync) on every mutation and on
     // foreground. Ring page uses `cb` to expedite app.terminate once the
     // transport succeeds, instead of waiting out the hard-cap.
-    notifyDismissed: function (alarmId, cb) {
-        sendJsonWithRetry({
+    notifyDismissed: function (alarmId, firedAt, requestStamp, cb, isLive) {
+        var envelope = {
             type: 'alarm_dismissed',
             alarmId: alarmId,
-            updatedAtEpoch: Date.now(),
-        }, 3, 1, cb);
+            updatedAtEpoch: requestStamp,
+        };
+        if (typeof firedAt === 'number' && firedAt > 0) envelope.firedAt = firedAt;
+        sendJsonWithRetry(envelope, 3, 1, cb, isLive);
     },
     // The phone owns snooze duration (per-alarm `alarm.snoozeMinutes`),
     // so the watch never sends a reschedule time — phone derives it from
     // the local row when the message arrives.
-    notifySnoozed: function (alarmId, cb) {
-        sendJsonWithRetry({
+    notifySnoozed: function (alarmId, firedAt, requestStamp, cb, isLive) {
+        var envelope = {
             type: 'alarm_snoozed',
             alarmId: alarmId,
-            updatedAtEpoch: Date.now(),
-        }, 3, 1, cb);
+            updatedAtEpoch: requestStamp,
+        };
+        if (typeof firedAt === 'number' && firedAt > 0) envelope.firedAt = firedAt;
+        sendJsonWithRetry(envelope, 3, 1, cb, isLive);
     },
     // Response to a phone-originated `sync_check` envelope. Phone uses the
     // hash to decide whether to skip the full force-sync push. Fire-and-
     // forget — if it's dropped, the phone just times out and does the
     // full push (graceful degradation, never user-blocking).
-    sendSyncHash: function (hash) {
-        sendJson({
+    sendSyncHash: function (hash, updatedAtEpoch) {
+        var envelope = {
             type: 'sync_hash',
             hash: hash,
-        });
+            supportsCommitAck: true,
+        };
+        if (typeof updatedAtEpoch === 'number') envelope.updatedAtEpoch = updatedAtEpoch;
+        sendJson(envelope);
     },
 
     // Reply to a phone-originated `screen_request` with this watch's panel
@@ -339,11 +345,11 @@ export default {
     // json`) and re-sends until it arrives; a 207 only means Wear Engine accepted
     // delivery, NOT that this (often just-launched / about-to-terminate) app
     // applied it. Retry the small ack so a single drop doesn't re-send the file.
-    sendAlarmsReceived: function (hash) {
+    sendAlarmsReceived: function (hash, requestStamp) {
         sendJsonWithRetry({
             type: 'alarms_received',
             hash: '' + hash,
-            updatedAtEpoch: Date.now(),
+            updatedAtEpoch: requestStamp,
         }, 3, 1);
     },
 
@@ -352,12 +358,14 @@ export default {
     // two devices ring in lock-step instead of phone-first / watch-late.
     // Use retry path because losing this means the phone has to time out
     // (3 s) before falling back to ringing alone.
-    sendRinging: function (alarmId) {
-        sendJsonWithRetry({
+    sendRinging: function (alarmId, firedAt, requestStamp) {
+        var envelope = {
             type: 'alarm_ringing',
             alarmId: alarmId,
-            updatedAtEpoch: Date.now(),
-        }, 3, 1);
+            updatedAtEpoch: requestStamp,
+        };
+        if (typeof firedAt === 'number' && firedAt > 0) envelope.firedAt = firedAt;
+        sendJsonWithRetry(envelope, 3, 1);
     },
 
     // Application-level ack for a phone-originated `alarm_dismissed`
@@ -369,21 +377,25 @@ export default {
     // way to detect a silently-dropped envelope and the user would have
     // to manually dismiss on the watch too. Retry path because losing
     // it means the phone falls back to time-out + "stale dismiss" UX.
-    sendDismissedAck: function (alarmId) {
+    sendDismissedAck: function (message, cb) {
         sendJsonWithRetry({
             type: 'alarm_dismissed_ack',
-            alarmId: alarmId,
-            updatedAtEpoch: Date.now(),
-        }, 3, 1);
+            alarmId: message.alarmId,
+            updatedAtEpoch: message.updatedAtEpoch,
+            firedAt: message.firedAt,
+            ok: true,
+        }, 3, 1, cb);
     },
 
     // Symmetric to sendDismissedAck — for the snooze action.
-    sendSnoozedAck: function (alarmId) {
+    sendSnoozedAck: function (message, cb) {
         sendJsonWithRetry({
             type: 'alarm_snoozed_ack',
-            alarmId: alarmId,
-            updatedAtEpoch: Date.now(),
-        }, 3, 1);
+            alarmId: message.alarmId,
+            updatedAtEpoch: message.updatedAtEpoch,
+            firedAt: message.firedAt,
+            ok: true,
+        }, 3, 1, cb);
     },
 
     // Dev-only: relay a BATCH of watch-side log lines to the phone so they

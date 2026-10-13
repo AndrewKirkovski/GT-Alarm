@@ -1,16 +1,22 @@
 package com.kirkouski.gtwake.companion.data.sync
 
 import android.content.Context
+import android.content.Intent
 import com.kirkouski.gtwake.companion.data.Tombstones
 import com.kirkouski.gtwake.companion.data.db.AlarmDao
 import com.kirkouski.gtwake.companion.data.db.AlarmEntity
 import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.domain.DaysOfWeek
+import com.kirkouski.gtwake.companion.ring.AlarmRingService
 import com.kirkouski.gtwake.companion.scheduler.AlarmScheduler
 import com.kirkouski.gtwake.companion.widget.WidgetRefresher
 import io.mockk.coVerify
+import io.mockk.EqMatcher
+import io.mockk.OfTypeMatcher
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkConstructor
+import io.mockk.unmockkConstructor
 import io.mockk.verify
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -56,6 +62,60 @@ class IncomingMessageHandlerTest {
         epoch: Long = 1_000L,
         days: Int = DaysOfWeek.NONE,
     ) = Alarm(id = id, label = "x", hour = 7, minute = 0, daysOfWeek = days, enabled = enabled, updatedAtEpoch = epoch)
+
+    @Test
+    fun `occurrence-scoped peer snooze reaches ring service before Room lookup`() = runTest {
+        mockkConstructor(Intent::class)
+        try {
+            // A mock-valued equality matcher records Context.hashCode while
+            // MockK indexes constructor prototypes. Match its type instead.
+            val contextMatcher = OfTypeMatcher<Context>(Context::class)
+            val serviceMatcher = EqMatcher(AlarmRingService::class.java)
+            every {
+                constructedWith<Intent>(contextMatcher, serviceMatcher).setAction(any())
+            } answers { self as Intent }
+            every {
+                constructedWith<Intent>(contextMatcher, serviceMatcher).putExtra(any<String>(), any<Long>())
+            } answers { self as Intent }
+            every {
+                constructedWith<Intent>(contextMatcher, serviceMatcher).putExtra(any<String>(), any<Boolean>())
+            } answers { self as Intent }
+            every { context.startService(any()) } returns null
+
+            handler.handle(
+                IncomingMessage.AlarmSnoozed(
+                    alarmId = 7L,
+                    updatedAtEpoch = 700L,
+                    firedAtEpoch = 1_700_000_000_000L,
+                ),
+            )
+
+            verify(exactly = 1) { context.startService(any()) }
+            verify {
+                constructedWith<Intent>(contextMatcher, serviceMatcher).setAction(AlarmRingService.ACTION_SNOOZE)
+            }
+            verify {
+                constructedWith<Intent>(contextMatcher, serviceMatcher)
+                    .putExtra(AlarmRingService.EXTRA_ALARM_ID, 7L)
+            }
+            verify {
+                constructedWith<Intent>(contextMatcher, serviceMatcher)
+                    .putExtra(AlarmRingService.EXTRA_FROM_PEER, true)
+            }
+            verify {
+                constructedWith<Intent>(contextMatcher, serviceMatcher).putExtra("fired_at", 1_700_000_000_000L)
+            }
+            verify {
+                constructedWith<Intent>(contextMatcher, serviceMatcher).putExtra("request_stamp", 700L)
+            }
+            verify(exactly = 0) {
+                constructedWith<Intent>(contextMatcher, serviceMatcher)
+                    .putExtra(AlarmRingService.EXTRA_RESCHEDULE_EPOCH, any<Long>())
+            }
+        } finally {
+            unmockkConstructor(Intent::class)
+        }
+    }
 
     // --- Add / Update ---
 
@@ -278,6 +338,86 @@ class IncomingMessageHandlerTest {
         verify { context.startService(any()) }
     }
 
+    // Fails on the old code: a legacy dismiss (released watch, no firedAt) was
+    // still dispatched with request_stamp, which made the ring service reply to
+    // a watch that ignores the reply and must not be woken for it.
+    @Test
+    fun `legacy dismiss intent carries neither fired_at nor request_stamp`() = runTest {
+        withIntentMocks { ctx, service ->
+            handler.handle(IncomingMessage.AlarmDismissed(alarmId = 4L, updatedAtEpoch = 200L))
+
+            verify(exactly = 1) { context.startService(any()) }
+            verify { constructedWith<Intent>(ctx, service).setAction(AlarmRingService.ACTION_DISMISS) }
+            verify { constructedWith<Intent>(ctx, service).putExtra(AlarmRingService.EXTRA_ALARM_ID, 4L) }
+            verify { constructedWith<Intent>(ctx, service).putExtra(AlarmRingService.EXTRA_FROM_PEER, true) }
+            verify(exactly = 0) { constructedWith<Intent>(ctx, service).putExtra("fired_at", any<Long>()) }
+            verify(exactly = 0) { constructedWith<Intent>(ctx, service).putExtra("request_stamp", any<Long>()) }
+        }
+    }
+
+    @Test
+    fun `occurrence-aware dismiss intent carries fired_at and request_stamp`() = runTest {
+        withIntentMocks { ctx, service ->
+            handler.handle(
+                IncomingMessage.AlarmDismissed(
+                    alarmId = 4L,
+                    updatedAtEpoch = 200L,
+                    firedAtEpoch = 1_700_000_000_000L,
+                ),
+            )
+
+            verify(exactly = 1) { context.startService(any()) }
+            verify { constructedWith<Intent>(ctx, service).setAction(AlarmRingService.ACTION_DISMISS) }
+            verify(exactly = 1) { constructedWith<Intent>(ctx, service).putExtra("fired_at", 1_700_000_000_000L) }
+            verify(exactly = 1) { constructedWith<Intent>(ctx, service).putExtra("request_stamp", 200L) }
+        }
+    }
+
+    // The snooze split stays as before: firedAt dispatches with a stamp (see the
+    // occurrence-scoped test above), no firedAt goes through the legacy
+    // applySnooze path without a stamp.
+    @Test
+    fun `legacy snooze intent carries neither fired_at nor request_stamp`() = runTest {
+        dao.upsert(AlarmEntity(id = 11L, label = "z", hour = 8, minute = 0, daysOfWeek = 0,
+            enabled = true, audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L))
+        withIntentMocks { ctx, service ->
+            handler.handle(IncomingMessage.AlarmSnoozed(alarmId = 11L, updatedAtEpoch = 200L))
+
+            verify(exactly = 1) { context.startService(any()) }
+            verify { constructedWith<Intent>(ctx, service).setAction(AlarmRingService.ACTION_SNOOZE) }
+            verify(exactly = 0) { constructedWith<Intent>(ctx, service).putExtra("fired_at", any<Long>()) }
+            verify(exactly = 0) { constructedWith<Intent>(ctx, service).putExtra("request_stamp", any<Long>()) }
+        }
+    }
+
+    /**
+     * Stubs the Intents the handler builds for AlarmRingService so `putExtra`
+     * calls can be verified (Intent is an android stub in JVM tests). [block]
+     * gets the matchers to use with `constructedWith<Intent>(...)`.
+     */
+    private suspend fun withIntentMocks(
+        block: suspend (OfTypeMatcher<Context>, EqMatcher<Class<AlarmRingService>>) -> Unit,
+    ) {
+        mockkConstructor(Intent::class)
+        try {
+            val contextMatcher = OfTypeMatcher<Context>(Context::class)
+            val serviceMatcher = EqMatcher(AlarmRingService::class.java)
+            every {
+                constructedWith<Intent>(contextMatcher, serviceMatcher).setAction(any())
+            } answers { self as Intent }
+            every {
+                constructedWith<Intent>(contextMatcher, serviceMatcher).putExtra(any<String>(), any<Long>())
+            } answers { self as Intent }
+            every {
+                constructedWith<Intent>(contextMatcher, serviceMatcher).putExtra(any<String>(), any<Boolean>())
+            } answers { self as Intent }
+            every { context.startService(any()) } returns null
+            block(contextMatcher, serviceMatcher)
+        } finally {
+            unmockkConstructor(Intent::class)
+        }
+    }
+
     // --- New field coverage: relativeMinutes + selfDestruct ---
 
     @Test
@@ -364,21 +504,19 @@ private class FakeAlarmDao : AlarmDao {
         return id
     }
 
-    override suspend fun delete(entity: AlarmEntity) {
-        rows.update { it - entity.id }
-    }
-
     override suspend fun deleteById(id: Long) {
         rows.update { it - id }
-    }
-
-    override suspend fun setEnabled(id: Long, enabled: Boolean) {
-        rows.update { map -> map[id]?.let { map + (id to it.copy(enabled = enabled)) } ?: map }
     }
 
     override suspend fun setEnabledStamped(id: Long, enabled: Boolean, stamp: Long) {
         rows.update { map ->
             map[id]?.let { map + (id to it.copy(enabled = enabled, updatedAtEpoch = stamp)) } ?: map
+        }
+    }
+
+    override suspend fun disableStamped(id: Long, stamp: Long) {
+        rows.update { map ->
+            map[id]?.let { map + (id to it.copy(enabled = false, snoozedUntilEpoch = null, updatedAtEpoch = stamp)) } ?: map
         }
     }
 
@@ -391,6 +529,14 @@ private class FakeAlarmDao : AlarmDao {
     override suspend fun setConsecutiveSnoozeCount(id: Long, count: Int) {
         rows.update { map ->
             map[id]?.let { map + (id to it.copy(consecutiveSnoozeCount = count)) } ?: map
+        }
+    }
+
+    override suspend fun setSnooze(id: Long, until: Long?, count: Int) {
+        rows.update { map ->
+            map[id]?.let {
+                map + (id to it.copy(snoozedUntilEpoch = until, consecutiveSnoozeCount = count))
+            } ?: map
         }
     }
 }

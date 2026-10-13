@@ -243,4 +243,7 @@
     <string name="watch_picture_clear_confirm_body">Zegarek wybudzi się i na chwilę otworzy GT Wake, aby usunąć obraz.</string>
     <string name="watch_picture_confirm_ok">Dalej</string>
     <string name="field_watch_vibration_hint">Tryb „Nie przeszkadzać”, tryb snu lub wibracje ustawione na „Brak” na zegarku mogą je wyciszyć.</string>
+    <string name="help_watch_sync_title">Synchronizacja listy alarmów</string>
+    <string name="help_watch_sync_body">Huawei nie zatwierdza budzenia zegarka w celu synchronizacji listy alarmów, dlatego to ustawienie zostało usunięte. Alarmy nadal dzwonią na zegarku. Jeśli masz pytania, skontaktuj się z deweloperem.</string>
+    <string name="watch_list_sync_unlocked">Odblokowano ustawienie synchronizacji listy alarmów. Możesz je włączyć w Ustawieniach.</string>
 </resources>

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,6 +55,9 @@ class AlarmActivity : ComponentActivity() {
     // the setContent composable; set on the main thread from sendAction.
     private val awaitingWatchState = mutableStateOf(false)
     private var watchWaitTimeoutArmed = false
+    private var watchWaitJob: kotlinx.coroutines.Job? = null
+    private val activeAlarmId = mutableLongStateOf(-1L)
+    private val activeFiredAtEpoch = mutableLongStateOf(-1L)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -62,7 +66,7 @@ class AlarmActivity : ComponentActivity() {
         lastCreatedElapsedMs.set(android.os.SystemClock.elapsedRealtime())
         configureWindow()
 
-        val alarmId = intent.getLongExtra(AlarmRingService.EXTRA_ALARM_ID, -1L)
+        val alarmId = readOccurrence(intent)
         val km = getSystemService(KeyguardManager::class.java)
         Log.i(
             TAG,
@@ -72,23 +76,27 @@ class AlarmActivity : ComponentActivity() {
         // Close this Activity whenever the ringing service stops, regardless
         // of source (phone tap, watch peer-end, auto-stop, self-destruct
         // DELETE). The replayCache means we'd also see prior emissions —
-        // filter against `createdAtEpoch` so a stale signal from an earlier
-        // ring doesn't immediately finish a newly-started Activity.
-        val createdAtEpoch = System.currentTimeMillis()
+        // Match the exact ring occurrence so a late teardown cannot close a
+        // newer alarm shown by this single-instance Activity.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                RingEndedSignal.events.collect { endedAt ->
-                    if (endedAt < createdAtEpoch) return@collect
-                    Log.i(TAG, "ring-ended signal received endedAt=$endedAt — finishing")
-                    finishAndRemoveTask()
-                }
+                // Reconcile with the retained current ring BEFORE any replayed
+                // end event can be acted on: a stopped screen showing A must
+                // switch to B first, not finish on A's replayed end.
+                followCurrentRing(RingEndedSignal.current.value)
+                launch { collectRingEnded() }
+                launch { collectWatchActionCommitted() }
+                launch { collectActionFailures() }
+                launch { RingEndedSignal.current.collect { current -> followCurrentRing(current) } }
             }
         }
 
         setContent {
             var alarm by remember { mutableStateOf<Alarm?>(null) }
             var defaultBgUri by remember { mutableStateOf<String?>(null) }
-            LaunchedEffect(alarmId) {
+            val currentAlarmId = activeAlarmId.longValue
+            val currentFiredAt = activeFiredAtEpoch.longValue
+            LaunchedEffect(currentAlarmId, currentFiredAt) {
                 // Pre-unlock the Activity is brought up by FSI before the
                 // user unlocks — Room and DataStore both live in credential-
                 // encrypted storage and would throw on access. Branch on
@@ -99,11 +107,18 @@ class AlarmActivity : ComponentActivity() {
                 // renders the alarm time + (BFU-omitted) blank label and
                 // the default black background — degraded but functional.
                 if (isUserUnlocked) {
-                    alarm = repository.getById(alarmId)
-                    defaultBgUri = settingsStore.defaultPhoneBackgroundUri.first()
+                    val loadedAlarm = repository.getById(currentAlarmId)
+                    val loadedBackground = settingsStore.defaultPhoneBackgroundUri.first()
+                    if (activeAlarmId.longValue == currentAlarmId && activeFiredAtEpoch.longValue == currentFiredAt) {
+                        alarm = loadedAlarm
+                        defaultBgUri = loadedBackground
+                    }
                 } else {
-                    alarm = bfuCache.getAll().firstOrNull { it.id == alarmId }
-                    defaultBgUri = null
+                    val loadedAlarm = bfuCache.getAll().firstOrNull { it.id == currentAlarmId }
+                    if (activeAlarmId.longValue == currentAlarmId && activeFiredAtEpoch.longValue == currentFiredAt) {
+                        alarm = loadedAlarm
+                        defaultBgUri = null
+                    }
                 }
             }
             // Per-alarm URI wins over the user-default. Null on both means
@@ -115,7 +130,7 @@ class AlarmActivity : ComponentActivity() {
             // "no button" signal so AlarmRingScreen can drop the slot
             // without secondary state.
             val snoozeAction = if (alarm?.isSnoozeEnabled == true) {
-                { sendAction(AlarmRingService.ACTION_SNOOZE, alarmId) }
+                { sendAction(AlarmRingService.ACTION_SNOOZE, currentAlarmId, currentFiredAt) }
             } else {
                 null
             }
@@ -123,7 +138,7 @@ class AlarmActivity : ComponentActivity() {
                 alarm = alarm,
                 backgroundImageUri = effectiveBgUri,
                 awaitingWatch = awaitingWatchState.value,
-                onDismiss = { sendAction(AlarmRingService.ACTION_DISMISS, alarmId) },
+                onDismiss = { sendAction(AlarmRingService.ACTION_DISMISS, currentAlarmId, currentFiredAt) },
                 onSnooze = snoozeAction,
             )
         }
@@ -132,6 +147,95 @@ class AlarmActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        leaveWaitingState()
+        readOccurrence(intent)
+        Log.i(TAG, "onNewIntent id=${activeAlarmId.longValue} firedAt=${activeFiredAtEpoch.longValue}")
+    }
+
+    private fun readOccurrence(intent: Intent): Long {
+        activeAlarmId.longValue = intent.getLongExtra(AlarmRingService.EXTRA_ALARM_ID, -1L)
+        activeFiredAtEpoch.longValue = intent.getLongExtra(AlarmRingService.EXTRA_FIRED_AT, -1L)
+        shownOccurrence = currentOccurrence()
+        return activeAlarmId.longValue
+    }
+
+    private fun currentOccurrence(): Pair<Long, Long> =
+        activeAlarmId.longValue to activeFiredAtEpoch.longValue
+
+    private fun isCurrentOccurrence(event: RingEndedSignal.Event): Boolean =
+        event.alarmId == activeAlarmId.longValue && event.firedAtEpoch == activeFiredAtEpoch.longValue
+
+    private suspend fun collectRingEnded() {
+        RingEndedSignal.events.collect { event ->
+            // An end event for an occurrence the service no longer rings (it
+            // names a different live one) must not close this screen.
+            val live = RingEndedSignal.current.value
+            if (!isCurrentOccurrence(event) || (live != null && !isCurrentOccurrence(live))) return@collect
+            Log.i(
+                TAG,
+                "ring-ended signal received id=${event.alarmId} firedAt=${event.firedAtEpoch} — finishing",
+            )
+            finishAndRemoveTask()
+        }
+    }
+
+    // A watch dismiss/snooze was committed. The service keeps this Activity
+    // up for its grace window (a duplicate request must still find an Activity
+    // in the task), so show the same state as after a phone tap.
+    private suspend fun collectWatchActionCommitted() {
+        RingEndedSignal.watchActionCommitted.collect { event ->
+            if (!isCurrentOccurrence(event)) return@collect
+            Log.i(TAG, "watch action committed id=${event.alarmId} firedAt=${event.firedAtEpoch}")
+            awaitingWatchState.value = true
+            armWatchWaitTimeout()
+        }
+    }
+
+    // The service could not save the dismiss/snooze this screen asked for and
+    // the ring continues: leave "waiting for watch" so the buttons are usable.
+    private suspend fun collectActionFailures() {
+        RingEndedSignal.actionFailures.collect { event ->
+            // Only while waiting: the flow replays its last event, and one this
+            // screen already handled must not undo a newer tap.
+            if (!isCurrentOccurrence(event) || !awaitingWatchState.value) return@collect
+            Log.w(TAG, "action failed id=${event.alarmId} firedAt=${event.firedAtEpoch} — buttons restored")
+            leaveWaitingState()
+        }
+    }
+
+    // The service rings a different occurrence than this (possibly stopped)
+    // screen shows. It may have missed several takeovers, so follow the
+    // retained current occurrence instead of replayed events: switch to it,
+    // reset the waiting state, and rewrite the intent so a recreate does not
+    // resurrect the old occurrence. The alarm reloads through the
+    // LaunchedEffect keys.
+    //
+    // No current occurrence means nothing rings any more: the service sets it
+    // before it posts the full-screen intent and clears it on teardown, in the
+    // same process. Finish then, even if no matching end event is replayed: a
+    // stopped screen showing A can miss A's end AND a later ring B (B's end
+    // replaces A's in the replay cache), and would otherwise stay up on A.
+    private fun followCurrentRing(current: RingEndedSignal.Event?) {
+        if (current == null) {
+            Log.i(TAG, "no ring is current — finishing")
+            finishAndRemoveTask()
+            return
+        }
+        if ((current.alarmId to current.firedAtEpoch) == currentOccurrence()) return
+        Log.i(TAG, "following current ring id=${current.alarmId} firedAt=${current.firedAtEpoch}")
+        leaveWaitingState()
+        intent.putExtra(AlarmRingService.EXTRA_ALARM_ID, current.alarmId)
+        intent.putExtra(AlarmRingService.EXTRA_FIRED_AT, current.firedAtEpoch)
+        activeAlarmId.longValue = current.alarmId
+        activeFiredAtEpoch.longValue = current.firedAtEpoch
+        shownOccurrence = currentOccurrence()
+    }
+
+    private fun leaveWaitingState() {
+        watchWaitJob?.cancel()
+        watchWaitJob = null
+        watchWaitTimeoutArmed = false
+        awaitingWatchState.value = false
     }
 
     private fun configureWindow() {
@@ -154,11 +258,12 @@ class AlarmActivity : ComponentActivity() {
         )
     }
 
-    private fun sendAction(action: String, alarmId: Long) {
-        Log.i(TAG, "user tap action=$action id=$alarmId")
+    private fun sendAction(action: String, alarmId: Long, firedAtEpoch: Long) {
+        Log.i(TAG, "user tap action=$action id=$alarmId firedAt=$firedAtEpoch")
         val intent = Intent(this, AlarmRingService::class.java).apply {
             this.action = action
             putExtra(AlarmRingService.EXTRA_ALARM_ID, alarmId)
+            if (firedAtEpoch > 0L) putExtra(AlarmRingService.EXTRA_FIRED_AT, firedAtEpoch)
         }
         // runCatching guards the Android 12+ ForegroundServiceStartNot-
         // AllowedException edge case where the Activity has slipped from
@@ -194,7 +299,7 @@ class AlarmActivity : ComponentActivity() {
     private fun armWatchWaitTimeout() {
         if (watchWaitTimeoutArmed) return
         watchWaitTimeoutArmed = true
-        lifecycleScope.launch {
+        watchWaitJob = lifecycleScope.launch {
             delay(WATCH_WAIT_TIMEOUT_MS)
             Log.w(TAG, "watch round-trip timeout — finishing without RingEndedSignal")
             finishAndRemoveTask()
@@ -203,23 +308,42 @@ class AlarmActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        shownOccurrence = currentOccurrence()
         isVisible.set(true)
     }
 
     override fun onStop() {
         super.onStop()
-        isVisible.set(false)
+        // A relaunch (NEW_TASK | CLEAR_TASK) creates the new instance before
+        // this one stops. If the new instance already published its
+        // occurrence, this stop must not clear it or the visible flag.
+        if (shownOccurrence == currentOccurrence()) {
+            shownOccurrence = null
+            isVisible.set(false)
+        }
     }
 
     companion object {
         // Tracks whether an AlarmActivity instance is currently in the
-        // foreground. Used by AlarmRingService.startRingingAudioAndUi to
-        // skip the backup PI.send() when FSI already launched us — without
-        // this gate, every successful FSI fire results in a second
-        // Activity launch ~2.6 s later (after preArmWatch returns), which
-        // animates a visible "second screen sliding in" over the first.
+        // foreground. With [shownOccurrence] it lets
+        // AlarmRingService.startRingingAudioAndUi skip the backup PI.send()
+        // when FSI already put THIS occurrence on screen. A relaunch is
+        // NEW_TASK | CLEAR_TASK on a singleInstance Activity: the old instance
+        // is destroyed and recreated (onNewIntent does not run), so a needless
+        // relaunch shows as a second screen sliding in. A visible Activity
+        // that shows a different occurrence still needs the relaunch.
         val isVisible: java.util.concurrent.atomic.AtomicBoolean =
             java.util.concurrent.atomic.AtomicBoolean(false)
+
+        /**
+         * (alarmId, firedAtEpoch) of the occurrence the most recent
+         * AlarmActivity instance shows, or null when none is showing. Set when
+         * an intent is read and on start; cleared on stop only by the instance
+         * that owns it. Read by the service on the main thread, like every
+         * lifecycle callback here.
+         */
+        @Volatile
+        var shownOccurrence: Pair<Long, Long>? = null
 
         /**
          * `SystemClock.elapsedRealtime()` of the most recent [onCreate], or 0

@@ -92,8 +92,22 @@ class IncomingMessageHandler @Inject constructor(
             is IncomingMessage.AlarmToggled -> applyToggle(msg.alarmId, msg.enabled, msg.updatedAtEpoch)
             is IncomingMessage.AlarmDeleted -> applyDelete(msg.alarmId, msg.updatedAtEpoch)
             is IncomingMessage.AlarmFired -> Log.d(TAG, "peer fired alarm id=${msg.alarmId}")
-            is IncomingMessage.AlarmDismissed -> dispatchDismissFromPeer(msg.alarmId)
-            is IncomingMessage.AlarmSnoozed -> applySnooze(msg.alarmId, msg.updatedAtEpoch)
+            // Occurrence-aware only when the watch sent firedAt: then (and only
+            // then) the intent carries fired_at + request_stamp, which makes
+            // the ring service reply. A legacy dismiss (released watches) is
+            // dispatched without them and never gets a reply.
+            is IncomingMessage.AlarmDismissed -> dispatchDismissFromPeer(
+                msg.alarmId,
+                msg.firedAtEpoch,
+                msg.firedAtEpoch?.let { msg.updatedAtEpoch },
+            )
+            is IncomingMessage.AlarmSnoozed -> {
+                if (msg.firedAtEpoch != null) {
+                    dispatchSnoozeFromPeer(msg.alarmId, null, msg.updatedAtEpoch, msg.firedAtEpoch)
+                } else {
+                    applySnooze(msg.alarmId, msg.updatedAtEpoch)
+                }
+            }
             is IncomingMessage.SyncHash -> Unit // handled above; exhaustiveness only
             is IncomingMessage.AlarmRinging -> Unit // handled above; exhaustiveness only
             is IncomingMessage.AlarmDismissedAck -> Unit // handled above; exhaustiveness only
@@ -175,13 +189,21 @@ class IncomingMessageHandler @Inject constructor(
         dispatchSnoozeFromPeer(alarmId, trigger)
     }
 
-    private fun dispatchDismissFromPeer(alarmId: Long) {
-        dispatchToRingService(buildDismissFromPeerIntent(context, alarmId), "peer dismiss id=$alarmId")
+    private fun dispatchDismissFromPeer(alarmId: Long, firedAtEpoch: Long? = null, requestStamp: Long? = null) {
+        dispatchToRingService(
+            buildDismissFromPeerIntent(context, alarmId, firedAtEpoch, requestStamp),
+            "peer dismiss id=$alarmId",
+        )
     }
 
-    private fun dispatchSnoozeFromPeer(alarmId: Long, rescheduleEpoch: Long) {
+    private fun dispatchSnoozeFromPeer(
+        alarmId: Long,
+        rescheduleEpoch: Long?,
+        requestStamp: Long? = null,
+        firedAtEpoch: Long? = null,
+    ) {
         dispatchToRingService(
-            buildSnoozeFromPeerIntent(context, alarmId, rescheduleEpoch),
+            buildSnoozeFromPeerIntent(context, alarmId, rescheduleEpoch, firedAtEpoch, requestStamp),
             "peer snooze id=$alarmId",
         )
     }
@@ -218,21 +240,35 @@ class IncomingMessageHandler @Inject constructor(
         private const val TAG = "IncomingMsg"
 
         fun buildDismissFromPeerIntent(context: Context, alarmId: Long): Intent =
+            buildDismissFromPeerIntent(context, alarmId, null, null)
+
+        private fun buildDismissFromPeerIntent(
+            context: Context,
+            alarmId: Long,
+            firedAtEpoch: Long?,
+            requestStamp: Long?,
+        ): Intent =
             Intent(context, AlarmRingService::class.java).apply {
                 action = AlarmRingService.ACTION_DISMISS
                 putExtra(AlarmRingService.EXTRA_ALARM_ID, alarmId)
                 putExtra(AlarmRingService.EXTRA_FROM_PEER, true)
+                firedAtEpoch?.let { putExtra("fired_at", it) }
+                requestStamp?.let { putExtra("request_stamp", it) }
             }
 
         fun buildSnoozeFromPeerIntent(
             context: Context,
             alarmId: Long,
-            rescheduleEpoch: Long,
+            rescheduleEpoch: Long?,
+            firedAtEpoch: Long? = null,
+            requestStamp: Long? = null,
         ): Intent = Intent(context, AlarmRingService::class.java).apply {
             action = AlarmRingService.ACTION_SNOOZE
             putExtra(AlarmRingService.EXTRA_ALARM_ID, alarmId)
             putExtra(AlarmRingService.EXTRA_FROM_PEER, true)
-            putExtra(AlarmRingService.EXTRA_RESCHEDULE_EPOCH, rescheduleEpoch)
+            rescheduleEpoch?.let { putExtra(AlarmRingService.EXTRA_RESCHEDULE_EPOCH, it) }
+            firedAtEpoch?.let { putExtra("fired_at", it) }
+            requestStamp?.let { putExtra("request_stamp", it) }
         }
     }
 }

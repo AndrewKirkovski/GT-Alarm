@@ -17,6 +17,74 @@ This is the **authoritative spec** for GT Alarm. Every feature must map to a cri
 
 ## Conventions
 
+### October 2026 reliability changes
+
+The following criteria are CODED and require watch and phone verification before release.
+They supersede older descriptions of notification sound, visible list-sync settings,
+and transport-only success in this document.
+
+- 🟡 The ringing notification uses the silent `alarm_ringing_v3` channel. The service
+  alone plays alarm sound and phone vibration. The channel copies the importance of the
+  old `alarm_ringing_v2` channel (a user's block or lowered importance is kept), the old
+  channels are deleted, and the Setup audit's full-screen row reports a channel below
+  HIGH importance and opens its settings.
+- 🟡 Starting another alarm replaces the current ring. An old occurrence's action, reply
+  or delayed teardown must not stop it. The next recurrence of a repeating alarm is armed
+  when the ring starts, before any watch wait, so a quick dismiss or a takeover cannot
+  skip it; snooze, disable and delete stay authoritative because they run later on the
+  same AlarmManager request code.
+- 🟡 Alarm list sync is hidden until the user taps the debug description in phone
+  Help seven times. Unlocking reveals the setting and leaves it disabled. Upgrading
+  an existing enabled preference disables it without sending or clearing the watch
+  list. Ring delivery and separately chosen picture transfers continue.
+- 🟡 Watch dismiss and snooze (updated watch, request carries `firedAt`): the phone
+  replies `ok:true` after the action commits, `ok:false` only when the ring is still
+  current and nothing changed, nothing to a duplicate already in progress, and the
+  existing `alarm_dismissed`/`alarm_snoozed` message when that occurrence already ended.
+  Replies never wake the watch. Results are remembered in memory per ring service; there
+  are no persistent receipts. After a committed watch action the phone keeps its ring
+  screen and service up 6 s, so a watch retry can still be answered.
+- 🟡 Released watches (1.0.11 and older) keep their old behaviour: their replies match
+  by alarm ID, and they never receive the new reply types.
+- 🟡 `alarm_fired` carries `supportsActionAck: true` only while the phone can receive
+  (user unlocked and receiver registered). On a cold-process alarm the ring waits up to
+  1.5 s for the receiver registration (device lookup and register, no watch wake) before
+  it builds the message. Watch dismiss/snooze before the first unlock after a reboot
+  cannot reach the phone (known limitation).
+- 🟡 A second alarm that takes over never waits for the first alarm's save: the first
+  alarm is finalized in its own background job, and a save that completes after the
+  takeover records its result without touching the new ring. A screen that still shows
+  the first alarm switches to the new one, and closes when no alarm is ringing any more.
+- 🟡 Auto-stop dismisses a ring after 5 minutes. When that save fails or stalls, it is
+  retried after 30, 60 and 120 s; after that the ring ends without saving (logged as an
+  error), so a broken save can never keep the phone ringing.
+- 🟠 Receiver registration: an unregister that times out blocks new registration until
+  its own callback runs, or for at most 60 s. Gap: if an abandoned unregister still takes
+  effect in the Huawei SDK after a newer registration, the phone can report the receiver
+  as ready while it does not receive. Needs a device check of receiving after reconnects.
+- 🟡 A snooze writes its row first and arms AlarmManager last, and it is refused before
+  any change when exact alarms are not allowed, so `ok:false` always means nothing changed.
+- 🟡 Alarm list replacement succeeds only after persistence is confirmed. Failed writes
+  must not acknowledge success, and `sync_done` waits for pending writes up to a bound.
+- 🟠 The site has a manual-install page; the HAP download stays disabled. The only
+  standalone HAP is AppGallery release-signed (no device list). Whether DevEco Assistant
+  installs it is unverified; the decision waits for one hand install on the developer's
+  own watch.
+
+Hardware checks must include a system alarm tone configured alongside a custom app
+tone, vibration-only alarms, square-watch dismiss/snooze, round-watch reconnect and
+phone operations, mixed old/new app versions, and actions during alarm replacement.
+
+The watch page bundle must stay at or below 65,088 bytes (release build).
+The SDK still reports a snapshot conversion warning. The retained earlier HAP
+produces the same warning when its JavaScript is passed to the snapshot tool.
+Build success does not establish correct watch startup or installation.
+
+Scheduling, Room updates, and device-protected cache writes remain separate
+operations. A failure between those operations can leave partial state, even
+though a failed action must not receive a success acknowledgement. Test disk
+failure and process interruption before release.
+
 ### Status legend (honest)
 - ✅ **DONE** — code exists AND verified working on real device or emulator
 - 🟡 **CODED** — code exists, not yet verified end-to-end (assume nothing)
@@ -130,12 +198,12 @@ Do not implement against memory of how an API used to work. APIs change.
 
 ### Ringing
 - 🟡 Full-screen alarm UI launches over the lockscreen — `AlarmActivity` with `setShowWhenLocked(true)` + `setTurnScreenOn(true)` + `FLAG_KEEP_SCREEN_ON`. The notification carries `setFullScreenIntent(PI, true)` so the lockscreen takeover happens whether the activity is visible or not. (Source: `developer.android.com/develop/ui/views/notifications/time-sensitive`.)
-- 🟡 Audio plays on ALARM stream — `AudioAttributes.Builder().setUsage(USAGE_ALARM)` on **both** `MediaPlayer` and the `NotificationChannel` sound attributes
+- 🟡 Audio plays on ALARM stream through `MediaPlayer` with `USAGE_ALARM`. The ringing notification channel has no sound or vibration, so it does not add a second system tone.
 - 🟡 Vibration uses `VibrationAttributes.USAGE_ALARM`
 - 🟡 **Per-device sound/vibration switches (1.0.6)** — the alarm editor has three independent on/off switches: **Sound** (phone audio; backed by `isVibrationOnly`), **Phone vibration** (`Alarm.phoneVibrationEnabled`, gates `AlarmAudioPlayer` vibration independently of sound), and **Watch vibration** (`Alarm.watchVibrationEnabled`, synced + honored on the watch ring `startVibrate`). "Silent" = all three off. `vibrationPattern` is now pattern-only (the `OFF` choice retired; Room migration **v9→10** maps legacy `OFF` rows to both-vib-off + a real pattern). `watchVibrationEnabled` rides the wire alarm payload, the `alarm_fired` hint, and the LWW hash; `phoneVibrationEnabled` is phone-only.
 - 🟡 System default fallback — `RingtoneManager.getDefaultUri(TYPE_ALARM)` when user URI absent or unresolvable
 - 🟡 Auto-dismiss after 5 min — `Handler.postDelayed` cancelled in `stopForegroundAndSelf`
-- 🟡 Bypass DND — `NotificationChannel.setBypassDnd(true)`. **Caveat:** if the user has blocked the channel from settings or set a DND mode that explicitly excludes alarms (Android 14+ permits this), the alarm is silenced. We do not override user settings — this is the OS contract.
+- 🟡 Bypass DND — the ringing notification is `CATEGORY_ALARM` and the audio plays through `MediaPlayer` with `USAGE_ALARM`, so the DND "Alarms" exception lets it through. `NotificationChannel.setBypassDnd(true)` does NOT apply: AOSP resets it when an app without notification-policy access creates a channel (source reading, not device-tested), and the app does not request that access. **Caveat:** if the user has blocked the channel from settings or set a DND mode that explicitly excludes alarms (Android 14+ permits this), the alarm is silenced. We do not override user settings — this is the OS contract.
 
 ### Dismiss & snooze
 - 🟡 Dismiss from full-screen activity (primary button) and from notification action
@@ -235,8 +303,16 @@ its full-screen intent is **never evaluated** — not suppressed, never consider
 `MEASURED`: alarm 2 with id 42 still live → no ring UI; dismiss alarm 1 to free the id,
 **device still awake** → ring UI appears. Interactivity was held constant across that pair,
 which is exactly what falsifies the old "device interactive" explanation.
-Parked, not fixed — see the TODO on `AlarmNotifications.NOTIFICATION_ID` for why and for
-the safe procedure.
+Parked, not fixed. The notification ID stays 42 by request (October 2026), so a takeover
+ring gets its ring UI only from the `pi.send` launch, which is allowed while ring 1's
+AlarmActivity is still visible. Why a per-ring ID is risky: a device-verified Samsung
+regression came from posting ID 42 twice in quick succession (placeholder then upgrade),
+which muted sound, vibration and the FSI launch, and changing a foreground-service
+notification's ID means a window where both or neither notification exist. Safe procedure
+if this is ever taken on: (1) reproduce overlapping alarms on the S24 first; (2) derive the
+ID as `NOTIFICATION_ID or (alarmId and 0x00FF_FFFF)`, the shape `MISSED_NOTIFICATION_BASE`
+already uses; (3) cancel the previous ring's ID when a new ring takes over; (4) re-run the
+alternation test and confirm no new failure mode; (5) verify on Samsung specifically.
 
 **C — Alarms in rapid succession alternate pass/fail. CAUSE UNKNOWN.**
 `MEASURED`: 8/8 perfect alternation (`FAIL OK FAIL OK FAIL OK FAIL OK`) with a
@@ -381,7 +457,7 @@ silencing other people's medication reminders. **Do not revisit.**
 
 ### Known scope deltas vs the legacy NEXT app
 - **Watch no longer schedules.** No `reminderAgentManager` (doesn't exist on Lite). Phone is sole scheduler. Watch reacts to `alarm_fired` pings.
-- **No on-device unit tests.** Hypium is NEXT-only. Pure-logic modules get extracted as plain JS and tested in Node/jest under `.local/jest-lite/`. The suites for LwwResolver, Tombstones and the per-alarm handlers are out of date since those were removed from the watch on 2026-10-01. UI / page lifecycle is manual-only.
+- **No on-device unit tests.** Hypium is NEXT-only. The watch reliability paths are tested in the repo with `node --test watch-app/tests/reliability.test.mjs` (page, handler, bridge and list store run against fakes). Older pure-logic suites live in Node/jest under `.local/jest-lite/`. The suites for LwwResolver, Tombstones and the per-alarm handlers are out of date since those were removed from the watch on 2026-10-01. UI / page lifecycle is manual-only.
 - **No TypeScript.** All `.ts` becomes `.js`, types stripped.
 - **Reboot survival is asymmetric.** Phone is fully self-recovering; watch has nothing to recover for scheduling. AlarmStore (display cache) restores from `@system.storage` on cold start.
 
@@ -543,6 +619,7 @@ i18n is not "wrap a few strings"; it's an end-to-end contract. Both apps must en
 - [ ] Pair: confirm Huawei Health pairing on Samsung phone shows GT 6 connected (already verified 2026-04-27)
 - [ ] Install: build LiteWearable HAP via Hvigor → copy to phone → App Debug Assistant push → confirm install green
 - [ ] Pure-logic tests in Node/jest: `.local/jest-lite/` covers IncomingMessageHandler core (LwwResolver / Tombstones suites are obsolete since 2026-10-01)
+- [ ] Watch reliability tests: `node --test watch-app/tests/reliability.test.mjs` passes (64 tests on 2026-10-13)
 - [ ] Manual UI: launch app on watch, scroll alarm list, toggle a row, long-press delete confirmation, all surfaces render
 - [x] Manual ring: simulate `alarm_fired` (post-Wear-Engine approval) → ring page mounts within 500 ms, vibration starts, Dismiss/Snooze taps work
   — ✅ **verified on GT 6 Pro 2026-08-29** with watch 1.0.9 / code 1000008. Two alarms:

@@ -16,6 +16,7 @@ import com.kirkouski.gtwake.companion.wear.ForceSyncResult
 import com.kirkouski.gtwake.companion.wear.WearBridgeService
 import com.kirkouski.gtwake.companion.widget.WidgetRefresher
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -111,7 +112,7 @@ class AlarmRepository @Inject constructor(
         // the manual button). It sits BEFORE sendSettingsChanged because that
         // send wakes the watch on its own. Checked inside the lock so a sync
         // queued behind a turn-off sees the new value.
-        if (!settings.watchListSync) {
+        if (!settings.effectiveWatchListSync) {
             Log.i(TAG, "syncWatchNow skipped — watch list sync is off")
             return@withLock ForceSyncResult.ListSyncOff
         }
@@ -134,6 +135,7 @@ class AlarmRepository @Inject constructor(
         appScope.async { setWatchListSync(enabled) }
 
     suspend fun setWatchListSync(enabled: Boolean): ForceSyncResult {
+        if (!settingsStore.snapshot().watchListSyncUnlocked) return ForceSyncResult.ListSyncOff
         synchronized(this) {
             pendingSyncJob?.cancel()
             pendingSyncJob = null
@@ -409,38 +411,56 @@ class AlarmRepository @Inject constructor(
 
     suspend fun setEnabled(id: Long, enabled: Boolean) {
         val now = System.currentTimeMillis()
-        dao.setEnabledStamped(id, enabled, now)
-        // Disabling clears any active snooze — the alarm is off, the
-        // deferred fire shouldn't display. Re-enabling later re-computes
-        // next-trigger from hour/minute, which is what the user expects.
-        if (!enabled) dao.setSnoozedUntil(id, null)
-        val alarm = dao.getById(id)?.toDomain() ?: return
-        bfuCache.upsert(alarm)
-        if (enabled) scheduler.schedule(alarm) else scheduler.cancel(id)
-        scheduleWatchSync()
-        refreshWidgets()
+        if (!enabled) {
+            // Disabling clears any active snooze in the same statement — the alarm is off,
+            // the deferred fire shouldn't display. That statement is the whole commit; a
+            // failure in anything after it must not reach the caller.
+            dao.disableStamped(id, now)
+            bestEffort("setEnabled cancel") { scheduler.cancel(id) }
+            bestEffort("setEnabled mirrors") { mirrorEnabled(id, "setEnabled", watchSync = true) }
+        } else {
+            dao.setEnabledStamped(id, true, now)
+            val alarm = dao.getById(id)?.toDomain() ?: return
+            // Commit = Room write + scheduler call. Mirrors and refreshes are best effort.
+            scheduler.schedule(alarm)
+            bestEffort("setEnabled bfu mirror") { bfuCache.upsert(alarm) }
+            bestEffort("setEnabled watch sync") { scheduleWatchSync() }
+            bestEffort("setEnabled widgets") { refreshWidgets() }
+        }
         Log.i(TAG, "setEnabled id=$id enabled=$enabled stamp=$now")
     }
 
     suspend fun setEnabledLocalOnly(id: Long, enabled: Boolean) {
         val now = System.currentTimeMillis()
-        dao.setEnabledStamped(id, enabled, now)
-        if (!enabled) dao.setSnoozedUntil(id, null)
-        val alarm = dao.getById(id)?.toDomain() ?: return
-        bfuCache.upsert(alarm)
-        if (enabled) scheduler.schedule(alarm) else scheduler.cancel(id)
-        refreshWidgets()
+        if (!enabled) {
+            dao.disableStamped(id, now)
+            bestEffort("setEnabledLocalOnly cancel") { scheduler.cancel(id) }
+            bestEffort("setEnabledLocalOnly mirrors") { mirrorEnabled(id, "setEnabledLocalOnly", watchSync = false) }
+        } else {
+            dao.setEnabledStamped(id, true, now)
+            val alarm = dao.getById(id)?.toDomain() ?: return
+            scheduler.schedule(alarm)
+            bestEffort("setEnabledLocalOnly bfu mirror") { bfuCache.upsert(alarm) }
+            bestEffort("setEnabledLocalOnly widgets") { refreshWidgets() }
+        }
         Log.i(TAG, "setEnabledLocalOnly id=$id enabled=$enabled stamp=$now")
+    }
+
+    /** Post-disable mirrors. Each step is isolated so one failure cannot skip the rest. */
+    private suspend fun mirrorEnabled(id: Long, what: String, watchSync: Boolean) {
+        bestEffort("$what bfu mirror") { dao.getById(id)?.toDomain()?.let { bfuCache.upsert(it) } }
+        if (watchSync) bestEffort("$what watch sync") { scheduleWatchSync() }
+        bestEffort("$what widgets") { refreshWidgets() }
     }
 
     suspend fun delete(id: Long) {
         scheduler.cancel(id)
         val now = System.currentTimeMillis()
         dao.deleteById(id)
-        bfuCache.remove(id)
-        tombstones.add(id, now, now)
-        scheduleWatchSync()
-        refreshWidgets()
+        bestEffort("delete bfu remove") { bfuCache.remove(id) }
+        bestEffort("delete tombstone") { tombstones.add(id, now, now) }
+        bestEffort("delete watch sync") { scheduleWatchSync() }
+        bestEffort("delete widgets") { refreshWidgets() }
         Log.i(TAG, "delete id=$id stamp=$now")
     }
 
@@ -465,16 +485,15 @@ class AlarmRepository @Inject constructor(
         }
         val trigger = System.currentTimeMillis() + minutes * 60_000L
         val newCount = alarm.consecutiveSnoozeCount + 1
-        scheduler.scheduleAt(alarm, trigger)
-        dao.setSnoozedUntil(id, trigger)
-        dao.setConsecutiveSnoozeCount(id, newCount)
-        // BFU mirror must track the counter too — pre-unlock fire after
-        // a post-unlock snooze reads BFU; without this the pre-unlock
-        // cap evaluation uses a stale count and the user blows past the
-        // limit (Tier 2D spec line 499).
-        bfuCache.upsert(alarm.copy(consecutiveSnoozeCount = newCount))
-        scheduleWatchSync()
-        refreshWidgets()
+        // Room first (one statement), then arm AlarmManager; a refused arm reverts the row.
+        if (!commitSnooze(alarm, trigger, newCount)) return null
+        // Everything after a successful arm is best effort: the snooze is real now.
+        bestEffort("snooze bfu mirror") {
+            // BFU mirror must track the counter too (Tier 2D spec line 499).
+            bfuCache.upsert(alarm.copy(consecutiveSnoozeCount = newCount, snoozedUntilEpoch = trigger))
+        }
+        bestEffort("snooze watch sync") { scheduleWatchSync() }
+        bestEffort("snooze widgets") { refreshWidgets() }
         Log.i(TAG, "snooze id=$id +${minutes}min trigger=$trigger count=$newCount")
         return trigger
     }
@@ -549,8 +568,12 @@ class AlarmRepository @Inject constructor(
      *  pre-unlock fire reads the reset value. */
     suspend fun resetSnoozeCounter(id: Long) {
         dao.setConsecutiveSnoozeCount(id, 0)
-        val alarm = dao.getById(id)?.toDomain() ?: return
-        bfuCache.upsert(alarm.copy(consecutiveSnoozeCount = 0))
+        // Bumps recorded before unlock belong to the chain being reset; leaving
+        // them would add stale counts to Room at the next reconcile.
+        bestEffort("resetSnoozeCounter drop bumps") { bfuCache.dropPendingSnoozeBumps(id) }
+        bestEffort("resetSnoozeCounter bfu mirror") {
+            dao.getById(id)?.toDomain()?.let { bfuCache.upsert(it.copy(consecutiveSnoozeCount = 0)) }
+        }
     }
 
     /**
@@ -589,20 +612,47 @@ class AlarmRepository @Inject constructor(
     suspend fun snoozeAt(id: Long, triggerEpoch: Long, fromPeer: Boolean = true): Long? {
         val alarm = dao.getById(id)?.toDomain() ?: return null
         val newCount = alarm.consecutiveSnoozeCount + 1
-        scheduler.scheduleAt(alarm, triggerEpoch)
-        dao.setSnoozedUntil(id, triggerEpoch)
-        // Counter increments on EVERY snooze, local or peer-driven — per
-        // spec line 499. The watch surfaces the cap via the next fire's
-        // `alarm_fired.snoozeAllowed` (built from `alarm.isSnoozeEnabled`),
-        // so to keep the cap honest across both surfaces, the same counter
-        // backs both. Peer-driven snoozes that race the cap evaluate the
-        // refreshed value on the NEXT fire — watch sees Snooze disabled and
-        // can't push another envelope through.
-        dao.setConsecutiveSnoozeCount(id, newCount)
-        bfuCache.upsert(alarm.copy(consecutiveSnoozeCount = newCount))
-        refreshWidgets()
+        // Counter increments on EVERY snooze, local or peer-driven (spec line 499).
+        // Room first (one statement), then arm; a refused arm reverts the row and
+        // throws, so the caller reports "nothing changed".
+        check(commitSnooze(alarm, triggerEpoch, newCount)) {
+            "snoozeAt id=$id: AlarmManager refused the trigger"
+        }
+        bestEffort("snoozeAt bfu mirror") {
+            bfuCache.upsert(alarm.copy(consecutiveSnoozeCount = newCount, snoozedUntilEpoch = triggerEpoch))
+        }
+        bestEffort("snoozeAt widgets") { refreshWidgets() }
         Log.i(TAG, "snoozeAt id=$id trigger=$triggerEpoch fromPeer=$fromPeer count=$newCount")
         return triggerEpoch
+    }
+
+    /**
+     * Write the snooze row, then arm AlarmManager. Returns false (row restored to
+     * its previous trigger and count) when arming fails or is refused.
+     */
+    private suspend fun commitSnooze(alarm: Alarm, trigger: Long, newCount: Int): Boolean {
+        dao.setSnooze(alarm.id, trigger, newCount)
+        val armed = try {
+            scheduler.scheduleAtChecked(alarm, trigger)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+            // reason: any scheduler failure means the trigger is not armed; revert below.
+            Log.w(TAG, "scheduleAtChecked failed id=${alarm.id}: ${e.message}")
+            false
+        }
+        if (!armed) {
+            dao.setSnooze(alarm.id, alarm.snoozedUntilEpoch, alarm.consecutiveSnoozeCount)
+            Log.w(TAG, "snooze id=${alarm.id} not armed — row reverted")
+        }
+        return armed
+    }
+
+    private suspend fun bestEffort(what: String, block: suspend () -> Unit) {
+        runCatching { block() }.onFailure { e ->
+            if (e is CancellationException) throw e
+            Log.w(TAG, "$what failed after a successful arm: ${e.javaClass.simpleName}: ${e.message}")
+        }
     }
 
     /**
@@ -682,6 +732,10 @@ class AlarmRepository @Inject constructor(
         Log.i(TAG, "applyPendingDismissals count=${pending.size}")
         pending.forEach { id ->
             val alarm = dao.getById(id)?.toDomain() ?: return@forEach
+            // A dismiss ends the snooze chain. Reset the Room counter now so the
+            // pre-dismiss snoozes are not counted; snoozes made after the dismiss
+            // (next occurrence) are still pending in BFU and applied afterwards.
+            dao.setConsecutiveSnoozeCount(id, 0)
             when (com.kirkouski.gtwake.companion.ring.AlarmRingService.dismissAction(alarm)) {
                 com.kirkouski.gtwake.companion.ring.AlarmRingService.DismissAction.DELETE -> delete(id)
                 com.kirkouski.gtwake.companion.ring.AlarmRingService.DismissAction.DISABLE ->
@@ -696,12 +750,15 @@ class AlarmRepository @Inject constructor(
      *  we record them in BFU and reconcile here so the max-snooze cap
      *  applies uniformly across the unlock boundary. */
     private suspend fun applyPendingSnoozeBumps() {
-        val bumps = bfuCache.drainPendingSnoozeBumps()
+        // Triggers come out of the same locked drain as the bumps, so a snooze
+        // tapped during this reconcile cannot lose its trigger.
+        val bumps = bfuCache.drainPendingSnoozes()
         if (bumps.isEmpty()) return
         Log.i(TAG, "applyPendingSnoozeBumps count=${bumps.size}")
-        bumps.forEach { (id, bump) ->
+        bumps.forEach { (id, pending) ->
             val alarm = dao.getById(id)?.toDomain() ?: return@forEach
-            dao.setConsecutiveSnoozeCount(id, alarm.consecutiveSnoozeCount + bump)
+            dao.setConsecutiveSnoozeCount(id, alarm.consecutiveSnoozeCount + pending.bump)
+            pending.snoozedUntilEpoch?.let { dao.setSnoozedUntil(id, it) }
         }
     }
 

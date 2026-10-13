@@ -15,6 +15,15 @@
  * Description: wearEngine SDK
  */
 
+/*
+ * MODIFICATION NOTICE (Apache-2.0 section 4(b)), 2026-10-12.
+ * This file is NOT the unmodified upstream 5.0.2.306 file named above. It was
+ * changed by the GT Wake project: the `ping` method and the `PeerDeviceClient`
+ * class were removed because this app never calls them, and removing them keeps
+ * the watch page bundle small. The P2pClient, Message and Builder code is
+ * unchanged from upstream.
+ */
+
 import wearengine from "@system.wearengine";
 
 var WearEngineConst = {
@@ -126,58 +135,6 @@ var P2pClient = (function() {
       complete: successCallBack,
       fail: failCallBack
     });
-  };
-  /**
-   * Check whether the specified application has been installed on the peer device
-   * pingCallback: object:onSuccess(),onFailure(),onPingResult(resultCode)
-   */
-  P2pClient.prototype.ping = function(pingCallback) {
-    var successCode = {
-      data: " ERROR_CODE_P2P_PHONE_APP_EXIST",
-      code: ErrorCode.MSG_ERROR_PING_PHONE_APP_NOT_RUNNING
-    };
-    var successCallBack = function() {
-      pingCallback.onSuccess();
-      pingCallback.onPingResult(successCode);
-      console.info("ping success.");
-    };
-    var notInstallCode = {
-      data: "ERROR_CODE_P2P_PHONE_APP_NOT_EXIST",
-      code: ErrorCode.MSG_ERROR_PING_PHONE_APP_NOT_EXIST
-    };
-    var failCode = {
-      data: "ERROR_CODE_P2P_OTHER_ERROR",
-      code: ErrorCode.MSG_ERROR_PING_OTHER
-    };
-    if (isEmpty(this.peerPkgName)) {
-      pingCallback.onFailure();
-      pingCallback.onPingResult(notInstallCode);
-      return;
-    }
-    var failCallBack = function(data, code) {
-      if (!data && !code) {
-        pingCallback.onFailure();
-        pingCallback.onPingResult(notInstallCode);
-      } else {
-        pingCallback.onFailure();
-        pingCallback.onPingResult(failCode);
-      }
-      console.error("ping failed.");
-    };
-
-    if (this.version >= WEARENGINE_SERVICE_VISION_401) {
-      wearengine.detect({
-        bundleName: this.peerPkgName,
-        success: successCallBack,
-        fail: failCallBack
-      });
-    } else {
-      FeatureAbility.detect({
-        bundleName: this.peerPkgName,
-        success: successCallBack,
-        fail: failCallBack
-      });
-    }
   };
   /**
    * Register message listener
@@ -494,71 +451,5 @@ var Message = (function() {
   return Message;
 })();
 
-var PeerDeviceClient = (function () {
-  var version;
-  function PeerDeviceClient() {
-    try {
-      var jsSdk = this;
-      var getVersionCallBack = function(data) {
-        if (data) {
-          var versionArray = data.split(".");
-          jsSdk.version = versionArray[versionArray.length - 1];
-          console.info("service sdk version is: " + data);
-        } else {
-          jsSdk.version = 0;
-          console.info("get service sdk version failed");
-        }
-      };
-      wearengine.getWearEngineVersion({
-        complete: getVersionCallBack,
-        sdkVersion: WEARENGINE_SDK_VERSION
-      });
-    } catch (error) {
-      jsSdk.version = 0;
-      console.info("service sdk version is too low" + error.message);
-    }
-  }
-
- /**
-   * Get the peer device object
-   * sendCallback: object:onSuccess(data),onFailure(data)
-   */
-  PeerDeviceClient.prototype.getPeerDevice = function (peerDeviceCallback) {
-    if (!peerDeviceCallback) {
-      console.error("getPeerDevice peerDeviceCallback is null");
-      var obj = {
-        data: "ERROR_CODE_INVALID_ARGUMENT",
-        errorCode: ErrorCode.ERROR_CODE_INVALID_ARGUMENT
-      };
-      return obj;
-    }
-
-    if (this.version < WEARENGINE_SERVICE_VISION_401) {
-      console.error("getPeerDevice wearengine service verison is low");
-      var obj = {
-        data: "ERROR_CODE_DEVICE_VERSION_NOT_SUPPORT",
-        errorCode: ErrorCode.ERROR_CODE_DEVICE_VERSION_NOT_SUPPORT
-      };
-      peerDeviceCallback.onFailure(obj);
-      return;
-    }
-
-    var successCallBack = function(data) {
-      peerDeviceCallback.onSuccess(data);
-    };
-    var failCallBack = function(data) {
-      peerDeviceCallback.onFailure(data);
-    };
-
-    wearengine.getPeerDevice({
-      success: successCallBack,
-      fail: failCallBack
-    });
-
-    return;
-  };
-
-  return PeerDeviceClient;
-})();
-
-export { P2pClient, Message, Builder, PeerDeviceClient };
+// App-unused ping and peer-device APIs are omitted.
+export { P2pClient, Message, Builder };

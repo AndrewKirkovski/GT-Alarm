@@ -14,6 +14,7 @@ import android.os.Process
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import com.kirkouski.gtwake.companion.ring.AlarmNotifications
 
 /**
  * Programmatic checks for the per-app permissions the alarm app needs to ring
@@ -33,15 +34,38 @@ object PermissionAudit {
         BATTERY_UNRESTRICTED,
     }
 
-    data class Check(val item: Item, val status: Status)
+    /**
+     * [channelBlocked] is true only for FULL_SCREEN_INTENT when the reason for
+     * DENIED is the alarm notification channel (importance below HIGH or
+     * blocked), so the UI opens the channel settings instead.
+     */
+    data class Check(val item: Item, val status: Status, val channelBlocked: Boolean = false)
 
     /** Run every check + return them in the order the UI should display. */
-    fun audit(context: Context): List<Check> = listOf(
-        Check(Item.POST_NOTIFICATIONS, checkPostNotifications(context)),
-        Check(Item.EXACT_ALARM, checkExactAlarm(context)),
-        Check(Item.FULL_SCREEN_INTENT, checkFullScreenIntent(context)),
-        Check(Item.BATTERY_UNRESTRICTED, checkBatteryUnrestricted(context)),
-    )
+    fun audit(context: Context): List<Check> {
+        val channelBlocked = isAlarmChannelBlocked(context)
+        val fsiStatus = if (channelBlocked) Status.DENIED else checkFullScreenIntent(context)
+        return listOf(
+            Check(Item.POST_NOTIFICATIONS, checkPostNotifications(context)),
+            Check(Item.EXACT_ALARM, checkExactAlarm(context)),
+            Check(Item.FULL_SCREEN_INTENT, fsiStatus, channelBlocked = channelBlocked),
+            Check(Item.BATTERY_UNRESTRICTED, checkBatteryUnrestricted(context)),
+        )
+    }
+
+    /**
+     * Pure rule: a full-screen intent needs a channel of importance HIGH or
+     * above. A missing channel (null) is not a block: ensureChannel creates it.
+     */
+    internal fun channelImportanceBlocksFullScreen(importance: Int?): Boolean =
+        importance != null && importance < NotificationManager.IMPORTANCE_HIGH
+
+    /** True when the v3 alarm channel exists with importance below HIGH or is blocked. */
+    fun isAlarmChannelBlocked(context: Context): Boolean {
+        val nm = context.getSystemService(NotificationManager::class.java) ?: return false
+        val channel = nm.getNotificationChannel(AlarmNotifications.CHANNEL_ID)
+        return channelImportanceBlocksFullScreen(channel?.importance)
+    }
 
     private fun checkPostNotifications(context: Context): Status {
         // POST_NOTIFICATIONS only exists as a runtime permission on Tiramisu+.
@@ -123,6 +147,18 @@ object PermissionAudit {
     // should wrap in runCatching since OEM customization sometimes deletes
     // these actions; the per-app Settings page is the universal fallback.
     // ---------------------------------------------------------------------
+
+    /** Fix action for a concrete check; opens the channel settings when the channel is the reason. */
+    fun intentFor(context: Context, check: Check): Intent =
+        if (check.item == Item.FULL_SCREEN_INTENT && check.channelBlocked) {
+            Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                putExtra(Settings.EXTRA_CHANNEL_ID, AlarmNotifications.CHANNEL_ID)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        } else {
+            intentFor(context, check.item)
+        }
 
     fun intentFor(context: Context, item: Item): Intent = when (item) {
         Item.POST_NOTIFICATIONS -> notificationSettingsIntent(context)

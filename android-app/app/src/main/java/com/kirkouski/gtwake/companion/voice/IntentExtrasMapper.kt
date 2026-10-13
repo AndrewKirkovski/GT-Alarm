@@ -47,22 +47,12 @@ object IntentExtrasMapper {
         if (hour !in 0..23) return null
         val safeMinute = (extras.minutes ?: 0).coerceIn(0, 59)
         val daysMask = extras.days?.fold(0) { acc, day -> acc or DaysOfWeek.fromCalendarDay(day) } ?: 0
-        val audioUri: String?
-        val isVibrationOnly: Boolean
-        when (extras.ringtone) {
-            null -> {
-                audioUri = null
-                isVibrationOnly = extras.vibrate
-            }
-            AlarmClock.VALUE_RINGTONE_SILENT -> {
-                audioUri = null
-                isVibrationOnly = true
-            }
-            else -> {
-                audioUri = extras.ringtone
-                isVibrationOnly = extras.vibrate
-            }
-        }
+        // EXTRA_VIBRATE means "also vibrate", never "silent". Only the silent
+        // ringtone value makes an alarm vibration-only. A false or absent
+        // extra keeps the Alarm defaults (sound on, phone vibration on).
+        val isSilent = extras.ringtone == AlarmClock.VALUE_RINGTONE_SILENT
+        val audioUri: String? = if (isSilent) null else extras.ringtone
+        val isVibrationOnly = isSilent
         val alarm = Alarm(
             label = extras.message.orEmpty(),
             hour = hour,
@@ -72,6 +62,7 @@ object IntentExtrasMapper {
             audioUri = audioUri,
             audioName = null,
             isVibrationOnly = isVibrationOnly,
+            phoneVibrationEnabled = true,
         )
         return ParsedSetAlarm(alarm, extras.skipUi)
     }

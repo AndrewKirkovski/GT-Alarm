@@ -88,6 +88,13 @@ var PEER_FLASH_MS = 1200;
 var STALE_FIRE_COLD_MS = 10000;
 // @system.storage key: last ended ring as "<alarmId>:<firedAt>".
 var LAST_RING_KEY = 'gt_last_ring';
+var PENDING_ACTION_KEY = 'gt_pending_action';
+
+function noop() {}
+
+function isPos(n) {
+    return typeof n === 'number' && n > 0 && isFinite(n);
+}
 
 // Ring bookkeeping that the screen never renders. Plain module variables, not
 // page `data`: every data field gets ACELite watcher machinery on the JS heap,
@@ -96,6 +103,12 @@ var LAST_RING_KEY = 'gt_last_ring';
 // module scope is equivalent.
 var _vibRunId = 0;          // per-start vibration token (see startVibrate)
 var _ringFiredAt = 0;       // phone `firedAt` of the ring on screen
+var _ringSupportsActionAck = false;
+var _pendingAction = null;
+var _resumeGen = 0;         // bumped by a tap, an end message or an accepted resume; see _resumePendingAction
+var _releasedAction = null; // given up on after the last try; a late reply may still end the ring
+var _pendingActionAttempts = 0;
+var _lastActionStamp = 0;
 var _lastEndedAlarmId = 0;  // last ring this watch ended (also persisted)
 var _lastEndedFiredAt = 0;
 var _peerEndedAlarmId = 0;  // phone ended this alarm before our ring showed
@@ -126,11 +139,6 @@ var _ampmAM = '';
 var _ampmPM = '';
 // Cold-start load latches; maybeReveal() flips contentReady when all set.
 var _onInitMs = 0;
-// Startup timing marks, emitted as ONE line at contentReady.
-var _tApplyScreen = 0;
-var _tLoadRestStart = 0;
-var _tLoadStringsStart = 0;
-var _tLoadStringsEnd = 0;
 var _i18nDone = false;
 var _privacyDone = false;
 // One-shot guard so startLoadRest() runs once (applyScreen + the
@@ -140,7 +148,6 @@ var _loadRestStarted = false;
 // unresolved fails SAFE to showing the consent gate, never skipping it.
 var _needsConsent = true;
 var _alarmId = 0;
-var _explicitAction = null;
 var _refreshTimer = null;
 var _tapHintTimer = null;
 var _use24Hour = null;
@@ -155,14 +162,19 @@ var _crownDecideTimer = null;
 // Ring auto-terminate. The watch was woken for the alarm; once the
 // action settles, close the app instead of sitting on the watch face.
 var TERMINATE_HARD_CAP_MS = 6000;
-// Longer cap for the dismiss/snooze paths: those fire a watch->phone
-// retry chain (wearBridge.sendJsonWithRetry) whose worst case is
-// maxAttempts(3) x SEND_TIMEOUT_MS(3000) + 2 x 500ms retry gap = 10s.
-// The cap MUST exceed that — otherwise app.terminate() fires mid-chain
-// and the un-sent retries are lost (Lite setTimeout is foreground-only,
-// and the process is gone). Keep this in lock-step with wearBridge.js's
-// SEND_TIMEOUT_MS / retry-count if either changes.
+// Longer cap for the dismiss/snooze paths. One watch->phone send
+// (wearBridge.sendJsonWithRetry) takes at most maxAttempts(3) x
+// SEND_TIMEOUT_MS(3000) + 2 x 500ms retry gap = 10s, and the page may repeat
+// the send up to 3 times while it waits for the phone's reply. The cap is
+// NOT meant to outlast every repeat: when no reply arrives the page gives
+// up on its own (_sendPendingAction), and the cap then closes the app. It
+// only has to outlast the first send, so the app is not closed mid-send.
 var TERMINATE_RETRY_CAP_MS = 11000;
+// After the phone refuses an action (ok:false) the ring is back on screen and
+// buzzing, so the short action cap is cancelled. This cap bounds the ring.
+var RING_CAP_MS = 360000;
+// A saved action older than this is not replayed (see _resumePendingAction).
+var ACTION_RESUME_MAX_MS = 120000;
 // Long enough that the ring's DISMISSED/SNOOZED confirmation (shown for
 // PEER_FLASH_MS) stays visible before the watch auto-closes.
 var TERMINATE_AFTER_ACK_MS = 1400;
@@ -185,25 +197,34 @@ var CROWN_SETTLE_MS = 150;
 // the UI — terminate after this fallback. A real forceSync round-trip ends in
 // sync_done well under this.
 var SYNC_FALLBACK_MS = 8000;
+// The fallback waits for pending store writes, but never past this absolute
+// deadline: a write callback that never fires must not keep the app open.
+var SYNC_MAX_MS = 20000;
 
 function fireTerminate(tag) {
-    Logger.i('term ' + tag);
     try {
         app.terminate();
     } catch (e) {
-        Logger.err('term', e);
     }
+}
+
+function armSyncFallback(page, until) {
+    until = until || Date.now() + SYNC_MAX_MS;
+    Ticker.set('syncFallback', SYNC_FALLBACK_MS, function () {
+        if (page.screen !== 'sync') return;
+        if (IncomingHandler.hasPendingWrites() && Date.now() < until) armSyncFallback(page, until);
+        else fireTerminate('sync_fallback');
+    });
 }
 
 // Terminate deadlines run on the Ticker (common/ticker.js): a one-shot
 // setTimeout can be dropped on a busy queue, which would leave the app open.
 // alarm_ringing back to the phone. alarmId is already validated (finite,
 // > 0) by incomingHandler's rejectMalformed before alarm_fired reaches us.
-function ackRing(alarmId) {
+function ackRing(alarmId, firedAt, requestStamp) {
     try {
-        WearBridge.sendRinging(alarmId);
+        WearBridge.sendRinging(alarmId, firedAt, requestStamp);
     } catch (e) {
-        Logger.err('index.ackRing', e);
     }
 }
 
@@ -213,6 +234,12 @@ function scheduleTerminate(reason, capMs) {
     Ticker.set('terminate', capMs || TERMINATE_HARD_CAP_MS, function () {
         fireTerminate('cap:' + reason);
     });
+}
+
+// Woken only by a stray message (a late copy or reply for a ring that is
+// over): close again rather than sit open. Only in the app's first seconds.
+function closeIfCold() {
+    if (Date.now() - _onInitMs < STALE_FIRE_COLD_MS) scheduleTerminate('stale');
 }
 
 function expediteTerminate(tag) {
@@ -225,6 +252,38 @@ function expediteTerminate(tag) {
 function cancelTerminate() {
     Ticker.clear('terminate');
     _terminateScheduled = false;
+}
+
+// The saved record always mirrors the LATEST request. A write or delete that
+// lands late (its callback arrives after a newer request exists) puts the
+// latest state back, so an older request can never be what a relaunch replays.
+function saveRecord(action) {
+    storage.set({ key: PENDING_ACTION_KEY, value: JSON.stringify(action),
+        success: function () {
+            if (_pendingAction !== action) fixRecord();
+        }, fail: noop });
+}
+
+function repairRecord() {
+    if (_pendingAction && _pendingAction.v === 1) saveRecord(_pendingAction);
+}
+
+// Every deletion repairs after it lands: a delete that arrives late must not
+// remove the record of a newer request saved in the meantime.
+function dropRecord() {
+    storage.delete({ key: PENDING_ACTION_KEY, success: repairRecord, fail: noop });
+}
+
+function fixRecord() {
+    if (_pendingAction && _pendingAction.v === 1) saveRecord(_pendingAction);
+    else dropRecord();
+}
+
+function clearPendingAction() {
+    _pendingAction = null;
+    Ticker.clear('actionAckWait');
+    Ticker.clear('actionRetry');
+    dropRecord();
 }
 
 // ACELite populates `$refs` only for refs that are CURRENTLY rendered. Every
@@ -541,7 +600,7 @@ export default {
                     _lastEndedFiredAt = Number(parts[1]);
                 }
             },
-            fail: function () {},
+            fail: noop,
         });
         // SIZE safety: if getInfo never returns, apply default dims so the
         // splash + load still proceed (nothing renders before `sized`).
@@ -549,7 +608,6 @@ export default {
         // cold start, which is exactly when one-shot timers get dropped.
         Ticker.set('sizedSafety', SIZED_SAFETY_MS, function () {
             if (!self.sized) {
-                Logger.w('index.sized-safety — forcing default dims');
                 self.applyScreen({ W: 466, H: 466, shape: 'circle' });
             }
         });
@@ -576,7 +634,6 @@ export default {
             key: BG_PATH_KEY,
             default: '',
             success: function (v) {
-                Logger.i('index.bgPath get=[' + v + ']');
                 if (v && v !== BG_CLEARED) {
                     // F4: the persisted path could point at a file that no
                     // longer exists (watch reset/reinstall wiped the sandbox
@@ -587,7 +644,7 @@ export default {
                     self.verifyBgFile('' + v);
                 }
             },
-            fail: function () {},
+            fail: noop,
         });
         // i18n + privacy + connection + alarms all load in startLoadRest(),
         // which applyScreen() kicks off AFTER size is known and the splash has
@@ -633,8 +690,11 @@ export default {
             // the right pattern + Snooze gating WITHOUT prior sync_replace.
             self.enterRing(alarmId, ringHints);
         });
-        IncomingHandler.setOnPeerEndedRing(function (alarmId, type) {
-            self.onPeerEnded(alarmId, type);
+        IncomingHandler.setOnPeerEndedRing(function (message, type) {
+            return self.onPeerEnded(message, type);
+        });
+        IncomingHandler.setOnActionAck(function (message) {
+            self._handleActionAck(message);
         });
         // Phone cleared the default watch background. Persist the cleared
         // sentinel FIRST so a relaunch can't restore the old path even if a
@@ -647,33 +707,32 @@ export default {
             // a non-empty set reliably persists) guarantees the restore rejects it.
             storage.delete({
                 key: BG_PATH_KEY,
-                success: function () { Logger.i('bgCleared delkey ok'); },
-                fail: function (d, c) { Logger.i('bgCleared delkey FAIL c=' + c); },
+                success: noop,
+                fail: noop,
             });
             storage.set({
                 key: BG_PATH_KEY,
                 value: BG_CLEARED,
-                success: function () { Logger.i('bgCleared set ok'); },
-                fail: function (d, c) { Logger.i('bgCleared set FAIL c=' + c + ' d=' + d); },
+                success: noop,
+                fail: noop,
             });
             // F4: also drop the hash marker so the next watch_screen reply
             // reports bg='' (we no longer hold a default bg).
             storage.set({
                 key: BG_HASH_KEY,
                 value: '',
-                success: function () {},
-                fail: function () {},
+                success: noop,
+                fail: noop,
             });
             _bgSrc = '';
             self.updateScrim();
             if (oldPath && oldPath !== BG_CLEARED) {
                 file.delete({
                     uri: oldPath,
-                    success: function () { Logger.i('bgCleared del ok ' + oldPath); },
-                    fail: function (d, c) { Logger.i('bgCleared del FAIL c=' + c + ' uri=' + oldPath); },
+                    success: noop,
+                    fail: noop,
                 });
             }
-            Logger.i('index.bgCleared');
         });
         IncomingHandler.setOnSyncWake(function () {
             if (self.screen === 'list') {
@@ -683,18 +742,12 @@ export default {
                 // (deferred), so don't call it here (it blocks ~2 s).
                 self.showSplash = false;
                 self.updateScrim();
-                Logger.i('index.screen=sync (wake-by-sync)');
                 // Never strand on 'sync': if no sync_done follows (a bare
                 // bg-clear/settings envelope woke us), terminate after the
                 // fallback. Cleared by sync_done / onHide.
                 // On the Ticker: a dropped one-shot timer here would strand
                 // the watch on the sync page.
-                Ticker.set('syncFallback', SYNC_FALLBACK_MS, function () {
-                    if (self.screen === 'sync') {
-                        Logger.i('index.sync fallback -> terminate (no sync_done)');
-                        fireTerminate('sync_fallback');
-                    }
-                });
+                armSyncFallback(self);
             }
         });
         IncomingHandler.setOnSyncDone(function () {
@@ -706,12 +759,7 @@ export default {
             // background — terminating here would yank the app out from
             // under the user, and mid-ring it ends the alarm (onHide ->
             // implicit snooze). Keep the app where the user left it.
-            if (self.screen === 'sync') {
-                Logger.i('index.sync_done -> terminate (woken for sync)');
-                fireTerminate('sync_done');
-            } else {
-                Logger.i('index.sync_done -> stay (screen=' + self.screen + ')');
-            }
+            if (self.screen === 'sync') fireTerminate('sync_done');
         });
         // Settings load in refresh(), which onShow calls right after onInit.
     },
@@ -773,12 +821,9 @@ export default {
         // event already chose ring/sync, leave showSplash false so that screen
         // paints instead (it was waiting on `sized`).
         this.sized = true;
-        _tApplyScreen = Date.now();
         if (this.screen !== 'ring' && this.screen !== 'sync' && !this.contentReady) {
             this.showSplash = true;
         }
-        Logger.i('index.applyScreen +' + (_tApplyScreen - _onInitMs) +
-            'ms ' + w + 'x' + h + ' round=' + round);
         // Defer the heavy load so the splash PAINTS before the blocking i18n.
         var selfAS = this;
         setTimeout(function () {
@@ -802,20 +847,6 @@ export default {
         this._pickScreen();
         this.contentReady = true;
         this.showSplash = false;
-        // ONE consolidated, watch-side timing breakdown (Date.now() marks) so
-        // we can see exactly where startup time goes, relay-drop-proof:
-        //   size     = onInit → applyScreen (getInfo)
-        //   splashGap= applyScreen → startLoadRest (render/macrotask gap; how
-        //              long until the splash actually gets a chance to paint)
-        //   preI18n  = startLoadRest → loadStrings start (privacy/conn/refresh)
-        //   i18n     = loadStrings $t block (the suspected ~1.8 s)
-        //   total    = onInit → contentReady
-        var t0 = _onInitMs;
-        Logger.i('index.TIMING size=' + (_tApplyScreen - t0) +
-            ' splashGap=' + (_tLoadRestStart - _tApplyScreen) +
-            ' preI18n=' + (_tLoadStringsStart - _tLoadRestStart) +
-            ' i18n=' + (_tLoadStringsEnd - _tLoadStringsStart) +
-            ' total=' + (Date.now() - t0) + 'ms' + (force ? ' (forced)' : ''));
         this.refresh();
     },
 
@@ -834,7 +865,6 @@ export default {
     // renderer → the splash only flashes). Reveal fires after the LAST chunk
     // (_loadStrings4) sets _i18nDone + maybeReveal — content shows fully texted.
     loadStrings: function () {
-        _tLoadStringsStart = Date.now();
         this.title = this.$t('strings.app_name');
         this.emptyText = this.$t('strings.no_alarms');
         this.emptyHint = this.$t('strings.no_alarms_hint');
@@ -871,9 +901,7 @@ export default {
         this.privacyQr = this.$t('strings.privacy_qr');
         this.onbScan = this.$t('strings.onboarding_scan');
         this.onbQr = this.$t('strings.onboarding_qr');
-        _tLoadStringsEnd = Date.now();
         _i18nDone = true;
-        Logger.i('index.loadStrings +' + (_tLoadStringsEnd - _onInitMs) + 'ms chunked');
         this.maybeReveal();
     },
 
@@ -885,7 +913,6 @@ export default {
     startLoadRest: function () {
         if (_loadRestStarted) return;
         _loadRestStarted = true;
-        _tLoadRestStart = Date.now();
         var self = this;
         PrivacyStore.get(function (agreed) {
             _needsConsent = !agreed;
@@ -900,7 +927,6 @@ export default {
     },
 
     onShow: function () {
-        Logger.i('index.onShow screen=' + this.screen);
         var self = this;
         // Register the single P2P receiver. Re-registered on every show
         // (idempotent) so a background/foreground cycle re-points the
@@ -928,7 +954,6 @@ export default {
                 self.applyAlarmsFile(p);
                 return;
             }
-            Logger.i('index.bgFile path=' + p);
             _bgSrc = p;
             var hash = parseBgHash(p);
             // CHAIN the two persistent writes, then ACK only AFTER they commit.
@@ -944,7 +969,6 @@ export default {
                 try {
                     WearBridge.sendBgReceived(hash);
                 } catch (e) {
-                    Logger.err('index.bgFile ack', e);
                 }
             };
             storage.set({
@@ -954,20 +978,11 @@ export default {
                     storage.set({
                         key: BG_HASH_KEY,
                         value: hash,
-                        success: function () {
-                            Logger.i('index.bgFile persisted hash=' + hash);
-                            ackOnce();
-                        },
-                        fail: function (d, c) {
-                            Logger.i('index.bgFile hash persist FAIL c=' + c);
-                            ackOnce();
-                        },
+                        success: ackOnce,
+                        fail: noop,
                     });
                 },
-                fail: function (d, c) {
-                    Logger.i('index.bgFile path persist FAIL c=' + c);
-                    ackOnce();
-                },
+                fail: noop,
             });
             // The 2 s poll (refresh) surfaces bgSrc into the bg-box gate
             // — no reliance on if=/async reactivity here.
@@ -984,6 +999,10 @@ export default {
         AlarmStore.setOnChange(function () {
             self.refresh();
         });
+        // onHide releases the hold; take it again while a ring is open or a
+        // request is waiting for its reply.
+        if (this.screen === 'ring' && (!this.ended || _pendingAction)) this._setKeepScreenOn(true);
+        this._resumePendingAction();
         this.refresh();
         if (_refreshTimer === null) {
             _refreshTimer = setInterval(function () {
@@ -993,9 +1012,6 @@ export default {
     },
 
     onHide: function () {
-        Logger.i('index.onHide screen=' + this.screen +
-            ' explicit=' + _explicitAction);
-        var self = this;
         AlarmStore.setOnChange(null);
         if (_refreshTimer !== null) {
             clearInterval(_refreshTimer);
@@ -1070,7 +1086,6 @@ export default {
                         try {
                             listEl.rotation({ focus: true });
                         } catch (crownErr) {
-                            Logger.err('index.crownFocus', crownErr);
                         }
                     }
                 }, 0);
@@ -1104,7 +1119,13 @@ export default {
     applyAlarmsFile: function (path) {
         var p = '' + path;
         var hash = parseAlarmsHash(p);
-        Logger.i('index.alarmsFile path=' + p + ' hash=' + hash);
+        var filePending = true;
+        var finishFileRead = function () {
+            if (!filePending) return;
+            filePending = false;
+            IncomingHandler.finishPendingWrite();
+        };
+        IncomingHandler.beginPendingWrite();
         file.readText({
             uri: p,
             success: function (data) {
@@ -1113,34 +1134,35 @@ export default {
                 try {
                     parsed = JSON.parse(text);
                 } catch (e) {
-                    Logger.err('index.alarmsFile JSON.parse', e);
                     // Drop the transient file so a corrupt/partial transfer doesn't
                     // linger; the phone's ack timeout will re-send a fresh copy.
-                    file.delete({ uri: p, success: function () {}, fail: function () {} });
+                    file.delete({ uri: p, success: noop, fail: noop });
+                    finishFileRead();
                     return;
                 }
+                if (!parsed || typeof parsed !== 'object') {
+                    file.delete({ uri: p, success: noop, fail: noop });
+                    finishFileRead();
+                    return;
+                }
+                parsed.hash = hash;
                 IncomingHandler.applyReplaceFromFile(parsed, function (ok) {
                     // ACK only AFTER the store write actually committed (ok===true).
                     // applyReplace passes false for a parseable-but-malformed file
                     // (no alarms array) — acking that would tell the phone we
                     // converged when we stored nothing (breaks persist-then-ack).
                     if (!ok) {
-                        Logger.w('index.alarmsFile applyReplace failed — NOT acking');
+                        finishFileRead();
                         return;
-                    }
-                    Logger.i('index.alarmsFile applied — ack hash=' + hash);
-                    try {
-                        WearBridge.sendAlarmsReceived(hash);
-                    } catch (e2) {
-                        Logger.err('index.alarmsFile ack', e2);
                     }
                     // Transient sync file — delete so the sandbox doesn't accrue
                     // stale alarms_*.json (unlike the bg image, it isn't shown).
-                    file.delete({ uri: p, success: function () {}, fail: function () {} });
+                    file.delete({ uri: p, success: noop, fail: noop });
+                    finishFileRead();
                 });
             },
             fail: function (data, code) {
-                Logger.i('index.alarmsFile read FAIL code=' + code);
+                finishFileRead();
             },
         });
     },
@@ -1153,16 +1175,12 @@ export default {
                 success: function () {
                     _bgSrc = path;
                     self.updateScrim();
-                    Logger.i('index.bgPath restored=' + path);
                 },
                 fail: function (data, code) {
                     // Keep the hash — do NOT clearBgMarkers (that caused the loop).
-                    Logger.i('index.bgPath access-fail code=' + code +
-                        ' — keeping hash, showing default (no re-upload)');
                 },
             });
         } catch (e) {
-            Logger.err('index.verifyBgFile', e);
             // Same: a probe error must not wipe the hash.
         }
     },
@@ -1197,7 +1215,6 @@ export default {
     },
     // Called (deferred) from enterRing once .crown-list has rendered.
     _armCrownGesture: function () {
-        var self = this;
         _crownGestureCount = 0;
         _crownActive = false;
         _crownCommitted = false;
@@ -1209,7 +1226,6 @@ export default {
                 el.scrollTo({ index: CROWN_MID_INDEX });
                 el.rotation({ focus: true });
             } catch (e) {
-                Logger.err('index.armCrown', e);
             }
         }
         // Swallow any scrollend the scrollTo() above may emit, then start
@@ -1217,6 +1233,13 @@ export default {
         setTimeout(function () {
             _crownIgnoreScroll = false;
         }, CROWN_SETTLE_MS);
+    },
+    // Arm the crown gesture on the Ticker, after the ring stack has rendered.
+    _armCrown: function () {
+        var self = this;
+        Ticker.set('crownArm', 0, function () {
+            self._armCrownGesture();
+        });
     },
     // Hold the watch screen on for the duration of the ring, and release it
     // the moment the ring is over.
@@ -1235,13 +1258,10 @@ export default {
         try {
             brightness.setKeepScreenOn({
                 keepScreenOn: on,
-                success: function () {},
-                fail: function (data, code) {
-                    Logger.w('index.keepScreenOn ' + on + ' failed c=' + code);
-                },
+                success: noop,
+                fail: noop,
             });
         } catch (e) {
-            Logger.err('index.keepScreenOn', e);
         }
     },
     // Called when the ring is torn down (action taken / peer-ended /
@@ -1250,16 +1270,15 @@ export default {
     // already funnels through (onDismiss / onSnooze / onPeerEnded / onHide),
     // which is why the screen release lives here rather than being repeated
     // at all five `screen = 'list'` assignments.
-    _disarmCrownGesture: function () {
+    _disarmCrownGesture: function (holdScreen) {
         this._clearCrownTimers();
         _crownActive = false;
-        this._setKeepScreenOn(false);
+        if (!holdScreen) this._setKeepScreenOn(false);
         var el = safeRef(this, 'crownList');
         if (el) {
             try {
                 el.rotation({ focus: false });
             } catch (e) {
-                Logger.err('index.disarmCrown', e);
             }
         }
     },
@@ -1281,7 +1300,6 @@ export default {
                 // Second rotation within the double-window -> dismiss.
                 this._clearCrownTimers();
                 _crownCommitted = true;
-                Logger.i('index.crown gesture=2 -> dismiss');
                 this.onDismiss();
                 return;
             }
@@ -1300,7 +1318,6 @@ export default {
                             self.screen === 'ring' && !self.ended &&
                             self.ringSnoozeEnabled) {
                         _crownCommitted = true;
-                        Logger.i('index.crown gesture=1 -> snooze');
                         self.onSnooze();
                     }
                 }, CROWN_DOUBLE_MS);
@@ -1327,8 +1344,6 @@ export default {
 
     // ---- RING ----
     enterRing: function (alarmId, ringHints) {
-        Logger.i('index.enterRing id=' + alarmId);
-        var self = this;
         // The ring contract is the alarm_fired payload. Every published phone
         // build sends vibrationPattern + snoozeAllowed (watchVibrationEnabled
         // since 1.0.6; its default true matches what older phones meant), so
@@ -1339,34 +1354,45 @@ export default {
         // The phone re-sends alarm_fired until we confirm (slow cold starts).
         // A copy for the ring already on screen only needs the confirmation
         // again: restarting would reset the buzz pattern and the screen.
-        if (this.screen === 'ring' && !this.ended && _alarmId === alarmId) {
-            Logger.i('index.enterRing dup id=' + alarmId);
-            ackRing(alarmId);
+        // A 1.0.10 phone sends no firedAt: same alarm ID is the duplicate rule.
+        var requestStamp = (typeof h.updatedAtEpoch === 'number') ? h.updatedAtEpoch : 0;
+        if (this.screen === 'ring' && !this.ended && _alarmId === alarmId &&
+                (firedAt === 0 || _ringFiredAt === firedAt)) {
+            ackRing(alarmId, firedAt, requestStamp);
+            return;
+        }
+        if (this.screen === 'ring' && !this.ended && firedAt > 0 &&
+                _ringFiredAt > firedAt) {
             return;
         }
         // A late copy of a ring this watch already ended must not ring again.
         // firedAt is the phone's ring start, identical on every re-send, so a
         // snooze re-fire of the same alarm (new firedAt) still rings.
         var endedBeforeShown = firedAt > 0 && alarmId === _peerEndedAlarmId &&
-            firedAt < _peerEndedAt;
+            firedAt <= _peerEndedAt;
         if (endedBeforeShown ||
                 (firedAt > 0 && firedAt === _lastEndedFiredAt && alarmId === _lastEndedAlarmId)) {
-            Logger.i('index.enterRing stale id=' + alarmId);
             // Woken only by this stale copy: close again rather than sit open.
-            if (Date.now() - _onInitMs < STALE_FIRE_COLD_MS) {
-                scheduleTerminate('stale-fire');
-            }
+            closeIfCold();
             return;
         }
+        // A different occurrence voids any saved action (the stored record too).
+        // A saved action for THIS occurrence (replayed after a relaunch) is
+        // already in flight: show the ring without buzzing, like after a tap.
+        var resumed = !!_pendingAction && _pendingAction.a === alarmId &&
+            _pendingAction.f === firedAt;
+        if (!resumed && (_alarmId !== alarmId || _ringFiredAt !== firedAt)) clearPendingAction();
         _ringFiredAt = firedAt;
+        // A phone that sent no firedAt is legacy and never replies.
+        _ringSupportsActionAck = h.supportsActionAck === true && firedAt > 0;
         _alarmId = alarmId;
-        _explicitAction = null;
         this.ended = false;
         // Snooze defaults to allowed (better than blocking an unknown alarm).
         this.ringSnoozeEnabled = h.snoozeAllowed !== false;
         _ringPattern = VIBRATION_PATTERNS[h.vibrationPattern] ? h.vibrationPattern : 'PULSE';
         _ringWatchVib = h.watchVibrationEnabled !== false;
         cancelTerminate();
+        Ticker.clear('ringCap');
         // A previous ring's "back to list" flip must not land on this one.
         Ticker.clear('peerFlash');
         this.screen = 'ring';
@@ -1393,13 +1419,6 @@ export default {
         // from an always-sync build). Deferred to ring end so the store is
         // not rewritten while the ring is on screen.
         _clearListPending = (h.listSync === false);
-        Logger.i('index.enterRing p=' + _ringPattern + ' snz=' + this.ringSnoozeEnabled +
-            ' vib=' + _ringWatchVib + ' ls=' + h.listSync);
-        // Arm crown-to-snooze once the ring stack (with .crown-list) has
-        // rendered — the $refs entry resolves only after the render pass.
-        Ticker.set('crownArm', 0, function () {
-            self._armCrownGesture();
-        });
 
         // Ring time is always "now" — the wake-up instant the user sees.
         var now = new Date();
@@ -1408,24 +1427,28 @@ export default {
 
         // Tell the phone our ring UI is up (it awaits this before
         // starting its own audio).
-        ackRing(alarmId);
-        this.startVibrate();
+        ackRing(alarmId, firedAt, requestStamp);
+        if (resumed) {
+            this._holdForReply();
+        } else {
+            // Arm crown-to-snooze once the ring stack (with .crown-list) has
+            // rendered — the $refs entry resolves only after the render pass.
+            this._armCrown();
+            this.startVibrate();
+        }
     },
 
     startVibrate: function () {
         this.stopVibrate();
         // 1.0.6: "silent on watch" — skip the buzz entirely for this alarm.
         if (!_ringWatchVib) {
-            Logger.i('startVibrate skip — watch vibration disabled');
             return;
         }
         var pattern = VIBRATION_PATTERNS[_ringPattern] || VIBRATION_PATTERNS.PULSE;
         // OFF preset → no vibration at all.
         if (!pattern || pattern.length === 0) {
-            Logger.i('startVibrate skip pattern=' + _ringPattern);
             return;
         }
-        var self = this;
         var stepIdx = 0;
         // Per-start token: a step queued by a previous start sees a different
         // id and bails, so a stop + restart can never leave two chains.
@@ -1441,7 +1464,6 @@ export default {
                     vibrator.vibrate({ mode: s.mode });
                 }
             } catch (e) {
-                Logger.err('vibrate', e);
             }
             stepIdx = (stepIdx + 1) % pattern.length;
             // The next step runs on the Ticker, not a setTimeout chain. ACELite
@@ -1464,7 +1486,6 @@ export default {
     // Guard the RING screen: there the user must dismiss/snooze, not swipe away.
     onSwipe: function (e) {
         if (e && e.direction === 'right' && this.screen !== 'ring') {
-            Logger.i('index.onSwipe right -> terminate (screen=' + this.screen + ')');
             app.terminate();
         }
     },
@@ -1473,22 +1494,17 @@ export default {
     // Agree → persist + drop into the list. Decline → exit the app (mirrors
     // the phone's PrivacyConsentDialog Disagree path).
     onPrivacyAgree: function () {
-        Logger.i('index.privacy agree');
         _needsConsent = false;
-        PrivacyStore.setAgreed(function (ok) {
-            Logger.i('index.privacy persisted ok=' + ok);
-        });
+        PrivacyStore.setAgreed(noop);
         this.screen = 'list';
         this.updateScrim();
         this.refresh();
     },
 
     onPrivacyDecline: function () {
-        Logger.i('index.privacy decline -> terminate');
         try {
             app.terminate();
         } catch (e) {
-            Logger.err('index.privacy decline term', e);
         }
     },
 
@@ -1504,85 +1520,198 @@ export default {
             storage.set({
                 key: LAST_RING_KEY,
                 value: _alarmId + ':' + _ringFiredAt,
-                success: function () {},
-                fail: function (d, c) { Logger.w('index.lastRing set FAIL c=' + c); },
+                success: noop,
+                fail: noop,
             });
         }
         if (_clearListPending) {
             _clearListPending = false;
-            AlarmStore.replaceAll([], function () {
-                Logger.i('index.listSync off — watch list cleared');
-            });
+            AlarmStore.replaceAll([], noop);
         }
     },
 
     onDismiss: function () {
-        Logger.i('index.onDismiss id=' + _alarmId);
-        var self = this;
-        _explicitAction = 'dismiss';
-        this.stopVibrate();
-        this._disarmCrownGesture();
-        // Show the green thumbs-up confirmation in place of the buttons,
-        // then leave the ring after the same flash window the phone-
-        // initiated path uses.
-        this.ended = true;
-        this._onRingEnded();
-        var alarmId = _alarmId;
-        WearBridge.notifyDismissed(alarmId, function (ok, reason) {
-            Logger.i('index.dismiss-ack ok=' + ok + ' r=' + reason);
-            expediteTerminate('dismiss');
-        });
-        // Retry-cap: must outlast the notifyDismissed retry chain so the
-        // chain is never killed mid-flight. The cb above expedites the
-        // common (fast) case; this cap is the unreachable-phone fallback.
-        scheduleTerminate('dismiss', TERMINATE_RETRY_CAP_MS);
-        Ticker.set('peerFlash', PEER_FLASH_MS, function () {
-            self.screen = 'list';
-            self.updateScrim();
-            self.refresh();
-        });
-        // Best-effort one-shot auto-disable for non-recurring alarms.
-        AlarmStore.getAll(function (items) {
-            for (var i = 0; i < items.length; i++) {
-                if (items[i].id === alarmId && items[i].daysOfWeek === 0) {
-                    var u = {};
-                    for (var k in items[i]) {
-                        if (items[i].hasOwnProperty(k)) u[k] = items[i][k];
-                    }
-                    u.enabled = false;
-                    u.updatedAtEpoch = Date.now();
-                    AlarmStore.update(u, function () {});
-                    return;
-                }
-            }
-        });
+        this._beginRingAction('dismiss');
     },
-
     onSnooze: function () {
-        Logger.i('index.onSnooze id=' + _alarmId);
-        var self = this;
-        _explicitAction = 'snooze';
+        this._beginRingAction('snooze');
+    },
+    // Dismiss/Snooze tap. The request goes out at once and keeps one stamp for
+    // every retry. A phone that answers (v === 1) is waited for: the ring ends
+    // only on its ok:true (or a matching peer-ended). The record is saved in
+    // parallel for a relaunch; a phone that never answers (v === 0) completes
+    // on the transport result and saves nothing.
+    _beginRingAction: function (type) {
+        if (_pendingAction || this.screen !== 'ring' || this.ended) return;
+        if (type === 'snooze' && !this.ringSnoozeEnabled) return;
         this.stopVibrate();
-        this._disarmCrownGesture();
+        this._disarmCrownGesture(true);
+        _resumeGen++;
+        _lastActionStamp = Math.max(Date.now(), _lastActionStamp + 1);
+        var action = { t: type === 'dismiss' ? 'd' : 's', a: _alarmId,
+            f: _ringFiredAt, s: _lastActionStamp, v: _ringSupportsActionAck ? 1 : 0 };
+        _pendingAction = action;
+        _pendingActionAttempts = 0;
+        // A fresh cap for this request: an earlier one may be nearly spent.
+        cancelTerminate();
+        scheduleTerminate(type, TERMINATE_RETRY_CAP_MS);
+        this._sendPendingAction();
+        if (action.v === 1) saveRecord(action);
+    },
+    _sendPendingAction: function () {
+        var self = this;
+        var action = _pendingAction;
+        if (!action) return;
+        _pendingActionAttempts++;
+        var send = action.t === 'd' ? WearBridge.notifyDismissed : WearBridge.notifySnoozed;
+        // The bridge retries one send itself; the page starts its own retry only
+        // after that chain ended, so the two never overlap. The bridge stops its
+        // chain as soon as this request is no longer pending.
+        send(action.a, action.f, action.s, function (transportOk) {
+            if (_pendingAction !== action) return;
+            if (!transportOk) self._retryPendingAction();
+            else if (action.v !== 1) self._completeRingAction(action);
+            else Ticker.set('actionAckWait', 1800, function () { self._retryPendingAction(); });
+        }, function () { return _pendingAction === action; });
+    },
+    _retryPendingAction: function () {
+        var self = this;
+        if (!_pendingAction) return;
+        if (_pendingActionAttempts < 3) {
+            Ticker.set('actionRetry', 700, function () { self._sendPendingAction(); });
+            return;
+        }
+        // No reply after every try: release the request. No success flash, the
+        // buzz stays off, and the action terminate cap still closes the app. A
+        // late ok:true for it can still end the ring (see _handleActionAck).
+        _releasedAction = _pendingAction;
+        clearPendingAction();
+        this._armCrown();
+    },
+    _handleActionAck: function (message) {
+        var action = _pendingAction || _releasedAction;
+        if (!action || !message || message.alarmId !== action.a ||
+                message.updatedAtEpoch !== action.s ||
+                message.type !== (action.t === 'd' ? 'alarm_dismissed_ack' : 'alarm_snoozed_ack') ||
+                (action.v === 1 && action.f > 0 && message.firedAt !== action.f) ||
+                (typeof message.firedAt === 'number' && message.firedAt !== action.f)) {
+            // A stray reply that woke a cold app has nothing to act on.
+            if (!_pendingAction && this.screen !== 'ring') closeIfCold();
+            return;
+        }
+        _releasedAction = null;
+        if (message.ok === true) {
+            this._completeRingAction(action);
+        } else if (message.ok === false) {
+            // The phone refused: it is still ringing, so the watch rings again.
+            clearPendingAction();
+            if (this.screen === 'ring' && !this.ended && _alarmId === action.a &&
+                    _ringFiredAt === action.f) {
+                cancelTerminate();
+                Ticker.set('ringCap', RING_CAP_MS, function () { fireTerminate('ring'); });
+                this._setKeepScreenOn(true);
+                this._armCrown();
+                this.startVibrate();
+            }
+        }
+    },
+    // A saved action is replayed only if it is from a phone that answers, has an
+    // occurrence, is under two minutes old and fits the ring on screen.
+    _resumePendingAction: function () {
+        var self = this;
+        if (_pendingAction) return;
+        // The read can answer late. If a tap, a reply, an end message or a new
+        // ring settled things in the meantime, its record is old: drop it.
+        var gen = _resumeGen;
+        storage.get({ key: PENDING_ACTION_KEY, default: '', success: function (value) {
+            if (_pendingAction || typeof value !== 'string' || value.length === 0) return;
+            var action = null;
+            try {
+                action = JSON.parse(value);
+            } catch (e) {
+                action = null;
+            }
+            if (!action || (action.t !== 'd' && action.t !== 's') || action.v !== 1 ||
+                    !isPos(action.a) || !isPos(action.f) || !isPos(action.s) ||
+                    Math.abs(Date.now() - action.s) >= ACTION_RESUME_MAX_MS || gen !== _resumeGen ||
+                    (action.a === _lastEndedAlarmId && action.f === _lastEndedFiredAt) ||
+                    (self.screen === 'ring' && (self.ended || _alarmId !== action.a ||
+                        _ringFiredAt !== action.f))) {
+                dropRecord();
+                return;
+            }
+            _pendingAction = action;
+            _resumeGen++;
+            _lastActionStamp = Math.max(_lastActionStamp, action.s);
+            _pendingActionAttempts = 0;
+            _alarmId = action.a;
+            _ringFiredAt = action.f;
+            _ringSupportsActionAck = true;
+            // The ring may already be up (its alarm_fired came before this read
+            // returned): it is now waiting for the reply, like after a tap.
+            if (self.screen === 'ring') self._holdForReply();
+            self._sendPendingAction();
+        }, fail: noop });
+    },
+    // The ring stays on screen while a request is in flight: no buzz, no crown,
+    // screen held, and a fresh cap so the app still closes if no reply comes.
+    _holdForReply: function () {
+        this.stopVibrate();
+        this._disarmCrownGesture(true);
+        cancelTerminate();
+        scheduleTerminate('resume', TERMINATE_RETRY_CAP_MS);
+    },
+    _completeRingAction: function (action) {
+        if (_pendingAction && _pendingAction !== action) return;
+        clearPendingAction();
+        if (_alarmId !== action.a || _ringFiredAt !== action.f || this.screen !== 'ring') {
+            if (this.screen !== 'ring') closeIfCold();
+            return;
+        }
+        if (this.ended) return;
+        this.stopVibrate();
         this.ended = true;
         this._onRingEnded();
-        WearBridge.notifySnoozed(_alarmId, function (ok, reason) {
-            Logger.i('index.snooze-ack ok=' + ok + ' r=' + reason);
-            expediteTerminate('snooze');
-        });
-        // Retry-cap — see onDismiss: outlasts the notifySnoozed retry chain.
-        scheduleTerminate('snooze', TERMINATE_RETRY_CAP_MS);
+        this._disarmCrownGesture(false);
+        var self = this;
+        if (action.t === 'd') {
+            AlarmStore.getAll(function (items) {
+                for (var i = 0; i < items.length; i++) {
+                    if (items[i].id === action.a && items[i].daysOfWeek === 0) {
+                        var u = {};
+                        for (var k in items[i]) if (items[i].hasOwnProperty(k)) u[k] = items[i][k];
+                        u.enabled = false;
+                        u.updatedAtEpoch = Date.now();
+                        AlarmStore.update(u, noop);
+                        break;
+                    }
+                }
+            });
+        }
+        // A replayed request has no cap of its own: make sure the app closes.
+        scheduleTerminate('ack', PEER_FLASH_MS + TERMINATE_AFTER_ACK_MS);
         Ticker.set('peerFlash', PEER_FLASH_MS, function () {
             self.screen = 'list';
             self.updateScrim();
             self.refresh();
+            expediteTerminate(action.t === 'd' ? 'dismiss' : 'snooze');
         });
     },
 
     // Phone reported the alarm dismissed/snoozed on its side — the
     // headline Bug-1 indicator. Flash the ring screen green, then close.
-    onPeerEnded: function (alarmId, type) {
-        Logger.i('index.onPeerEnded type=' + type + ' id=' + alarmId);
+    onPeerEnded: function (message, type) {
+        var alarmId = message && message.alarmId;
+        var firedAt = message && typeof message.firedAt === 'number' ? message.firedAt : 0;
+        if (this.screen === 'ring' && alarmId !== _alarmId) return false;
+        if (this.screen === 'ring' && _ringSupportsActionAck && firedAt !== _ringFiredAt) return false;
+        if (this.screen === 'ring' && alarmId === _alarmId && firedAt > 0 &&
+                _ringFiredAt > 0 && firedAt !== _ringFiredAt) return false;
+        // Already ended (success flash running): nothing to redo, just confirm.
+        if (this.screen === 'ring' && this.ended) return true;
+        _resumeGen++;
+        if (_pendingAction && _pendingAction.a === alarmId &&
+                (!firedAt || _pendingAction.f === firedAt)) clearPendingAction();
         var self = this;
         this.stopVibrate();
         this._disarmCrownGesture();
@@ -1592,13 +1721,12 @@ export default {
             // for that same ring (firedAt earlier than now) is ignored; a
             // snooze re-fire starts later and still rings.
             _peerEndedAlarmId = alarmId;
-            _peerEndedAt = Date.now();
+            _peerEndedAt = firedAt || Date.now();
             // No ring up — nothing to flash; just make sure we are home.
             this.screen = 'list';
             this.updateScrim();
-            return;
+            return true;
         }
-        _explicitAction = 'peer-ended';
         this.ended = true;
         this._onRingEnded();
         // On the Ticker: the terminate is armed inside this callback, so a
@@ -1609,5 +1737,6 @@ export default {
             self.refresh();
             scheduleTerminate('peer-ended');
         });
+        return true;
     },
 };

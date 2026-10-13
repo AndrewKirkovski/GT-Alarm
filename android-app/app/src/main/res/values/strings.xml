@@ -324,4 +324,8 @@
     <string name="watch_picture_clear_confirm_body">Your watch will wake and briefly open GT Wake to remove the picture.</string>
     <string name="watch_picture_confirm_ok">Continue</string>
     <string name="field_watch_vibration_hint">Do Not Disturb, Sleep mode, or Vibration set to None on the watch can silence it.</string>
+    <string name="help_watch_sync_title">Alarm list sync</string>
+    <string name="help_watch_sync_body">Huawei will not approve waking the watch to sync the alarm list, so this setting was removed. Alarms still ring on the watch. If you have questions, contact the developer.</string>
+    <string name="help_watch_sync_url" translatable="false">mailto:andrew.kirkovski@gmail.com?subject=GT%20Wake%20-%20Alarm%20list%20sync</string>
+    <string name="watch_list_sync_unlocked">Alarm list sync setting unlocked. You can enable it in Settings.</string>
 </resources>

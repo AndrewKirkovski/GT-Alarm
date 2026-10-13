@@ -40,6 +40,12 @@ data class AlarmRingHints(
     // it already ended (ignore) from a new ring of the same alarm, such as a
     // snooze re-fire (ring). null = omitted.
     val firedAtEpoch: Long? = null,
+    // Whether the phone can receive the watch's dismiss/snooze right now
+    // (user unlocked AND the P2P receiver registered). Only then does the
+    // envelope carry `supportsActionAck: true`, which makes the watch wait
+    // for a committed reply. Otherwise the watch completes on transport 207,
+    // as released builds always did.
+    val supportsActionAck: Boolean = false,
 ) {
     companion object {
         /**
@@ -51,7 +57,7 @@ data class AlarmRingHints(
             vibrationPatternName = alarm.vibrationPattern.name,
             snoozeAllowed = alarm.isSnoozeEnabled,
             watchVibrationEnabled = alarm.watchVibrationEnabled,
-            listSync = settings?.watchListSync,
+            listSync = settings?.effectiveWatchListSync,
             use24Hour = settings?.use24Hour,
         )
     }

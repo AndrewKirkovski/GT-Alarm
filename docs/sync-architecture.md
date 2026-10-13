@@ -12,6 +12,84 @@ Companion document to `docs/acceptance-criteria.md`. This is the design-of-recor
 
 ---
 
+## Current reliability contract (October 2026)
+
+The live watch code is in `watch-app/entry/src/main/js/MainAbility/`. It uses
+one index page and a receive-only alarm list. The phone remains the scheduler.
+The older phase notes below are historical where they conflict with this section.
+
+List sync requires both `watch_list_sync_unlocked` and the existing
+`watch_list_sync` preference. The unlock gesture reveals the existing setting
+without enabling it. A one-time preference migration disables old enabled values
+without any watch traffic. Explicit picture transfers retain their separate consent.
+
+Existing JSON message names and alarm payloads are retained. Optional fields add
+confirmation and occurrence matching; no required protocol version or new IDs exist.
+
+| Message | Optional fields and completion rule |
+| --- | --- |
+| `alarm_fired` | `firedAt` identifies the occurrence. `supportsActionAck: true` is sent only while the phone can receive (unlocked, receiver registered) and asks an updated watch to wait for a committed reply. |
+| `alarm_dismissed`, `alarm_snoozed` (watch to phone) | An updated watch adds `firedAt` and keeps one `updatedAtEpoch` across retries. Released watches send neither. |
+| `alarm_dismissed`, `alarm_snoozed` (phone to watch) | Also used, with `firedAt`, to answer a watch request for an occurrence that already ended on the phone. |
+| `alarm_dismissed_ack`, `alarm_snoozed_ack` (phone to watch) | Only for requests that carried `firedAt`. Echo the request `updatedAtEpoch` and `firedAt`; `ok:false` means the phone ring is still current and nothing changed. Never sent with a wake. |
+| `alarm_dismissed_ack`, `alarm_snoozed_ack`, `alarm_ringing` (watch to phone) | With `firedAt`: matched strictly (occurrence and stamp). Without `firedAt` (released watches): matched by alarm ID only, as before. |
+| `sync_check`, `sync_hash` | Echo `updatedAtEpoch` when supplied. `sync_hash.supportsCommitAck: true` announces persistence acknowledgements. |
+| `sync_replace`, `alarms_received` | Text and file replacement use the same acknowledgement, with persisted list hash and replacement timestamp. Failed persistence sends no successful acknowledgement. A released watch's own stamp is accepted when the hash matches. |
+| `sync_done` | Close after pending list writes finish, or at a bounded deadline. The phone sends it directly to the running peer without another wake. |
+
+Phone reply rule for an updated watch's dismiss/snooze, decided per ring service in
+memory (no persistent receipts):
+
+| Situation | Reply |
+| --- | --- |
+| An action for this occurrence is already in progress (watch duplicate or phone tap) | none |
+| The same request already succeeded | `ok:true` again, not applied twice |
+| Current occurrence, commit succeeded | `ok:true` |
+| Current occurrence, nothing committed, phone still ringing | `ok:false` |
+| Occurrence already ended, replaced, or unknown after a restart | the phone-to-watch `alarm_dismissed`/`alarm_snoozed` with that `firedAt`; never applied |
+
+After a committed watch action the phone keeps its ring screen and service up 6 s, so
+a watch retry inside that window is received (Wear Engine delivers to the phone only
+while an Activity is alive). Without a ring screen, the watch stops retrying and
+closes without a success flash; the phone is already in its final state.
+
+The watch keeps one small pending action record for retries, only for phones that
+sent `supportsActionAck`. It replays a saved record only when it is under two minutes
+old and matches the ring occurrence. On `ok:false` it restores the ring (vibration,
+crown, screen hold) with a six-minute cap.
+
+Known residual risk on the watch list store: each write has a 10 s deadline and the
+queue then waits up to another 10 s for a late callback. A native file write that
+lands after both deadlines can still overwrite a newer list. The watch acknowledges a
+replace only after a read-back hash matches, so the phone sees no ack and re-syncs;
+it never believes a stale list was stored. Closing this fully would need staging
+files with a generation check, which was out of scope (small changes only).
+
+Receiver ownership on the phone: a send failure (206) no longer clears the P2P
+receiver registration, a registration whose outcome is unknown is unregistered before
+the next attempt, and installing the same incoming handler again does not cancel
+in-flight receive work. A failed device or permission lookup (error or timeout) keeps
+the cached device and registration; only a successful empty device list clears them.
+Every Wear Engine SDK wait is bounded (5 s for lookups, 8 s for text sends, 30 s for
+file sends).
+
+An unregister that times out stays tracked until its own completion callback runs,
+and no new registration is made while one is tracked. After 60 s it is treated as
+lost (a hung Huawei Health call), so registration can resume. Known residual risk:
+if such an abandoned unregister still takes effect inside the SDK after a newer
+registration, the phone can report the receiver as ready while it no longer receives.
+Source code cannot show the SDK's ordering here; this needs a device test (receiver
+health after a reconnect, see the device test list).
+
+The next recurrence of a repeating alarm is armed when the ring starts, before any
+watch wait. Scheduling and state writes are separate operations, so an interrupted
+action can have partial effects. Pre-unlock dismiss resets the snooze counter and
+drops older pending counter bumps in the same write. A pre-unlock snooze records its
+trigger and counter bump in one write before arming the trigger. Post-unlock
+reconciliation applies remaining bumps once.
+
+---
+
 ## 1. Layered model
 
 ```
@@ -642,7 +720,7 @@ Researched 2026-04-25 + revised 2026-04-27. **Verdict: each side is partially te
 - Renders HML pages + executes JS lifecycle. Sufficient for visual iteration on the ring page, list, edit page; no animation/perf guarantees match the GT 6 (CPU and GPU profiles differ).
 - `vibrator.vibrate` is a no-op on simulator.
 - `@system.wearengine` not available on simulator — there is no peer to talk to. The Wear Engine seam falls back to logging.
-- No native unit-test framework on Lite (Hypium is NEXT-only). Pure-logic modules get extracted as plain JS and tested via Node + jest under `.local/jest-lite/`. The `.local/jest-lite/` suites for tombstones, LWW and the per-alarm handlers are out of date since those modules were removed on 2026-10-01. UI / page-lifecycle is manual-test only.
+- No native unit-test framework on Lite (Hypium is NEXT-only). The watch reliability paths (ring routing, dismiss/snooze retries and replies, pending-action record, list-store writes) are tested in the repo with Node's built-in runner: `node --test watch-app/tests/reliability.test.mjs`. Older pure-logic suites live under `.local/jest-lite/`. The `.local/jest-lite/` suites for tombstones, LWW and the per-alarm handlers are out of date since those modules were removed on 2026-10-01. UI / page-lifecycle is manual-test only.
 
 ### 8.2 — What does NOT work on emulators (hard gates)
 

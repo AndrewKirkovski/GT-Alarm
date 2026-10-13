@@ -155,7 +155,7 @@ fun SettingsScreen(
                     }
                 }
             }
-            if (watchSupported) {
+            if (watchSupported && state.watchListSyncUnlocked) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SettingsSectionHeader(stringResource(R.string.settings_section_watch))
                     Card(
@@ -164,7 +164,7 @@ fun SettingsScreen(
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             WatchListSyncSection(
-                                listSyncOn = state.watchListSync,
+                                listSyncOn = state.effectiveWatchListSync,
                                 onChange = vm::setWatchListSync,
                             )
                         }

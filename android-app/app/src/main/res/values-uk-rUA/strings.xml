@@ -254,4 +254,7 @@
     <string name="watch_picture_clear_confirm_body">Годинник прокинеться й ненадовго відкриє GT Wake, щоб прибрати зображення.</string>
     <string name="watch_picture_confirm_ok">Продовжити</string>
     <string name="field_watch_vibration_hint">Режим «Не турбувати», режим сну або вібрація «Немає» на годиннику можуть її вимкнути.</string>
+    <string name="help_watch_sync_title">Синхронізація списку будильників</string>
+    <string name="help_watch_sync_body">Huawei не схвалює пробудження годинника для синхронізації списку будильників, тому це налаштування вилучено. Будильники й надалі дзвонять на годиннику. Якщо у вас є запитання, зверніться до розробника.</string>
+    <string name="watch_list_sync_unlocked">Налаштування синхронізації списку будильників розблоковано. Його можна ввімкнути в Налаштуваннях.</string>
 </resources>

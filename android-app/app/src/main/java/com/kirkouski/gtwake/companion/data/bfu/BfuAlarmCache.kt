@@ -14,6 +14,9 @@ import javax.inject.Singleton
 
 /** Pre-unlock-readable cache of enabled alarms in device-protected storage. */
 @Singleton
+// reason: every mutation must share one mutex and one write-then-publish path;
+// splitting the cache would split that serialization.
+@Suppress("TooManyFunctions")
 class BfuAlarmCache @Inject constructor(
     @param:BfuCacheFile private val file: File,
 ) {
@@ -75,9 +78,7 @@ class BfuAlarmCache @Inject constructor(
 
     suspend fun replaceAll(alarms: List<Alarm>) = mutex.withLock {
         val enabled = alarms.filter { it.enabled }.immutable()
-        val next = loaded().copy(alarms = enabled)
-        stateRef.set(next)
-        writeToDisk(next)
+        commit(loaded().copy(alarms = enabled))
     }
 
     suspend fun upsert(alarm: Alarm) = mutex.withLock {
@@ -89,36 +90,117 @@ class BfuAlarmCache @Inject constructor(
         } else if (idx >= 0) {
             list.removeAt(idx)
         }
-        val next = current.copy(alarms = list.immutable())
+        commit(current.copy(alarms = list.immutable()))
+    }
+
+    /** Update the snooze trigger without folding pending counter bumps into the cached row. */
+    suspend fun setSnoozedUntil(id: Long, triggerEpoch: Long?): Boolean = mutex.withLock {
+        val current = loaded()
+        val updated = current.alarms.map { alarm ->
+            if (alarm.id == id) alarm.copy(snoozedUntilEpoch = triggerEpoch) else alarm
+        }
+        val next = current.copy(alarms = updated.immutable())
+        if (!writeToDisk(next)) return@withLock false
         stateRef.set(next)
-        writeToDisk(next)
+        true
+    }
+
+    /** Clear an elapsed skip without copying the virtual pending-bump count from [getAll]. */
+    suspend fun consumePastSkip(id: Long, nowEpoch: Long): Boolean = mutex.withLock {
+        val current = loaded()
+        val alarm = current.alarms.firstOrNull { it.id == id } ?: return@withLock false
+        val skipEpoch = alarm.skipNextEpoch ?: return@withLock true
+        if (skipEpoch > nowEpoch) return@withLock true
+        val updated = current.alarms.map { alarm ->
+            if (alarm.id == id) {
+                alarm.copy(skipNextEpoch = null, updatedAtEpoch = nowEpoch)
+            } else {
+                alarm
+            }
+        }
+        val next = current.copy(alarms = updated.immutable())
+        if (!writeToDisk(next)) return@withLock false
+        stateRef.set(next)
+        true
     }
 
     suspend fun remove(id: Long) = mutex.withLock {
         val current = loaded()
-        val next = current.copy(
+        commit(current.copy(
             // Implicit dismiss-of-deleted: pending entries for a deleted id
             // are stale by definition; drop them so reconcile doesn't try
             // to dismissAction a missing row.
             alarms = current.alarms.filter { it.id != id }.immutable(),
             pendingDismissals = current.pendingDismissals - id,
             pendingSnoozeBumps = current.pendingSnoozeBumps - id,
-        )
+        ))
+    }
+
+    /** Write first, publish to memory only on success. */
+    private fun commit(next: BfuState): Boolean {
+        if (!writeToDisk(next)) return false
         stateRef.set(next)
-        writeToDisk(next)
+        return true
+    }
+
+    /**
+     * Pre-unlock snooze: set the cached row's snooze trigger AND count one
+     * pending bump in ONE disk write, so a crash cannot leave one without the other.
+     * Returns false on write failure or when the row is not cached.
+     */
+    suspend fun recordPreUnlockSnooze(id: Long, triggerEpoch: Long): Boolean = mutex.withLock {
+        val current = loaded()
+        if (current.alarms.none { it.id == id }) return@withLock false
+        val updated = current.alarms.map { if (it.id == id) it.copy(snoozedUntilEpoch = triggerEpoch) else it }
+        val prev = current.pendingSnoozeBumps[id] ?: 0
+        commit(
+            current.copy(
+                alarms = updated.immutable(),
+                pendingSnoozeBumps = current.pendingSnoozeBumps + (id to prev + 1),
+            ),
+        )
+    }
+
+    /**
+     * Undo one [recordPreUnlockSnooze] when AlarmManager refused the trigger: restore the
+     * row's snooze trigger and decrement the pending bump by exactly one (entry removed at 0),
+     * in ONE write. Earlier successful snoozes keep their counts.
+     */
+    suspend fun undoPreUnlockSnooze(id: Long, previousSnoozedUntil: Long?): Boolean = mutex.withLock {
+        val current = loaded()
+        if (current.alarms.none { it.id == id }) return@withLock false
+        val updated = current.alarms.map { if (it.id == id) it.copy(snoozedUntilEpoch = previousSnoozedUntil) else it }
+        val left = (current.pendingSnoozeBumps[id] ?: 0) - 1
+        val bumps = if (left > 0) current.pendingSnoozeBumps + (id to left) else current.pendingSnoozeBumps - id
+        commit(current.copy(alarms = updated.immutable(), pendingSnoozeBumps = bumps))
+    }
+
+    /** Forget pending pre-unlock snooze bumps for [id] (dismiss / counter reset). */
+    suspend fun dropPendingSnoozeBumps(id: Long): Boolean = mutex.withLock {
+        val current = loaded()
+        if (id !in current.pendingSnoozeBumps) return@withLock true
+        commit(current.copy(pendingSnoozeBumps = current.pendingSnoozeBumps - id))
     }
 
     // Publish defends against caller downcast-and-mutate.
     private fun List<Alarm>.immutable(): List<Alarm> =
         java.util.Collections.unmodifiableList(this.toList())
 
-    /** Record a pre-unlock lock-screen dismiss. Drained at post-unlock reconcile. */
-    suspend fun markDismissed(id: Long) = mutex.withLock {
+    /**
+     * Record a pre-unlock lock-screen dismiss. Drained at post-unlock reconcile.
+     * The same write resets the row's raw snooze counter and drops its pending
+     * bumps, so a dismiss ends the snooze chain and later bumps cannot be stale.
+     */
+    suspend fun markDismissed(id: Long): Boolean = mutex.withLock {
         val current = loaded()
-        if (id in current.pendingDismissals) return@withLock
-        val next = current.copy(pendingDismissals = current.pendingDismissals + id)
-        stateRef.set(next)
-        writeToDisk(next)
+        val reset = current.alarms.map { if (it.id == id) it.copy(consecutiveSnoozeCount = 0) else it }
+        val next = current.copy(
+            alarms = reset.immutable(),
+            pendingDismissals = current.pendingDismissals + id,
+            pendingSnoozeBumps = current.pendingSnoozeBumps - id,
+        )
+        if (next == current) return@withLock true
+        commit(next)
     }
 
     /** Returns + clears the pending-dismissal set in one atomic step. */
@@ -126,25 +208,26 @@ class BfuAlarmCache @Inject constructor(
         val current = loaded()
         if (current.pendingDismissals.isEmpty()) return@withLock emptySet()
         val drained = current.pendingDismissals
-        val next = current.copy(pendingDismissals = emptySet())
-        stateRef.set(next)
-        writeToDisk(next)
+        // Items stay for the next reconcile when the clear cannot be written.
+        if (!commit(current.copy(pendingDismissals = emptySet()))) return@withLock emptySet()
         drained
     }
 
-    /** Record a pre-unlock lockscreen snooze of [id]. The counter is
+    /** TEST-ONLY: no production caller; production uses [recordPreUnlockSnooze].
+     *  Record a pre-unlock lockscreen snooze of [id]. The counter is
      *  incremented in-place; we use a count so a user who hits Snooze N
      *  times pre-unlock has those bumps applied as a single +N at unlock
      *  (one Room write instead of N) and cannot escape the cap by
      *  hammering snooze faster than the reconcile flush. */
-    suspend fun markPendingSnoozeBump(id: Long) = mutex.withLock {
+    suspend fun markPendingSnoozeBump(id: Long): Boolean = mutex.withLock {
         val current = loaded()
         val prev = current.pendingSnoozeBumps[id] ?: 0
         val next = current.copy(
             pendingSnoozeBumps = current.pendingSnoozeBumps + (id to prev + 1),
         )
+        if (!writeToDisk(next)) return@withLock false
         stateRef.set(next)
-        writeToDisk(next)
+        true
     }
 
     /** Returns + clears the pending-snooze-bump map in one atomic step. */
@@ -152,9 +235,26 @@ class BfuAlarmCache @Inject constructor(
         val current = loaded()
         if (current.pendingSnoozeBumps.isEmpty()) return@withLock emptyMap()
         val drained = current.pendingSnoozeBumps
-        val next = current.copy(pendingSnoozeBumps = emptyMap())
-        stateRef.set(next)
-        writeToDisk(next)
+        if (!commit(current.copy(pendingSnoozeBumps = emptyMap()))) return@withLock emptyMap()
+        drained
+    }
+
+    /** A drained pending snooze: the bump count and the row's snooze trigger read in the same locked step. */
+    data class PendingSnooze(val bump: Int, val snoozedUntilEpoch: Long?)
+
+    /**
+     * Like [drainPendingSnoozeBumps] but also returns each row's cached
+     * `snoozedUntilEpoch` from the same locked state. On write failure returns
+     * empty and keeps everything for the next reconcile.
+     */
+    suspend fun drainPendingSnoozes(): Map<Long, PendingSnooze> = mutex.withLock {
+        val current = loaded()
+        if (current.pendingSnoozeBumps.isEmpty()) return@withLock emptyMap()
+        val byId = current.alarms.associateBy { it.id }
+        val drained = current.pendingSnoozeBumps.mapValues { (id, bump) ->
+            PendingSnooze(bump, byId[id]?.snoozedUntilEpoch)
+        }
+        if (!commit(current.copy(pendingSnoozeBumps = emptyMap()))) return@withLock emptyMap()
         drained
     }
 
@@ -179,6 +279,7 @@ class BfuAlarmCache @Inject constructor(
             else snoozeBumpsObj.keys().asSequence().associate { key ->
                 key.toLong() to snoozeBumpsObj.getInt(key)
             }
+            // A "peerActionReceipts" key written by an interim build is ignored.
             BfuState(alarms, pending, snoozeBumps)
         }.getOrElse { e ->
             Log.w(TAG, "read failed (${e.javaClass.simpleName}: ${e.message}) — returning empty")
@@ -189,20 +290,10 @@ class BfuAlarmCache @Inject constructor(
     // Atomic temp + rename + fsync. On power loss between write and rename,
     // the previous good file is preserved. Avoids android.util.AtomicFile
     // because that class throws "not mocked" in JVM unit tests.
-    private fun writeToDisk(state: BfuState) {
-        val alarms = JSONArray().apply { state.alarms.forEach { put(serialiseAlarm(it)) } }
-        val pending = JSONArray().apply { state.pendingDismissals.forEach { put(it) } }
-        val snoozeBumps = JSONObject().apply {
-            state.pendingSnoozeBumps.forEach { (id, count) -> put(id.toString(), count) }
-        }
-        val root = JSONObject().apply {
-            put("v", SCHEMA_VERSION)
-            put("alarms", alarms)
-            put("pendingDismissals", pending)
-            put("pendingSnoozeBumps", snoozeBumps)
-        }
+    private fun writeToDisk(state: BfuState): Boolean {
+        val root = serializeState(state)
         val tmp = File(file.parentFile, "${file.name}.tmp")
-        runCatching {
+        return runCatching {
             java.io.FileOutputStream(tmp).use { out ->
                 out.write(root.toString().toByteArray(Charsets.UTF_8))
                 out.fd.sync()
@@ -218,7 +309,22 @@ class BfuAlarmCache @Inject constructor(
         }.onFailure { e ->
             Log.w(TAG, "write failed (${e.javaClass.simpleName}: ${e.message}) — cache out of sync")
             tmp.delete()
+        }.isSuccess
+    }
+
+    private fun serializeState(state: BfuState): JSONObject {
+        val alarms = JSONArray().apply { state.alarms.forEach { put(serialiseAlarm(it)) } }
+        val pending = JSONArray().apply { state.pendingDismissals.forEach { put(it) } }
+        val snoozeBumps = JSONObject().apply {
+            state.pendingSnoozeBumps.forEach { (id, count) -> put(id.toString(), count) }
         }
+        val root = JSONObject().apply {
+            put("v", SCHEMA_VERSION)
+            put("alarms", alarms)
+            put("pendingDismissals", pending)
+            put("pendingSnoozeBumps", snoozeBumps)
+        }
+        return root
     }
 
     private fun serialiseAlarm(a: Alarm): JSONObject = JSONObject().apply {
@@ -239,6 +345,7 @@ class BfuAlarmCache @Inject constructor(
         put("maxSnoozeCount", a.maxSnoozeCount)
         put("consecutiveSnoozeCount", a.consecutiveSnoozeCount)
         put("skipNextEpoch", a.skipNextEpoch ?: JSONObject.NULL)
+        put("snoozedUntilEpoch", a.snoozedUntilEpoch ?: JSONObject.NULL)
     }
 
     private fun parseAlarm(o: JSONObject): Alarm = Alarm(
@@ -265,6 +372,11 @@ class BfuAlarmCache @Inject constructor(
         maxSnoozeCount = o.optInt("maxSnoozeCount", Alarm.MAX_SNOOZE_COUNT_UNLIMITED),
         consecutiveSnoozeCount = o.optInt("consecutiveSnoozeCount", 0),
         skipNextEpoch = if (o.isNull("skipNextEpoch")) null else o.optLong("skipNextEpoch"),
+        snoozedUntilEpoch = if (o.has("snoozedUntilEpoch") && !o.isNull("snoozedUntilEpoch")) {
+            o.optLong("snoozedUntilEpoch")
+        } else {
+            null
+        },
     )
 
     private companion object {

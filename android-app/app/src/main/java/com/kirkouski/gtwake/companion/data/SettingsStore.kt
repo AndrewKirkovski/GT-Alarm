@@ -1,6 +1,7 @@
 package com.kirkouski.gtwake.companion.data
 
 import android.content.Context
+import androidx.datastore.core.DataMigration
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -64,6 +65,7 @@ class SettingsStore @Inject constructor(
             watchScreenShape = prefs[KEY_WATCH_SCREEN_SHAPE] ?: "",
             watchScreenModel = prefs[KEY_WATCH_SCREEN_MODEL] ?: "",
             watchListSync = prefs[KEY_WATCH_LIST_SYNC] ?: false,
+            watchListSyncUnlocked = prefs[KEY_WATCH_LIST_SYNC_UNLOCKED] ?: false,
         )
     }
 
@@ -75,7 +77,22 @@ class SettingsStore @Inject constructor(
      * `alarm_fired` payload and never receives the list.
      */
     suspend fun setWatchListSync(enabled: Boolean) {
-        dataStore.edit { prefs -> prefs[KEY_WATCH_LIST_SYNC] = enabled }
+        dataStore.edit { prefs ->
+            prefs[KEY_WATCH_LIST_SYNC] = enabled && prefs[KEY_WATCH_LIST_SYNC_UNLOCKED] == true
+        }
+    }
+
+    /** Reveals the setting without enabling it or sending anything to the watch. */
+    suspend fun unlockWatchListSync(): Boolean {
+        var changed = false
+        dataStore.edit { prefs ->
+            if (prefs[KEY_WATCH_LIST_SYNC_UNLOCKED] != true) {
+                prefs[KEY_WATCH_LIST_SYNC] = false
+                prefs[KEY_WATCH_LIST_SYNC_UNLOCKED] = true
+                changed = true
+            }
+        }
+        return changed
     }
 
     /**
@@ -225,12 +242,18 @@ class SettingsStore @Inject constructor(
         private val KEY_WATCH_SCREEN_MODEL = stringPreferencesKey("watch_screen_model")
         // "Show alarm list on watch" — opt-in list sync (absent = off).
         private val KEY_WATCH_LIST_SYNC = booleanPreferencesKey("watch_list_sync")
+        private val KEY_WATCH_LIST_SYNC_UNLOCKED = booleanPreferencesKey("watch_list_sync_unlocked")
 
         // Extension property generates a process-singleton DataStore<Preferences>
         // bound to the application Context. Hilt @Singleton on [SettingsStore]
         // makes the SettingsStore instance unique; the underlying DataStore is
         // also process-unique because of how `preferencesDataStore` is wired.
-        private val Context.settingsDataStore by preferencesDataStore(name = PREFS_FILE)
+        private val Context.settingsDataStore by preferencesDataStore(
+            name = PREFS_FILE,
+            produceMigrations = {
+                listOf(WatchListSyncRestrictionMigration(KEY_WATCH_LIST_SYNC, KEY_WATCH_LIST_SYNC_UNLOCKED))
+            },
+        )
     }
 }
 
@@ -254,4 +277,23 @@ data class SettingsState(
     val watchScreenModel: String = "",
     // "Show alarm list on watch" (opt-in; see SettingsStore.setWatchListSync).
     val watchListSync: Boolean = false,
-)
+    val watchListSyncUnlocked: Boolean = false,
+) {
+    val effectiveWatchListSync: Boolean
+        get() = watchListSyncUnlocked && watchListSync
+}
+
+/** Runs once before preferences are exposed; upgrading must not wake the watch. */
+internal class WatchListSyncRestrictionMigration(
+    private val syncKey: Preferences.Key<Boolean>,
+    private val unlockedKey: Preferences.Key<Boolean>,
+) : DataMigration<Preferences> {
+    override suspend fun shouldMigrate(currentData: Preferences): Boolean = currentData[unlockedKey] == null
+
+    override suspend fun migrate(currentData: Preferences): Preferences = currentData.toMutablePreferences().apply {
+        this[syncKey] = false
+        this[unlockedKey] = false
+    }
+
+    override suspend fun cleanUp() = Unit
+}

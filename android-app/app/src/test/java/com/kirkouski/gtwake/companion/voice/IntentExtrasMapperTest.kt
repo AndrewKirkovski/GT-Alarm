@@ -102,25 +102,38 @@ class IntentExtrasMapperTest {
     }
 
     @Test
-    fun `null ringtone leaves audioUri null and respects vibrate flag`() {
+    fun `absent vibrate extra keeps sound and default vibration`() {
         val r1 = buildSimple(hour = 7, ringtone = null, vibrate = false)!!
         assertNull(r1.alarm.audioUri)
         assertFalse(r1.alarm.isVibrationOnly)
+        assertTrue(r1.alarm.phoneVibrationEnabled)
+    }
 
-        val r2 = buildSimple(hour = 7, ringtone = null, vibrate = true)!!
-        assertNull(r2.alarm.audioUri)
-        assertTrue(r2.alarm.isVibrationOnly)
+    @Test
+    fun `EXTRA_VIBRATE true keeps sound and enables phone vibration`() {
+        // Before the fix this became isVibrationOnly = true (a silent alarm).
+        val r = buildSimple(hour = 7, ringtone = null, vibrate = true)!!
+        assertNull(r.alarm.audioUri)
+        assertFalse(r.alarm.isVibrationOnly)
+        assertTrue(r.alarm.phoneVibrationEnabled)
+
+        val uri = "content://media/internal/audio/media/42"
+        val withUri = buildSimple(hour = 7, ringtone = uri, vibrate = true)!!
+        assertEquals(uri, withUri.alarm.audioUri)
+        assertFalse(withUri.alarm.isVibrationOnly)
     }
 
     @Test
     fun `VALUE_RINGTONE_SILENT forces vibration-only regardless of vibrate flag`() {
-        val result = buildSimple(
-            hour = 7,
-            ringtone = AlarmClock.VALUE_RINGTONE_SILENT,
-            vibrate = false,
-        )!!
-        assertNull(result.alarm.audioUri)
-        assertTrue(result.alarm.isVibrationOnly)
+        for (vibrate in listOf(false, true)) {
+            val result = buildSimple(
+                hour = 7,
+                ringtone = AlarmClock.VALUE_RINGTONE_SILENT,
+                vibrate = vibrate,
+            )!!
+            assertNull(result.alarm.audioUri)
+            assertTrue(result.alarm.isVibrationOnly)
+        }
     }
 
     @Test

@@ -41,6 +41,7 @@ sealed class IncomingMessage {
     data class AlarmDismissed(
         override val alarmId: Long,
         override val updatedAtEpoch: Long,
+        val firedAtEpoch: Long? = null,
     ) : IncomingMessage()
 
     // Snooze duration is owned by the phone (per-alarm `alarm.snoozeMinutes`),
@@ -48,6 +49,7 @@ sealed class IncomingMessage {
     data class AlarmSnoozed(
         override val alarmId: Long,
         override val updatedAtEpoch: Long,
+        val firedAtEpoch: Long? = null,
     ) : IncomingMessage()
 
     // Response to a `sync_check` request the phone sent before initiating a
@@ -62,6 +64,7 @@ sealed class IncomingMessage {
         override val alarmId: Long,
         override val updatedAtEpoch: Long,
         val hash: String,
+        val supportsCommitAck: Boolean = false,
     ) : IncomingMessage()
 
     // Watch's reply to a phone-originated `alarm_fired`. Sent from the
@@ -73,6 +76,7 @@ sealed class IncomingMessage {
     data class AlarmRinging(
         override val alarmId: Long,
         override val updatedAtEpoch: Long,
+        val firedAtEpoch: Long? = null,
     ) : IncomingMessage()
 
     // Watch's reply to a phone-originated `alarm_dismissed`. Sent from
@@ -87,12 +91,16 @@ sealed class IncomingMessage {
     data class AlarmDismissedAck(
         override val alarmId: Long,
         override val updatedAtEpoch: Long,
+        val firedAtEpoch: Long? = null,
+        val ok: Boolean? = null,
     ) : IncomingMessage()
 
     // Symmetric to AlarmDismissedAck — for the snooze action.
     data class AlarmSnoozedAck(
         override val alarmId: Long,
         override val updatedAtEpoch: Long,
+        val firedAtEpoch: Long? = null,
+        val ok: Boolean? = null,
     ) : IncomingMessage()
 
     // Watch reports its physical screen so the phone can size + shape the

@@ -15,6 +15,7 @@
 // was relayed to the phone over P2P on every 2 s poll). Errors still log.
 import file from '@system.file';
 import Logger from './logger.js';
+import Ticker from './ticker.js';
 
 var ALARMS_URI = 'internal://app/alarms.json';
 // IMPORTANT: do NOT cache reads across calls. Lite Wearable bundles each
@@ -25,6 +26,12 @@ var ALARMS_URI = 'internal://app/alarms.json';
 // page reading stale cached items — exactly the "alarms appear only after
 // relaunch" bug observed 2026-05-12. Always read fresh from file.
 var onChangeListener = null;
+var mutationQueue = [];
+var mutationBusy = false;
+// A native write that never calls back must not stall the queue. The job is
+// failed after this long (never acknowledged), then the queue stays held for
+// the same time again so the late native write cannot land after a newer one.
+var MUTATION_DEADLINE_MS = 10000;
 
 function fireChange() {
     if (onChangeListener) {
@@ -78,70 +85,134 @@ function writeFile(items, callback) {
             if (callback) callback(true);
         },
         fail: function (data, code) {
-            Logger.err('store.write fail code=' + code + ' bytes=' + serialized.length, data);
-            // The file API has been hardware-verified working at 2 KB, so this
-            // should not fire in practice. Still callback(true) so the caller's
-            // flow continues; the file just keeps its prior state.
-            if (callback) callback(true);
+            Logger.err('write fail c=' + code + ' bytes=' + serialized.length, data);
+            if (callback) callback(false);
         },
     });
 }
 
-function writeRaw(items, callback, silent) {
-    writeFile(items, function (ok) {
-        if (!silent) fireChange();
-        if (callback) callback(ok);
+function runMutation() {
+    if (mutationBusy || mutationQueue.length === 0) return;
+    mutationBusy = true;
+    var job = mutationQueue.shift();
+    var finished = false;
+    var held = false;
+    var finish = function (ok, timedOut) {
+        if (finished) {
+            // The late callback of a timed-out job, or its hold deadline.
+            if (held) {
+                held = false;
+                Ticker.clear('storeHold');
+                mutationBusy = false;
+                runMutation();
+            }
+            return;
+        }
+        finished = true;
+        Ticker.clear('storeJob');
+        if (timedOut) {
+            held = true;
+            Ticker.set('storeHold', MUTATION_DEADLINE_MS, function () { finish(); });
+        } else {
+            mutationBusy = false;
+        }
+        if (ok && !job.silent) fireChange();
+        try {
+            if (job.callback) job.callback(ok);
+        } catch (e) {
+            Logger.err('store.mutation callback', e);
+        } finally {
+            runMutation();
+        }
+    };
+    Ticker.set('storeJob', MUTATION_DEADLINE_MS, function () { finish(false, true); });
+    try {
+        // The second argument tells a read continuation whether its job is
+        // still live: after a timeout it must not dispatch a write.
+        job.run(finish, function () { return !finished; });
+    } catch (e) {
+        Logger.err('store.mutation', e);
+        finish(false);
+    }
+}
+
+function enqueueMutation(run, callback, silent) {
+    mutationQueue.push({ run: run, callback: callback, silent: silent });
+    runMutation();
+}
+
+function readValid(callback) {
+    readRaw(function (items) {
+        var out = [];
+        for (var i = 0; i < items.length; i++) {
+            if (isValidAlarm(items[i])) {
+                out.push(items[i]);
+            }
+        }
+        callback(out);
     });
+}
+
+function writeCurrent(items, done) {
+    writeFile(items, done);
 }
 
 export default {
     setOnChange: function (cb) {
         onChangeListener = cb;
     },
-    getAll: function (callback) {
-        readRaw(function (items) {
-            var out = [];
-            for (var i = 0; i < items.length; i++) {
-                if (isValidAlarm(items[i])) {
-                    out.push(items[i]);
-                }
-            }
-            callback(out);
-        });
-    },
+    getAll: readValid,
     // `silent` (optional, default false): when true, the onChange listener
     // is NOT fired after a successful write. Used by user-driven mutations
     // where the page already re-rendered optimistically.
     add: function (alarm, callback, silent) {
-        readRaw(function (items) {
-            for (var i = 0; i < items.length; i++) {
-                if (items[i].id === alarm.id) {
-                    if (callback) callback(false);
-                    return;
+        enqueueMutation(function (done, live) {
+            readRaw(function (items) {
+                if (!live()) return;
+                for (var i = 0; i < items.length; i++) {
+                    if (items[i].id === alarm.id) {
+                        done(false);
+                        return;
+                    }
                 }
-            }
-            items.push(alarm);
-            writeRaw(items, callback, silent);
-        });
+                items.push(alarm);
+                writeCurrent(items, done);
+            });
+        }, callback, silent);
     },
     // Calls back false when no row has this id (nothing written).
     update: function (alarm, callback, silent) {
-        readRaw(function (items) {
-            for (var i = 0; i < items.length; i++) {
-                if (items[i].id === alarm.id) {
-                    items[i] = alarm;
-                    writeRaw(items, callback, silent);
-                    return;
+        enqueueMutation(function (done, live) {
+            readRaw(function (items) {
+                if (!live()) return;
+                for (var i = 0; i < items.length; i++) {
+                    if (items[i].id === alarm.id) {
+                        items[i] = alarm;
+                        writeCurrent(items, done);
+                        return;
+                    }
                 }
-            }
-            if (callback) callback(false);
-        });
+                done(false);
+            });
+        }, callback, silent);
     },
     // Authoritative wholesale replace — drops the entire current list and
     // writes `items` instead. Used by the sync_replace handler so a Force
     // sync prunes watch-only rows the additive add path can't remove.
     // `.slice()` so the caller's array isn't aliased into store internals.
-    replaceAll: function (items, callback, silent) {
-        writeRaw(items.slice(), callback, silent);
+    // `verify` (optional): called with the list read back INSIDE the same queue
+    // job, before any other write can run; false fails the job.
+    replaceAll: function (items, callback, silent, verify) {
+        enqueueMutation(function (done) {
+            writeCurrent(items.slice(), function (ok) {
+                if (!ok || !verify) {
+                    done(ok);
+                    return;
+                }
+                readValid(function (stored) {
+                    done(verify(stored) !== false);
+                });
+            });
+        }, callback, silent);
     },
 };

@@ -267,7 +267,8 @@ fun AlarmListScreen(
                             flags = WatchSyncCardFlags(
                                 forceSyncRunning = forceSyncRunning,
                                 needsAuthorization = needsWatchAuth,
-                                listSyncOn = settings.watchListSync,
+                                listSyncOn = settings.effectiveWatchListSync,
+                                listSyncUnlocked = settings.watchListSyncUnlocked,
                             ),
                             onForceSync = { vm.onForceSync() },
                             onAuthorize = { onAuthorizeWatch(vm::onAuthorizeOutcome) },
@@ -547,6 +548,9 @@ private data class WatchSyncCardFlags(
     val needsAuthorization: Boolean,
     // "Show alarm list on watch"; off hides the sync button.
     val listSyncOn: Boolean,
+    // The setting is locked for most users; the "list: off" line only makes
+    // sense when the user could actually switch it on.
+    val listSyncUnlocked: Boolean,
 )
 
 @Composable
@@ -622,7 +626,7 @@ private fun WatchSyncCardText(
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
-        if (!flags.listSyncOn && !flags.needsAuthorization) {
+        if (flags.listSyncUnlocked && !flags.listSyncOn && !flags.needsAuthorization) {
             Text(
                 text = stringResource(R.string.watch_status_card_list_off),
                 fontSize = 12.sp,

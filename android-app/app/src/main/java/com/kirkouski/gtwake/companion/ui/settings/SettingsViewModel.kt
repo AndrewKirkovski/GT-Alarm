@@ -38,6 +38,13 @@ class SettingsViewModel @Inject constructor(
     val watchListSyncResults: SharedFlow<Pair<Boolean, ForceSyncResult>> =
         _watchListSyncResults.asSharedFlow()
 
+    private val _watchSyncUnlocked = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val watchSyncUnlocked: SharedFlow<Unit> = _watchSyncUnlocked.asSharedFlow()
+
+    fun unlockWatchListSync() = viewModelScope.launch {
+        if (store.unlockWatchListSync()) _watchSyncUnlocked.emit(Unit)
+    }
+
     val state: StateFlow<SettingsState> = store.state.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(STATE_TIMEOUT_MS),

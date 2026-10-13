@@ -15,6 +15,7 @@ package com.kirkouski.gtwake.companion.ui.help
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,8 +46,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -67,6 +70,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -75,6 +79,7 @@ import com.kirkouski.gtwake.companion.ui.components.AccordionSection
 import com.kirkouski.gtwake.companion.ui.components.GtFloatingButton
 import com.kirkouski.gtwake.companion.ui.components.GtAccentButton
 import com.kirkouski.gtwake.companion.ui.components.StatusMarkerDot
+import com.kirkouski.gtwake.companion.ui.settings.SettingsViewModel
 import com.kirkouski.gtwake.companion.voice.DefaultAlarmDetector
 import com.kirkouski.gtwake.companion.voice.DeviceBrand
 import com.kirkouski.gtwake.companion.voice.DeviceBrandDetector
@@ -98,6 +103,7 @@ import com.kirkouski.gtwake.companion.voice.DeviceBrandDetector
 @Suppress("LongMethod")
 fun HelpScreen(
     onFireAlarmNow: () -> Unit,
+    settingsVm: SettingsViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -125,9 +131,17 @@ fun HelpScreen(
     var voiceOpen by rememberSaveable { mutableStateOf(false) }
     var deviceOpen by rememberSaveable { mutableStateOf(false) }
     var debugOpen by rememberSaveable { mutableStateOf(false) }
+    var watchSyncOpen by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(settingsVm) {
+        settingsVm.watchSyncUnlocked.collect {
+            Toast.makeText(context, R.string.watch_list_sync_unlocked, Toast.LENGTH_LONG).show()
+        }
+    }
 
     val donateUrl = stringResource(R.string.help_donate_url)
     val contactUrl = stringResource(R.string.help_device_unsupported_url)
+    val watchSyncUrl = stringResource(R.string.help_watch_sync_url)
     val privacyUrl = stringResource(R.string.help_privacy_url)
 
     Scaffold(
@@ -218,7 +232,7 @@ fun HelpScreen(
                                     PermissionRow(
                                         check = check,
                                         onFix = {
-                                            val intent = PermissionAudit.intentFor(context, check.item)
+                                            val intent = PermissionAudit.intentFor(context, check)
                                             startActivitySafely(context, intent)
                                         },
                                     )
@@ -287,7 +301,19 @@ fun HelpScreen(
                         expanded = debugOpen,
                         onToggle = { debugOpen = !debugOpen },
                     ) {
-                        DebugContent(onFireAlarmNow)
+                        DebugContent(onFireAlarmNow, settingsVm::unlockWatchListSync)
+                    }
+                    HorizontalDivider()
+                    AccordionSection(
+                        title = stringResource(R.string.help_watch_sync_title),
+                        expanded = watchSyncOpen,
+                        onToggle = { watchSyncOpen = !watchSyncOpen },
+                    ) {
+                        AccordionAction(
+                            bodyRes = R.string.help_watch_sync_body,
+                            buttonLabelRes = R.string.help_device_unsupported_button,
+                            onClick = { openExternalUrl(context, watchSyncUrl) },
+                        )
                     }
                 }
             }
@@ -625,10 +651,17 @@ private data class BannerSpec(
 )
 
 @Composable
-private fun DebugContent(onFireAlarmNow: () -> Unit) {
+private fun DebugContent(onFireAlarmNow: () -> Unit, onUnlockSync: () -> Unit) {
+    var taps by rememberSaveable { mutableIntStateOf(0) }
     Text(
         text = stringResource(R.string.help_debug_body),
         style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier.clickable {
+            if (taps < 7) {
+                taps++
+                if (taps == 7) onUnlockSync()
+            }
+        },
     )
     GtAccentButton(
         onClick = onFireAlarmNow,

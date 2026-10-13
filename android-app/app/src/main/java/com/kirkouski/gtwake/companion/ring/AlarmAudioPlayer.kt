@@ -23,6 +23,17 @@ class AlarmAudioPlayer(private val context: Context) {
     private val rampHandler = Handler(Looper.getMainLooper())
     private var rampRunnable: Runnable? = null
 
+    // Guards every field above. MediaPlayer callbacks (prepared, error) and the
+    // service's stop() are separate entry points; without one lock and one
+    // `stopped` flag, a stop() that lands while start() is still preparing
+    // would leave a player that then starts looping with nothing able to stop it.
+    private val lock = Any()
+
+    // Set by stop() and never cleared: an AlarmAudioPlayer serves exactly one
+    // ring. Once set, start() is a no-op and every late callback releases its
+    // player instead of starting it.
+    private var stopped = false
+
     /** [forceBundledFallback] = pre-unlock path; skips ContentResolver-backed URI resolution. */
     fun start(
         uri: String?,
@@ -31,6 +42,26 @@ class AlarmAudioPlayer(private val context: Context) {
         volumeRampSeconds: Int = 0,
         forceBundledFallback: Boolean = false,
         phoneVibrationEnabled: Boolean = true,
+    ) {
+        synchronized(lock) {
+            if (stopped) {
+                Log.i(TAG, "start ignored — already stopped")
+                return
+            }
+            startLocked(uri, vibrateOnly, pattern, volumeRampSeconds, forceBundledFallback, phoneVibrationEnabled)
+        }
+    }
+
+    // reason: forwards start()'s own six parameters unchanged so the stopped-flag
+    // check and the lock live in start() while the body stays as it was.
+    @Suppress("LongParameterList")
+    private fun startLocked(
+        uri: String?,
+        vibrateOnly: Boolean,
+        pattern: VibrationPattern,
+        volumeRampSeconds: Int,
+        forceBundledFallback: Boolean,
+        phoneVibrationEnabled: Boolean,
     ) {
         Log.i(
             TAG,
@@ -66,12 +97,34 @@ class AlarmAudioPlayer(private val context: Context) {
             releaseExistingPlayer()
             mediaPlayer = buildPlayer(
                 playbackUri,
-                onPrepared = { mp -> beginPlayback(mp, volumeRampSeconds) },
-                onError = { tryFallback(volumeRampSeconds) },
+                onPrepared = { mp -> onPlayerPrepared(mp, volumeRampSeconds) },
+                onError = { onPlayerError { tryFallback(volumeRampSeconds) } },
             )
         }.onFailure { t ->
             Log.w(TAG, "failed to set up $playbackUri: ${t.message}")
             tryFallback(volumeRampSeconds)
+        }
+    }
+
+    /**
+     * Prepared callback (main looper, outside start()'s lock scope). A stop()
+     * that landed while the player was preparing has already nulled
+     * [mediaPlayer]; the identity check then releases this player instead of
+     * starting a looping tone nothing can stop.
+     */
+    private fun onPlayerPrepared(mp: MediaPlayer, volumeRampSeconds: Int) {
+        synchronized(lock) {
+            if (stopped || mediaPlayer !== mp) {
+                runCatching { mp.release() }
+                return
+            }
+            beginPlayback(mp, volumeRampSeconds)
+        }
+    }
+
+    private fun onPlayerError(fallback: () -> Unit) {
+        synchronized(lock) {
+            if (!stopped) fallback()
         }
     }
 
@@ -91,6 +144,7 @@ class AlarmAudioPlayer(private val context: Context) {
     }
 
     private fun tryFallback(volumeRampSeconds: Int) {
+        if (stopped) return
         val fallback = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
         if (fallback == null) {
             Log.w(TAG, "system default ringtone null — using bundled fallback")
@@ -101,10 +155,10 @@ class AlarmAudioPlayer(private val context: Context) {
             releaseExistingPlayer()
             mediaPlayer = buildPlayer(
                 fallback,
-                onPrepared = { mp -> beginPlayback(mp, volumeRampSeconds) },
+                onPrepared = { mp -> onPlayerPrepared(mp, volumeRampSeconds) },
                 onError = {
                     Log.e(TAG, "system-default playback failed in prepareAsync — bundled fallback")
-                    playBundledFallback(volumeRampSeconds)
+                    onPlayerError { playBundledFallback(volumeRampSeconds) }
                 },
             )
         }.onFailure { t ->
@@ -115,6 +169,7 @@ class AlarmAudioPlayer(private val context: Context) {
 
     /** APK-bundled tone — no ContentResolver, works pre-unlock. */
     private fun playBundledFallback(volumeRampSeconds: Int) {
+        if (stopped) return
         releaseExistingPlayer()
         runCatching {
             val mp = MediaPlayer.create(context, R.raw.fallback_alarm)
@@ -145,17 +200,20 @@ class AlarmAudioPlayer(private val context: Context) {
      *  a 30 s ramp = 150 ticks, negligible CPU. */
     private fun beginPlayback(mp: MediaPlayer, volumeRampSeconds: Int) {
         cancelRamp()
-        if (volumeRampSeconds <= 0) {
-            mp.setVolume(VOLUME_MAX, VOLUME_MAX)
+        val startVolume = if (volumeRampSeconds <= 0) VOLUME_MAX else VOLUME_FLOOR
+        // A player released by a concurrent stop() throws IllegalStateException
+        // from setVolume/start. That is the expected outcome of the race, not a
+        // crash: the ring path must never throw out of a media callback.
+        val started = runCatching {
+            mp.setVolume(startVolume, startVolume)
             mp.start()
-            return
-        }
+        }.onFailure { Log.w(TAG, "beginPlayback skipped — player released: ${it.message}") }.isSuccess
+        if (!started || volumeRampSeconds <= 0) return
         val totalMs = volumeRampSeconds * 1000L
         val startMs = android.os.SystemClock.elapsedRealtime()
-        mp.setVolume(VOLUME_FLOOR, VOLUME_FLOOR)
-        mp.start()
         val tick = object : Runnable {
             override fun run() {
+                if (stopped) return
                 val elapsed = android.os.SystemClock.elapsedRealtime() - startMs
                 val frac = (elapsed.toFloat() / totalMs.toFloat()).coerceIn(0f, 1f)
                 val vol = VOLUME_FLOOR + (VOLUME_MAX - VOLUME_FLOOR) * frac
@@ -226,18 +284,26 @@ class AlarmAudioPlayer(private val context: Context) {
         }
     }
 
+    /**
+     * Stops audio and vibration and makes this player permanently inert. Safe
+     * to call at any point, including while [start] is still preparing: the
+     * late prepared/error callbacks see [stopped] and release instead of play.
+     */
     fun stop() {
-        cancelRamp()
-        // Log release failures — a hung MediaPlayer leaks the native audio session.
-        mediaPlayer?.let { mp ->
-            runCatching { mp.stop() }.onFailure { Log.w(TAG, "mp.stop() failed: ${it.message}") }
-            runCatching { mp.release() }.onFailure { Log.w(TAG, "mp.release() failed: ${it.message}") }
+        synchronized(lock) {
+            stopped = true
+            cancelRamp()
+            // Log release failures — a hung MediaPlayer leaks the native audio session.
+            mediaPlayer?.let { mp ->
+                runCatching { mp.stop() }.onFailure { Log.w(TAG, "mp.stop() failed: ${it.message}") }
+                runCatching { mp.release() }.onFailure { Log.w(TAG, "mp.release() failed: ${it.message}") }
+            }
+            mediaPlayer = null
+            vibrator?.let { v ->
+                runCatching { v.cancel() }.onFailure { Log.w(TAG, "vibrator.cancel() failed: ${it.message}") }
+            }
+            vibrator = null
         }
-        mediaPlayer = null
-        vibrator?.let { v ->
-            runCatching { v.cancel() }.onFailure { Log.w(TAG, "vibrator.cancel() failed: ${it.message}") }
-        }
-        vibrator = null
     }
 
     private companion object {

@@ -66,12 +66,40 @@ var _ringActive = false;
 
 var onAlarmFired = null;
 var onPeerEndedRing = null;
+var onActionAck = null;
 var onBgCleared = null;
 // Injected by the single page. onSyncDone → terminate when a sync wake
 // finishes; onSyncWake → switch the page to its "Syncing…" screen on the
 // first envelope of a wake-by-sync.
 var onSyncDone = null;
 var onSyncWake = null;
+var pendingWrites = 0;
+var pendingSyncDone = null;
+// A store write whose callback never fires must not keep the app open or hold
+// sync_done forever: past this absolute deadline the drain timer terminates and
+// the held sync_done runs anyway.
+var WRITE_WAIT_MAX_MS = 20000;
+var _writeWaitSince = 0;
+
+function releaseSyncDone() {
+    Ticker.clear('syncDoneHold');
+    if (!pendingSyncDone) return;
+    var msg = pendingSyncDone;
+    pendingSyncDone = null;
+    if (onSyncDone) onSyncDone(msg);
+}
+
+function beginWrite() {
+    pendingWrites++;
+}
+
+function finishWrite() {
+    if (pendingWrites > 0) pendingWrites--;
+    if (pendingWrites === 0) {
+        _writeWaitSince = 0;
+        releaseSyncDone();
+    }
+}
 
 // Called once from app.onCreate so we know when the app process started.
 // Anything before WAKE_SYNC_GRACE_MS from now is treated as part of the
@@ -108,14 +136,19 @@ function armDrain() {
     if (_appStartMs === 0) return;
     // On the Ticker: a dropped one-shot timer would leave the app open.
     Ticker.set('drain', DRAIN_QUIESCENCE_MS, function () {
-        Logger.i('incoming.drain-quiesced — app.terminate()');
+        if (pendingWrites > 0) {
+            if (_writeWaitSince === 0) _writeWaitSince = Date.now();
+            if (Date.now() - _writeWaitSince < WRITE_WAIT_MAX_MS) {
+                armDrain();
+                return;
+            }
+        }
         try {
             app.terminate();
         } catch (e) {
             // Per local SDK research, app.terminate is void with no
             // documented throw path; if it ever does, the process is
             // dying anyway. Log for diagnostic completeness.
-            Logger.err('incoming.app.terminate threw', e);
         }
     });
 }
@@ -136,7 +169,6 @@ function noteIncomingEnvelope() {
             return;
         }
         _wokenForSync = true;
-        Logger.i('incoming.wake-by-sync elapsed=' + elapsed);
         // Single page: switch to the "Syncing…" screen. armDrain() below
         // owns the terminate-after-quiescence; sync_done terminates fast.
     }
@@ -157,11 +189,9 @@ function respondScreenRequest() {
             default: '',
             success: function (v) {
                 var bg = (typeof v === 'string') ? v : '';
-                Logger.i('incoming.screen_request reply ' + m.W + 'x' + m.H + ' ' + m.shape + ' bg=' + bg);
                 WearBridge.sendWatchScreen(m.W, m.H, m.shape, bg);
             },
             fail: function () {
-                Logger.i('incoming.screen_request reply ' + m.W + 'x' + m.H + ' ' + m.shape + ' bg=<none>');
                 WearBridge.sendWatchScreen(m.W, m.H, m.shape, '');
             },
         });
@@ -179,6 +209,8 @@ function rejectMalformed(msg) {
         stamp = msg.alarm.updatedAtEpoch;
     }
     if (typeof stamp !== 'number' || !isFinite(stamp) || stamp <= 0) return true;
+    if (msg.firedAt !== undefined &&
+            (typeof msg.firedAt !== 'number' || !isFinite(msg.firedAt) || msg.firedAt <= 0)) return true;
     if (msg.alarm && msg.alarm.id !== msg.alarmId) return true;
     return false;
 }
@@ -190,11 +222,15 @@ function rejectMalformed(msg) {
 // so the row simply upserts: no tombstones, no per-row LWW (2026-10-01; the
 // tombstone list also overflowed the 128 B storage cap after ~3 entries, so
 // that protection was not persisting anyway).
-function applyAdd(msg) {
-    // update() calls back false when the row is not stored yet (or the write
-    // failed, in which case add() sees the id and no-ops).
+function applyAdd(msg, done) {
     AlarmStore.update(msg.alarm, function (ok) {
-        if (!ok) AlarmStore.add(msg.alarm);
+        if (ok) {
+            if (done) done(true);
+            return;
+        }
+        AlarmStore.add(msg.alarm, function (added) {
+            if (done) done(added);
+        });
     });
 }
 
@@ -214,32 +250,40 @@ function isPlausibleAlarm(a) {
 // Authoritative full-state replace (phone-originated Force sync). The
 // watch's AlarmStore is replaced wholesale, so rows the phone deleted
 // (which an additive alarm_added push can never remove) are pruned.
-function applyReplace(msg, done) {
+function applyReplace(msg, done, expectedHash) {
     var incoming = msg && msg.alarms;
     if (!incoming || incoming.length === undefined) {
-        Logger.w('incoming.sync_replace missing alarms array');
         if (done) done(false);
         return;
     }
     var valid = [];
-    var dropped = 0;
     for (var i = 0; i < incoming.length; i++) {
-        if (isPlausibleAlarm(incoming[i])) {
-            valid.push(incoming[i]);
-        } else {
-            dropped++;
-        }
+        if (isPlausibleAlarm(incoming[i])) valid.push(incoming[i]);
     }
-    AlarmStore.replaceAll(valid, function () {
-        Logger.i('incoming.sync_replace applied n=' + valid.length + ' dropped=' + dropped);
-        // done fires AFTER the store write commits (replaceAll success) so a
-        // file-delivered replace acks only once persisted — same ordering
-        // guarantee as the bg file ack. The text-message path passes no done.
-        if (done) done(true);
+    var hash = '';
+    // The hash read-back runs inside the store's write queue, right after the
+    // write, so no other write can change the list before it is checked. The
+    // phone is told only when the stored list matches.
+    AlarmStore.replaceAll(valid, function (ok) {
+        if (ok) WearBridge.sendAlarmsReceived(hash, msg.updatedAtEpoch);
+        if (done) done(ok);
+    }, false, function (stored) {
+        hash = AlarmHash.compute(stored);
+        var expected = expectedHash || msg.hash || '';
+        return !expected || hash === expected;
     });
 }
 
+function trackReplace(msg, expectedHash, done) {
+    beginWrite();
+    applyReplace(msg, function (ok) {
+        finishWrite();
+        if (done) done(ok);
+    }, expectedHash);
+}
+
 export default {
+    hasPendingWrites: function () { return pendingWrites > 0; },
     markAppStart: markAppStart,
     // Re-arm the drain-quiescence terminate timer when an inbound FILE is
     // received (the file path doesn't go through handle()/noteIncomingEnvelope,
@@ -253,7 +297,13 @@ export default {
     // ceiling). Same path as the text sync_replace, but with a completion
     // callback so the page can ACK only after the store write commits.
     applyReplaceFromFile: function (msg, done) {
-        applyReplace(msg, done);
+        trackReplace(msg, msg.hash, done);
+    },
+    beginPendingWrite: function () {
+        beginWrite();
+    },
+    finishPendingWrite: function () {
+        finishWrite();
     },
     setOnAlarmFiredNavigator: function (fn) {
         onAlarmFired = fn;
@@ -275,6 +325,9 @@ export default {
     setOnPeerEndedRing: function (fn) {
         onPeerEndedRing = fn;
     },
+    setOnActionAck: function (fn) {
+        onActionAck = fn;
+    },
     setOnBgCleared: function (fn) {
         onBgCleared = fn;
     },
@@ -287,8 +340,7 @@ export default {
             noteIncomingEnvelope();
             AlarmStore.getAll(function (items) {
                 var hash = AlarmHash.compute(items);
-                Logger.i('incoming.sync_check responding hash=' + hash + ' n=' + items.length);
-                WearBridge.sendSyncHash(hash);
+                WearBridge.sendSyncHash(hash, msg.updatedAtEpoch);
             });
             return;
         }
@@ -314,8 +366,6 @@ export default {
             var d = (typeof msg.firstDayOfWeek === 'number' && isFinite(msg.firstDayOfWeek))
                 ? msg.firstDayOfWeek : null;
             SettingsStore.apply(u, d, function (ok) {
-                Logger.i('incoming.settings_changed applied ok=' + ok +
-                    ' use24Hour=' + u + ' firstDow=' + d);
             });
             return;
         }
@@ -323,7 +373,7 @@ export default {
         // No top-level alarmId — bypass rejectMalformed.
         if (msg && msg.type === 'sync_replace') {
             noteIncomingEnvelope();
-            applyReplace(msg);
+            trackReplace(msg, msg.hash);
             return;
         }
         // sync_done: end-of-sync marker. Terminate per the page's wired
@@ -331,8 +381,10 @@ export default {
         // leave it unset). Do NOT noteIncomingEnvelope — sync_done means
         // "stop", not "more is coming".
         if (msg && msg.type === 'sync_done') {
-            Logger.i('incoming.sync_done');
-            if (onSyncDone) onSyncDone();
+            if (pendingWrites > 0) {
+                pendingSyncDone = msg;
+                Ticker.set('syncDoneHold', WRITE_WAIT_MAX_MS, releaseSyncDone);
+            } else if (onSyncDone) onSyncDone(msg);
             return;
         }
         // watch_default_bg_cleared: phone cleared the default watch
@@ -341,7 +393,6 @@ export default {
         // and delete the received file so it can't restore on relaunch.
         if (msg && msg.type === 'watch_default_bg_cleared') {
             noteIncomingEnvelope();
-            Logger.i('incoming.watch_default_bg_cleared');
             if (onBgCleared) onBgCleared();
             return;
         }
@@ -350,15 +401,21 @@ export default {
             return;
         }
         var type = msg.type;
+        if (type === 'alarm_dismissed_ack' || type === 'alarm_snoozed_ack') {
+            if (onActionAck) onActionAck(msg);
+            return;
+        }
         // No published phone build sends alarm_updated / alarm_deleted /
         // alarm_toggled; they fall through to the unknown-type log below.
         if (type === 'alarm_added') {
             if (!msg.alarm) {
-                Logger.w('incoming.add missing alarm');
                 return;
             }
             noteIncomingEnvelope();
-            applyAdd(msg);
+            beginWrite();
+            applyAdd(msg, function () {
+                finishWrite();
+            });
         } else if (type === 'alarm_fired') {
             // Ring page takes over: cancel any in-flight drain timer and
             // latch _ringActive so a piggybacked sync envelope can't
@@ -384,15 +441,19 @@ export default {
                     use24Hour: msg.use24Hour,
                     // Ring start on the phone, same on every re-send.
                     firedAt: msg.firedAt,
+                    updatedAtEpoch: msg.updatedAtEpoch,
+                    supportsActionAck: msg.supportsActionAck === true,
                 });
             }
         } else if (type === 'alarm_dismissed' || type === 'alarm_snoozed') {
-            Logger.i('incoming.peer-ended type=' + type + ' id=' + msg.alarmId);
             // If our ring page is showing for this alarm, close it. The
             // callback is a no-op when no ring is active (see app.js).
             // `type` lets the ring page show "PHONE DISMISSED" vs
             // "PHONE SNOOZED" on its green-flash banner.
-            if (onPeerEndedRing) onPeerEndedRing(msg.alarmId, type);
+            // A message for another alarm or occurrence than the ring on screen
+            // is refused by the page (the ring stays) but still confirmed: a
+            // phone that is not confirmed keeps waiting for it.
+            if (onPeerEndedRing) onPeerEndedRing(msg, type);
             // Application-level ack: tell the phone we actually processed
             // this envelope. Without it, the phone only sees the transport
             // 207 ACK which doesn't prove the JS receiver ran our handler
@@ -402,12 +463,11 @@ export default {
             // doesn't kill the send mid-flight.
             try {
                 if (type === 'alarm_dismissed') {
-                    WearBridge.sendDismissedAck(msg.alarmId);
+                    WearBridge.sendDismissedAck(msg);
                 } else {
-                    WearBridge.sendSnoozedAck(msg.alarmId);
+                    WearBridge.sendSnoozedAck(msg);
                 }
             } catch (e) {
-                Logger.err('incoming.peer-ended ack send threw', e);
             }
             // Arm drain (without routing to syncing) so a watch woken
             // purely by a peer-ended envelope — no preceding ring — still

@@ -7,11 +7,11 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.media.AudioAttributes
-import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.net.toUri
 import com.kirkouski.gtwake.companion.R
 import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.util.TimeFormatter
@@ -19,56 +19,15 @@ import java.util.Calendar
 
 object AlarmNotifications {
     private const val TAG = "AlarmNotifications"
-    // Channel id v2 (2026-05-12). NotificationChannel state is sticky on
-    // device — once "alarm_ringing" was registered with any importance, the
-    // existing `ensureChannel` early-return guard meant we never re-applied
-    // the IMPORTANCE_HIGH + setBypassDnd + sound-attrs config to subsequent
-    // installs. If any earlier APK iteration registered the channel at a
-    // lower importance, the FSI path silently degrades on that device.
-    // Bumping the id forces a fresh registration with the current config,
-    // and we delete the legacy id below in ensureChannel.
-    const val CHANNEL_ID = "alarm_ringing_v2"
+    // Channel v3 removes the notification's second tone and vibration. Copy
+    // user-visible settings from v2 when creating v3 because channel state is
+    // sticky and the service plays the selected alarm sound itself.
+    const val CHANNEL_ID = "alarm_ringing_v3"
+    private const val PREVIOUS_CHANNEL_ID = "alarm_ringing_v2"
     private const val LEGACY_CHANNEL_ID = "alarm_ringing"
-    // TODO(parked 2026-08-29): give each ring its own notification id.
-    //
-    // WHY IT IS A PROBLEM. This constant is reused for every ring. When alarm 2
-    // fires while alarm 1 is STILL RINGING, its notification carries the same
-    // StatusBarNotification key (userId|pkg|id|tag|uid), so SystemUI receives it
-    // as an UPDATE rather than an ADD. Confirmed in AOSP android16-release
-    // (commit 99b01a65): the full-screen intent is evaluated ONLY from
-    // HeadsUpCoordinator.onEntryAdded and a DND-rescue branch of
-    // onRankingApplied — `onEntryUpdated` contains no FSI code at all. So the
-    // second alarm's FSI is not suppressed, it is never considered, and
-    // AlarmActivity never launches. With no Activity in the task the Wear
-    // Engine receive path has no anchor, so the watch cannot dismiss.
-    //
-    // Device-measured on an API 36 emulator: alarm 2 while alarm 1's id-42
-    // notification was live -> ring UI absent (0 AlarmActivity records).
-    // Dismiss alarm 1 first so the id is free, device still awake -> ring UI
-    // appears. Interactivity held constant; the id was the only variable.
-    //
-    // WHY IT IS PARKED, NOT FIXED. Medium risk in the most fragile path we
-    // have. memory/android_alarm_lockscreen_pattern.md records a device-verified
-    // Samsung regression caused by posting id 42 twice in quick succession
-    // (placeholder -> FSI upgrade), which muted sound, vibration AND the FSI
-    // launch. A per-ring id is NOT that pattern (one post per ring, distinct
-    // keys) but it is adjacent to it, and this is a foreground-service
-    // notification: changing the id means startForeground() with a new id plus
-    // cancelling the old one, with a window where both or neither exist.
-    // Nobody has reproduced the overlapping-alarm case on real hardware.
-    //
-    // ALSO NOTE: this does NOT explain the separate, unexplained failure where
-    // alarms fired in rapid succession alternate pass/fail 8/8 even with a
-    // force-stopped clean start and no prior notification. Do not expect this
-    // change to fix that.
-    //
-    // TO DO IT SAFELY: (1) reproduce overlapping alarms on the S24 first;
-    // (2) derive the id as NOTIFICATION_ID or (alarmId and 0x00FF_FFFF), the
-    // same shape MISSED_NOTIFICATION_BASE already uses below; (3) cancel the
-    // previous ring's id when a new ring takes over; (4) re-run the alternation
-    // test and confirm no NEW failure mode appears; (5) verify on Samsung
-    // specifically, since the prior regression was One UI-only.
-    // See docs/acceptance-criteria.md -> "Losing the ring UI".
+    // Keep the notification ID stable. Ring occurrence identity belongs in
+    // each PendingIntent's data URI and extras, so stale buttons retain the
+    // occurrence they were created for.
     const val NOTIFICATION_ID = 42
 
     // Separate low-priority channel for "missed during reboot" notifications.
@@ -77,34 +36,42 @@ object AlarmNotifications {
     const val MISSED_CHANNEL_ID = "alarm_missed"
     private const val MISSED_NOTIFICATION_BASE = 0x40_00_00_00
 
+    /**
+     * Importance for a newly created v3 channel: the user's choice on v2, else
+     * on the legacy channel, else HIGH. Pure so it can be unit tested.
+     */
+    internal fun resolveV3Importance(v2Importance: Int?, legacyImportance: Int?): Int =
+        v2Importance ?: legacyImportance ?: NotificationManager.IMPORTANCE_HIGH
+
+    // Creates the silent v3 channel once, then removes the older channels on
+    // every call (idempotent). Bypass-DND and lock-screen visibility are not
+    // copied: the platform resets them for apps without DND access.
     fun ensureChannel(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
-        // Drop the legacy channel (one-time, idempotent — no-op once gone).
-        // Required because NotificationChannel importance is immutable after
-        // creation; without removing the legacy id, ringing notifications
-        // from the v2 channel would still inherit the legacy importance on
-        // some devices where the legacy id was registered.
-        runCatching { nm.deleteNotificationChannel(LEGACY_CHANNEL_ID) }
-        if (nm.getNotificationChannel(CHANNEL_ID) != null) return
-
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            context.getString(R.string.notif_channel_alarm_name),
-            NotificationManager.IMPORTANCE_HIGH,
-        ).apply {
-            description = context.getString(R.string.notif_channel_alarm_desc)
-            enableLights(true)
-            enableVibration(true)
-            setBypassDnd(true)
-            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            val attrs = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ALARM)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-            // Channel sound is a fallback for the notification; the service owns real audio.
-            setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), attrs)
+        if (nm.getNotificationChannel(CHANNEL_ID) == null) {
+            val importance = resolveV3Importance(
+                nm.getNotificationChannel(PREVIOUS_CHANNEL_ID)?.importance,
+                nm.getNotificationChannel(LEGACY_CHANNEL_ID)?.importance,
+            )
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                context.getString(R.string.notif_channel_alarm_name),
+                importance,
+            ).apply {
+                description = context.getString(R.string.notif_channel_alarm_desc)
+                // The service owns alarm sound and vibration. A channel default
+                // would play a second tone and vibration beside AlarmAudioPlayer.
+                enableVibration(false)
+                setSound(null, null)
+            }
+            nm.createNotificationChannel(channel)
         }
-        nm.createNotificationChannel(channel)
+        // Delete only after v3 exists, so a failed create never loses the
+        // user's old choice.
+        if (nm.getNotificationChannel(CHANNEL_ID) != null) {
+            runCatching { nm.deleteNotificationChannel(PREVIOUS_CHANNEL_ID) }
+            runCatching { nm.deleteNotificationChannel(LEGACY_CHANNEL_ID) }
+        }
     }
 
     fun ensureMissedChannel(context: Context) {
@@ -241,10 +208,12 @@ object AlarmNotifications {
             .build()
     }
 
-    fun dismissPendingIntent(context: Context, alarmId: Long): PendingIntent {
+    fun dismissPendingIntent(context: Context, alarmId: Long, firedAtEpoch: Long? = null): PendingIntent {
         val intent = Intent(context, AlarmRingService::class.java).apply {
             action = AlarmRingService.ACTION_DISMISS
             putExtra(AlarmRingService.EXTRA_ALARM_ID, alarmId)
+            if (firedAtEpoch != null) putExtra(AlarmRingService.EXTRA_FIRED_AT, firedAtEpoch)
+            data = actionData(alarmId, "dismiss", firedAtEpoch)
         }
         return PendingIntent.getService(
             context,
@@ -254,10 +223,12 @@ object AlarmNotifications {
         )
     }
 
-    fun snoozePendingIntent(context: Context, alarmId: Long): PendingIntent {
+    fun snoozePendingIntent(context: Context, alarmId: Long, firedAtEpoch: Long? = null): PendingIntent {
         val intent = Intent(context, AlarmRingService::class.java).apply {
             action = AlarmRingService.ACTION_SNOOZE
             putExtra(AlarmRingService.EXTRA_ALARM_ID, alarmId)
+            if (firedAtEpoch != null) putExtra(AlarmRingService.EXTRA_FIRED_AT, firedAtEpoch)
+            data = actionData(alarmId, "snooze", firedAtEpoch)
         }
         return PendingIntent.getService(
             context,
@@ -275,10 +246,12 @@ object AlarmNotifications {
     // later; for now we want the simple "allowed" behavior on Android 14
     // because that's the broken-screen-wake case we're fixing.
     @Suppress("DEPRECATION")
-    fun fullScreenPendingIntent(context: Context, alarmId: Long): PendingIntent {
+    fun fullScreenPendingIntent(context: Context, alarmId: Long, firedAtEpoch: Long? = null): PendingIntent {
         val intent = Intent(context, AlarmActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             putExtra(AlarmRingService.EXTRA_ALARM_ID, alarmId)
+            if (firedAtEpoch != null) putExtra(AlarmRingService.EXTRA_FIRED_AT, firedAtEpoch)
+            data = actionData(alarmId, "activity", firedAtEpoch)
         }
         // Android 14 BAL opt-in for the PI creator. Without this, when
         // NotificationManagerService fires the FSI it carries no
@@ -307,6 +280,9 @@ object AlarmNotifications {
             options,
         )
     }
+
+    private fun actionData(alarmId: Long, action: String, firedAtEpoch: Long?): Uri? =
+        firedAtEpoch?.let { "gtwake://alarm/$alarmId/$action/$it".toUri() }
 
     private const val ACTION_DISMISS_BIT = 0x10000000
     private const val ACTION_SNOOZE_BIT = 0x20000000

@@ -1,0 +1,32 @@
+{
+  "_source": "Envelope shapes exactly as released GT Wake 1.0.11 builds send them (git tag v1.0.11: watch-app common/wearBridge.js, phone HuaweiWearBridge.buildAlarmFiredEnvelope). Numbers are examples. Watch stamps come from the WATCH clock (Date.now()), never from the phone request. Released watches send no firedAt and no ok. The 1.0.11 phone sends firedAt but no supportsActionAck. 1.0.10 phones send no firedAt.",
+  "watchToPhone": {
+    "alarm_ringing": { "type": "alarm_ringing", "alarmId": 3, "updatedAtEpoch": 1760000003000 },
+    "alarm_dismissed_ack": { "type": "alarm_dismissed_ack", "alarmId": 3, "updatedAtEpoch": 1760000004000 },
+    "alarm_snoozed_ack": { "type": "alarm_snoozed_ack", "alarmId": 3, "updatedAtEpoch": 1760000004000 },
+    "alarm_dismissed": { "type": "alarm_dismissed", "alarmId": 3, "updatedAtEpoch": 1760000005000 },
+    "alarm_snoozed": { "type": "alarm_snoozed", "alarmId": 3, "updatedAtEpoch": 1760000005000 },
+    "alarms_received": { "type": "alarms_received", "hash": "1a2b3c4d", "updatedAtEpoch": 1760000006000 },
+    "sync_hash": { "type": "sync_hash", "hash": "1a2b3c4d" }
+  },
+  "phoneToWatch_1_0_11": {
+    "alarm_fired": {
+      "type": "alarm_fired", "alarmId": 3, "updatedAtEpoch": 1760000000000,
+      "vibrationPattern": "PULSE", "snoozeAllowed": true, "watchVibrationEnabled": true,
+      "listSync": false, "use24Hour": true, "firedAt": 1760000000000
+    },
+    "alarm_fired_pre_unlock": {
+      "type": "alarm_fired", "alarmId": 3, "updatedAtEpoch": 1760000000000,
+      "vibrationPattern": "PULSE", "snoozeAllowed": true, "watchVibrationEnabled": true,
+      "firedAt": 1760000000000
+    },
+    "alarm_dismissed": { "type": "alarm_dismissed", "alarmId": 3, "updatedAtEpoch": 1760000007000 },
+    "alarm_snoozed": { "type": "alarm_snoozed", "alarmId": 3, "updatedAtEpoch": 1760000007000, "rescheduleEpoch": 1760000300000 }
+  },
+  "phoneToWatch_1_0_10": {
+    "alarm_fired": {
+      "type": "alarm_fired", "alarmId": 3, "updatedAtEpoch": 1760000000000,
+      "vibrationPattern": "PULSE", "snoozeAllowed": true, "watchVibrationEnabled": true
+    }
+  }
+}
