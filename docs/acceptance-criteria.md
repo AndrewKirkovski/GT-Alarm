@@ -71,7 +71,13 @@ and transport-only success in this document.
   installs it is unverified; the decision waits for one hand install on the developer's
   own watch. 2026-10-13: a release-mode HAP failed with "Failed to decompress" because
   only debug build mode produces the Lite `.bin` package the watch installs; the `--hap`
-  candidate is now release-signed and built in debug mode. Its install is not yet tested.
+  candidate is now release-signed and built in debug mode. Hand install of that package
+  on the GT 6 failed with error 31 "Failed to verify signature" (2026-10-13). Its
+  signature chain is complete: release developer certificate, profile signed by "HOS
+  Profile Management". The debug package that installs differs only in the debug
+  certificate and a debug profile signed by "HOS Profile Management Debug" that lists
+  the watch. Conclusion (inferred from this test): a store-signed watch package cannot
+  be hand-installed, so there is no public watch download. Install-page model: open.
 
 Hardware checks must include a system alarm tone configured alongside a custom app
 tone, vibration-only alarms, square-watch dismiss/snooze, round-watch reconnect and
