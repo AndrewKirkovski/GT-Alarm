@@ -143,13 +143,15 @@ copy_one() {
   copied=$((copied + 1))
 }
 
-# Read the HAP's own version name/code out of its config.json.
+# Read the HAP's own version name/code out of its config.json. A Lite Wearable
+# HAP (see build-watch-release.sh --hap) holds one signed .bin instead, with
+# config.json stored inside it as plain text, so fall back to that entry.
 hap_field() {
   # $1 = hap, $2 = name|code
   # Never fails: an unreadable config.json yields an empty string, and the caller
   # then prints a clear refusal (set -e / pipefail must not abort silently here).
-  { unzip -p "$1" config.json 2>/dev/null | tr -d '\r\n' \
-    | grep -o '"version"[[:space:]]*:[[:space:]]*{[^}]*}' | head -1 \
+  { { unzip -p "$1" config.json 2>/dev/null || unzip -p "$1" '*.bin' 2>/dev/null; } | tr -d '\r\n' \
+    | grep -a -o '"version"[[:space:]]*:[[:space:]]*{[^}]*}' | head -1 \
     | sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\\{0,1\\}\\([^\",}[:space:]]*\\)\"\\{0,1\\}.*/\\1/p"; } || true
 }
 

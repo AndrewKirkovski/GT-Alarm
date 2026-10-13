@@ -69,7 +69,9 @@ and transport-only success in this document.
 - 🟠 The site has a manual-install page; the HAP download stays disabled. The only
   standalone HAP is AppGallery release-signed (no device list). Whether DevEco Assistant
   installs it is unverified; the decision waits for one hand install on the developer's
-  own watch.
+  own watch. 2026-10-13: a release-mode HAP failed with "Failed to decompress" because
+  only debug build mode produces the Lite `.bin` package the watch installs; the `--hap`
+  candidate is now release-signed and built in debug mode. Its install is not yet tested.
 
 Hardware checks must include a system alarm tone configured alongside a custom app
 tone, vibration-only alarms, square-watch dismiss/snooze, round-watch reconnect and

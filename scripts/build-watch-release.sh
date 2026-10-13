@@ -98,10 +98,18 @@ fi
 # --- Optional standalone HAP candidate (--hap) --------------------------------
 # Never extract a HAP from the App Pack: a standalone HAP has its own signing
 # and provisioning metadata. A failure here must NOT hide the .app above.
+#
+# buildMode=debug is deliberate. hvigor wraps a Lite Wearable app in the signed
+# .bin package that DevEco Assistant can install only when
+#   needPackBin = lite device in target && buildMode is debug && not assembleApp
+# (hvigor-ohos-plugin src/tasks/service/target-task-service.js). A release-mode
+# HAP is the plain layout meant for the App Pack; the watch rejects it with
+# "Failed to decompress" (seen 2026-10-13). product=release keeps the AppGallery
+# release certificate and profile.
 build_hap_candidate() {
   echo ""
-  echo "==> Building standalone release HAP candidate (product=release, buildMode=release)"
-  "$HVIGOR" assembleHap --mode module -p product=release -p "buildMode=release" --no-daemon || return 1
+  echo "==> Building standalone HAP candidate (product=release signing, buildMode=debug for the Lite .bin package)"
+  "$HVIGOR" assembleHap --mode module -p product=release -p "buildMode=debug" --no-daemon || return 1
 
   local haps
   mapfile -t haps < <(find "$WATCH_DIR/entry/build/release/outputs" -type f -name '*-signed.hap' -print 2>/dev/null | sort)
@@ -115,8 +123,9 @@ build_hap_candidate() {
   # The HAP's own identity (config.json inside the zip).
   if command -v unzip >/dev/null 2>&1; then
     local vblock
-    vblock="$(unzip -p "$hap" config.json 2>/dev/null | tr -d '\r\n' \
-      | grep -o '"version"[[:space:]]*:[[:space:]]*{[^}]*}' | head -1 || true)"
+    # config.json sits inside the signed .bin entry of a Lite HAP (plain text).
+    vblock="$({ unzip -p "$hap" config.json 2>/dev/null || unzip -p "$hap" '*.bin' 2>/dev/null; } \
+      | tr -d '\r\n' | grep -a -o '"version"[[:space:]]*:[[:space:]]*{[^}]*}' | head -1 || true)"
     echo "    HAP config.json version name: $(printf '%s' "$vblock" | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
     echo "    HAP config.json version code: $(printf '%s' "$vblock" | sed -n 's/.*"code"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p')"
   else
