@@ -27,6 +27,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -35,6 +36,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import kotlin.coroutines.resume
@@ -56,6 +58,34 @@ internal data class RingActionRequest(
     /** Only these watch requests get a reply; everything else is legacy. */
     val isOccurrenceAware: Boolean
         get() = firedAtEpoch != null && requestStamp != null
+}
+
+/**
+ * Occurrences whose dismiss/snooze row commit finished. Unlike
+ * [PeerActionState] it is thread-safe: IO writes it inside the commit and the
+ * takeover finalizer reads it after the service was destroyed, when the
+ * main-thread outcome can no longer be read. Bounded like [PeerActionState].
+ */
+internal class CommittedOccurrences(private val capacity: Int = DEFAULT_CAPACITY) {
+    private val keys = LinkedHashSet<OccurrenceKey>()
+
+    @Synchronized
+    fun add(key: OccurrenceKey) {
+        keys.remove(key)
+        keys.add(key)
+        while (keys.size > capacity) {
+            val eldest = keys.iterator()
+            eldest.next()
+            eldest.remove()
+        }
+    }
+
+    @Synchronized
+    fun contains(key: OccurrenceKey): Boolean = key in keys
+
+    private companion object {
+        const val DEFAULT_CAPACITY = 64
+    }
 }
 
 // reason: TooManyFunctions and LargeClass share one cause. One handler per
@@ -174,16 +204,22 @@ class AlarmRingService : Service() {
     // for this service instance only (decided: no persistent receipts).
     private val peerState = PeerActionState()
 
-    // Occurrences whose alarm_fired (pre-arm or catch-up) is being delivered to
-    // the watch right now, MAIN THREAD ONLY. The 207 delivery record only
+    // Occurrences whose alarm_fired (pre-arm or catch-up) was handed to the
+    // watch and may still land, MAIN THREAD ONLY. The 207 delivery record only
     // appears when a send returns, so a phone Stop while the send is in flight
     // would otherwise decide "the watch is not ringing" and send no end
     // message, and the fire then lands and the watch rings. The entry is
-    // removed when the delivery effort returns on its own; the record decides
-    // from then on. An effort cut short by the ring's end and pre-unlock
-    // fire-and-forget sends keep their entry (their landing time is unknown);
-    // the set is per service and tiny.
+    // removed only when the watch confirmed (alarm_ringing) or when the ring
+    // ends (stopForegroundAndSelf). A timed-out or cancelled send, a catch-up
+    // that ran out of window and every fire-and-forget send (no connected
+    // watch yet, pre-unlock) keep it: their landing time is unknown. Bounded:
+    // per service instance, one entry per ring, capped by [FIRE_SENDS_CAP].
     private val fireSendsInFlight = mutableSetOf<OccurrenceKey>()
+
+    // Occurrences whose dismiss/snooze row commit finished, readable from any
+    // thread. The takeover finalizer reads it after onDestroy, when the
+    // main-thread outcome is gone (see applySupersededDismiss).
+    private val committedOccurrences = CommittedOccurrences()
 
     // The ring that replaced an older one. [settled] completes once its
     // alarm_fired attempt is over (pre-arm returned) or the ring itself ended;
@@ -604,13 +640,19 @@ class AlarmRingService : Service() {
         if (info == null || !info.connected) {
             Log.d(TAG, "preArmWatch: no connected watch (info=$info) — skipping wait")
             // Still fire the message so when the watch DOES come back online
-            // it gets the historical event (cheap, fire-and-forget).
+            // it gets the historical event (cheap, fire-and-forget). On a cold
+            // process pairedDeviceInfo can still be null here while the bridge
+            // then resolves the device, wakes it and delivers, so that send
+            // counts as in flight and its mark stays (see fireSendsInFlight).
+            // A watch known to be disconnected is not marked: a phone Stop must
+            // not then wait on "Waiting for watch…" for a watch that is away.
+            if (info == null) onMain { markFireSend(occurrence) }
             wearBridge.sendAlarmFired(alarmId, ringHints)
             return false
         }
         // A send to a connected watch starts now: until it comes back, a phone
         // Stop must still reach the watch (see fireSendsInFlight).
-        onMain { fireSendsInFlight += occurrence }
+        onMain { markFireSend(occurrence) }
         if (!isUserUnlocked) {
             // Pre-unlock: no incoming receiver, so await would hang. Fire-and-forget.
             // The mark stays: when this send lands is unknown.
@@ -619,10 +661,18 @@ class AlarmRingService : Service() {
             return false
         }
         val ready = wearBridge.sendAlarmFiredAwaiting(alarmId, PREARM_TIMEOUT_MS, ringHints)
-        // Returned normally: the delivery record is authoritative from here.
-        // A cancelled send keeps its mark (the ring ended mid-delivery).
-        mainHandler.post { fireSendsInFlight -= occurrence }
+        // Only a watch that answered alarm_ringing settles the delivery; the
+        // record is authoritative from then on. A send that timed out was
+        // cancelled but can still land later with neither a 207 record nor a
+        // mark, and a cancelled send is the same, so both keep the mark.
+        if (ready) mainHandler.post { fireSendsInFlight -= occurrence }
         return ready
+    }
+
+    // Main thread. Marks [occurrence] as having a fire send that may still land.
+    private fun markFireSend(occurrence: OccurrenceKey) {
+        fireSendsInFlight += occurrence
+        while (fireSendsInFlight.size > FIRE_SENDS_CAP) fireSendsInFlight.remove(fireSendsInFlight.first())
     }
 
     // The pre-arm gives the watch PREARM_TIMEOUT_MS before the phone starts
@@ -645,27 +695,37 @@ class AlarmRingService : Service() {
         // The whole catch-up window counts as "delivery in progress", gaps
         // between attempts included: an earlier attempt may land at any time.
         val occurrence = OccurrenceKey(alarmId, firedAtEpoch)
-        fireSendsInFlight += occurrence
+        markFireSend(occurrence)
         watchCatchUpJob = launchDetached("watch catch-up id=$alarmId") {
-            runWatchCatchUp(alarmId, firedAtEpoch, hints, deadline)
-            // Ran to its end (delivered, or the window is over): the delivery
-            // record decides from here. A job cancelled by the ring's end
-            // keeps its mark, so the end message of that ring is still sent.
-            mainHandler.post { fireSendsInFlight -= occurrence }
+            // Only a confirmed delivery (alarm_ringing) clears the mark. When
+            // the window runs out, the last attempt was cancelled by its
+            // budget and may still land; a job cancelled by the ring's end
+            // keeps its mark too, so the end message of that ring is sent.
+            if (runWatchCatchUp(alarmId, firedAtEpoch, hints, deadline)) {
+                mainHandler.post { fireSendsInFlight -= occurrence }
+            }
         }
     }
 
-    private suspend fun runWatchCatchUp(alarmId: Long, firedAtEpoch: Long, hints: AlarmRingHints, deadline: Long) {
+    // True when the watch confirmed (alarm_ringing), false when the loop ended
+    // without a confirmation (window over, or the ring is no longer current).
+    private suspend fun runWatchCatchUp(
+        alarmId: Long,
+        firedAtEpoch: Long,
+        hints: AlarmRingHints,
+        deadline: Long,
+    ): Boolean {
         var attempt = 0
         while (isCurrent(alarmId, firedAtEpoch) && android.os.SystemClock.elapsedRealtime() < deadline) {
             attempt++
             val budget = minOf(WATCH_CATCHUP_ATTEMPT_MS, deadline - android.os.SystemClock.elapsedRealtime())
             val ready = wearBridge.sendAlarmFiredAwaiting(alarmId, budget, hints)
             Log.i(TAG, "watch catch-up id=$alarmId attempt=$attempt ready=$ready")
-            if (ready) return
+            if (ready) return true
             delay(WATCH_CATCHUP_GAP_MS)
         }
         Log.w(TAG, "watch catch-up stopped id=$alarmId after $attempt attempt(s)")
+        return false
     }
 
     // Only tell the watch to stop a ring it could have received. Sending a
@@ -1084,11 +1144,14 @@ class AlarmRingService : Service() {
     // True when the dismiss policy was applied by this call, false when an
     // action had already ended the occurrence. The in-memory outcome is only
     // recorded and read while the service is alive; a destroyed service takes
-    // its peerState with it, so the takeover-time snapshot stands in.
+    // its peerState with it, so the takeover-time snapshot stands in. An action
+    // that was still in flight at the takeover (a stalled save) is covered by
+    // committedOccurrences, which its commit fills even when the service stops
+    // meanwhile: the old alarm's dismiss policy must not overwrite it.
     private suspend fun applySupersededDismiss(superseded: SupersededRing): Boolean {
         val key = superseded.key
         return mutexFor(key.alarmId).withLock {
-            val alreadyEnded = superseded.endedAtTakeover ||
+            val alreadyEnded = superseded.endedAtTakeover || committedOccurrences.contains(key) ||
                 onMainWhileAlive { peerState.outcomeOf(key) != null } == true
             if (!alreadyEnded) {
                 commitDismiss(key.alarmId, fromPeer = true)
@@ -1254,7 +1317,7 @@ class AlarmRingService : Service() {
             if (!onMain { currentRing().isOpen(claim.occurrence) }) {
                 ActionResult.Superseded
             } else {
-                val committed = commitRow(kind, request)
+                val committed = commitRowRecorded(kind, request, claim.occurrence)
                 onMain { markCommitted(kind, request, claim, committed) }
                 committed
             }
@@ -1264,6 +1327,22 @@ class AlarmRingService : Service() {
     } catch (e: Exception) {
         Log.e(TAG, "${kind.wire} failed id=${request.alarmId} firedAt=${claim.occurrence.firedAtEpoch}", e)
         ActionResult.Failed
+    }
+
+    // The row write and the record of its occurrence run as one unit under
+    // NonCancellable: a service stop (serviceScope.cancel) cannot cut the commit
+    // in half, and the takeover finalizer, which may run after onDestroy, sees
+    // the record. Deliberately not time-bounded: a timeout could report a
+    // failure for a write that still lands afterwards (ok:false after a
+    // change). A stalled save keeps holding the claim exactly as before; the
+    // auto-stop give-up ends the ring and the finalizer's own timeout bounds
+    // its wait for this alarm's mutex.
+    private suspend fun commitRowRecorded(
+        kind: RingActionKind,
+        request: RingActionRequest,
+        occurrence: OccurrenceKey,
+    ): ActionResult.Committed = withContext(NonCancellable) {
+        commitRow(kind, request).also { committedOccurrences.add(occurrence) }
     }
 
     private suspend fun commitRow(kind: RingActionKind, request: RingActionRequest): ActionResult.Committed =
@@ -1552,6 +1631,9 @@ class AlarmRingService : Service() {
             return
         }
         stopCurrentRingResources()
+        // This ring is over and its end message (if any) was decided before
+        // this teardown: the mark has no more use (keeps the set bounded).
+        fireSendsInFlight.remove(OccurrenceKey(alarmId, firedAtEpoch))
         // Signal the AlarmActivity to finish itself. Critical for the
         // peer-driven path (watch dismiss/snooze): without this, the
         // service stops but the full-screen Activity stays on the phone
@@ -1620,6 +1702,9 @@ class AlarmRingService : Service() {
 
         // One bounded wait of onMainWhileAlive for its block on the main thread.
         private const val MAIN_WHILE_ALIVE_WAIT_MS = 1_000L
+
+        // Most fire-send marks kept at once (see fireSendsInFlight).
+        private const val FIRE_SENDS_CAP = 16
 
         // Grace before auditing whether the ring UI appeared. Must outlast the
         // window-transition + Activity onCreate that a successful FSI still has

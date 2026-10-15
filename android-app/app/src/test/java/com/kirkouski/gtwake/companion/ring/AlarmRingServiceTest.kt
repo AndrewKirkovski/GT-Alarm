@@ -1194,6 +1194,166 @@ class AlarmRingServiceTest {
         env.scope.cancel()
     }
 
+    // ---- round 2 review: unmarked fire sends, in-flight action at takeover ---
+
+    /*
+     * Fails before: the "no connected watch" branch sent alarm_fired without a
+     * mark (a cold process has no pairedDeviceInfo yet while the bridge then
+     * resolves, wakes and delivers). The delivery record did not exist yet, so
+     * the Stop sent no end message and the watch rang on.
+     */
+    @Test
+    fun `phone Stop during a fire-and-forget send with no connected watch still tells the watch`() = runTest {
+        val env = newEnv()
+        coEvery { env.repository.getById(1L) } returns baseAlarm
+        env.ring(1L)
+        runCurrent()
+        val firedAt = env.firedAt()
+        verify(exactly = 1) { env.wearBridge.sendAlarmFired(1L, any()) }
+        // A known ring start, so "unknown start sends anyway" does not hide the gap.
+        env.write("ringStartedElapsedMs", 5_000L)
+
+        env.action(dismissed, RingActionRequest(1L, fromPeer = false, firedAtEpoch = firedAt))
+        runCurrent()
+
+        coVerify(exactly = 1) { env.wearBridge.sendAlarmDismissedAwaiting(1L, any(), firedAt) }
+        env.scope.cancel()
+    }
+
+    // A watch the bridge knows is disconnected is not marked: a phone Stop then
+    // closes at once instead of waiting up to 12 s on "Waiting for watch…".
+    @Test
+    fun `phone Stop with a watch known to be disconnected sends no end message`() = runTest {
+        val env = newEnv()
+        every { env.wearBridge.pairedDeviceInfo } returns
+            MutableStateFlow<PairedDeviceInfo?>(PairedDeviceInfo("Watch", false))
+        coEvery { env.repository.getById(1L) } returns baseAlarm
+        env.ring(1L)
+        runCurrent()
+        val firedAt = env.firedAt()
+        env.write("ringStartedElapsedMs", 5_000L)
+
+        env.action(dismissed, RingActionRequest(1L, fromPeer = false, firedAtEpoch = firedAt))
+        runCurrent()
+
+        coVerify(exactly = 0) { env.wearBridge.sendAlarmDismissedAwaiting(any(), any(), any()) }
+        env.scope.cancel()
+    }
+
+    /*
+     * Fails before: after the pre-arm timed out (send cancelled by its budget)
+     * the mark was cleared as "the record is authoritative", but a cancelled
+     * send can still land later with no 207 record. Catch-up cannot start here
+     * (the watch reads as disconnected by then), so only the pre-arm's own mark
+     * can cover the Stop.
+     */
+    @Test
+    fun `phone Stop after a timed-out pre-arm still tells the watch`() = runTest {
+        val env = newEnv()
+        val info = MutableStateFlow<PairedDeviceInfo?>(PairedDeviceInfo("Watch", true))
+        every { env.wearBridge.pairedDeviceInfo } returns info
+        coEvery { env.repository.getById(1L) } returns baseAlarm
+        coEvery { env.wearBridge.sendAlarmFiredAwaiting(1L, any(), any()) } coAnswers {
+            info.value = null
+            false
+        }
+        env.ring(1L)
+        runCurrent()
+        val firedAt = env.firedAt()
+        env.write("ringStartedElapsedMs", 5_000L)
+
+        env.action(dismissed, RingActionRequest(1L, fromPeer = false, firedAtEpoch = firedAt))
+        runCurrent()
+
+        coVerify(exactly = 1) { env.wearBridge.sendAlarmDismissedAwaiting(1L, any(), firedAt) }
+        env.scope.cancel()
+    }
+
+    /*
+     * Passes before and after: a watch that confirmed (alarm_ringing) settles
+     * the delivery, so the record decides again. Pins the other half of the
+     * rule next to the tests above: the mark is cleared only on ready == true.
+     */
+    @Test
+    fun `phone Stop after a confirmed pre-arm lets the delivery record decide`() = runTest {
+        val env = newEnv()
+        env.watchConnected()
+        coEvery { env.repository.getById(1L) } returns baseAlarm
+        coEvery { env.wearBridge.sendAlarmFiredAwaiting(1L, any(), any()) } returns true
+        every { env.wearBridge.wasAlarmFiredDelivered(1L, any()) } returns false
+        env.ring(1L)
+        advanceUntilIdle()
+        val firedAt = env.firedAt()
+        env.write("ringStartedElapsedMs", 5_000L)
+
+        env.action(dismissed, RingActionRequest(1L, fromPeer = false, firedAtEpoch = firedAt))
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { env.wearBridge.sendAlarmDismissedAwaiting(any(), any(), any()) }
+    }
+
+    /*
+     * Fails before: A's Snooze save stalled holding A's mutex; B took over; the
+     * service stopped, which cancelled A's commit. The finalizer then got the
+     * mutex, found no outcome (destroyed service), and applied A's dismiss
+     * policy (setEnabledLocalOnly) over the snooze. Now the commit runs to its
+     * end under NonCancellable and its record tells the finalizer to stand down.
+     */
+    @Test
+    fun `in-flight snooze that commits while the service is destroyed is not overwritten by the dismiss policy`() =
+        runTest {
+            val env = newEnv()
+            coEvery { env.repository.getById(1L) } returns baseAlarm
+            coEvery { env.repository.getById(2L) } returns baseAlarm.copy(id = 2L)
+            coEvery { env.repository.snoozeAt(1L, any(), any()) } coAnswers {
+                delay(5_000)
+                123L
+            }
+            env.ring(1L)
+            runCurrent()
+            val firedAt = env.firedAt()
+            env.action(snoozed, RingActionRequest(1L, fromPeer = false, firedAtEpoch = firedAt))
+            runCurrent()
+
+            env.ring(2L)
+            runCurrent()
+            env.invoke("onDestroy")
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { env.repository.snoozeAt(1L, any(), any()) }
+            coVerify(exactly = 0) { env.repository.setEnabledLocalOnly(1L, any()) }
+            coVerify(exactly = 0) { env.repository.setEnabled(1L, any()) }
+            coVerify(exactly = 0) { env.repository.delete(1L) }
+        }
+
+    /*
+     * Pins the unchanged half: an in-flight action that never commits (the
+     * save fails) leaves the occurrence unrecorded, so the finalizer still
+     * applies the dismiss policy.
+     */
+    @Test
+    fun `in-flight snooze that fails does not stop the finalizer from applying the dismiss policy`() = runTest {
+        val env = newEnv()
+        coEvery { env.repository.getById(1L) } returns baseAlarm
+        coEvery { env.repository.getById(2L) } returns baseAlarm.copy(id = 2L)
+        coEvery { env.repository.snoozeAt(1L, any(), any()) } coAnswers {
+            delay(5_000)
+            throw IOException("disk full")
+        }
+        env.ring(1L)
+        runCurrent()
+        val firedAt = env.firedAt()
+        env.action(snoozed, RingActionRequest(1L, fromPeer = false, firedAtEpoch = firedAt))
+        runCurrent()
+
+        env.ring(2L)
+        runCurrent()
+        env.invoke("onDestroy")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { env.repository.setEnabledLocalOnly(1L, false) }
+    }
+
     // ---- harness ---------------------------------------------------------
 
     private fun TestScope.newEnv(unlocked: Boolean = true) = Env(this, unlocked)
@@ -1251,6 +1411,7 @@ class AlarmRingServiceTest {
             write("serviceScope\$delegate", lazyOf(scope))
             write("finalizerScope\$delegate", lazyOf(finalizerScope))
             write("fireSendsInFlight", mutableSetOf<OccurrenceKey>())
+            write("committedOccurrences", CommittedOccurrences())
             write("mainHandler", handler)
             write("alarmMutexes", java.util.concurrent.ConcurrentHashMap<Long, kotlinx.coroutines.sync.Mutex>())
             write("peerState", PeerActionState())

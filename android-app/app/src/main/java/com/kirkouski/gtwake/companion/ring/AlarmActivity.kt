@@ -185,9 +185,15 @@ class AlarmActivity : ComponentActivity() {
     }
 
     private fun readOccurrence(intent: Intent): Long {
+        val previous = currentOccurrence()
         activeAlarmId.longValue = intent.getLongExtra(AlarmRingService.EXTRA_ALARM_ID, -1L)
         activeFiredAtEpoch.longValue = intent.getLongExtra(AlarmRingService.EXTRA_FIRED_AT, -1L)
         shownOccurrence = currentOccurrence()
+        // A different occurrence: its row is not loaded yet, so drop the previous
+        // alarm's flag. True is the safe default (the service turns a snooze of a
+        // snooze-disabled alarm into its dismiss policy). The same occurrence
+        // keeps its loaded value (the load effect does not re-run for it).
+        if (shownOccurrence != previous) snoozeAvailable = true
         return activeAlarmId.longValue
     }
 
@@ -263,6 +269,7 @@ class AlarmActivity : ComponentActivity() {
         activeAlarmId.longValue = current.alarmId
         activeFiredAtEpoch.longValue = current.firedAtEpoch
         shownOccurrence = currentOccurrence()
+        snoozeAvailable = true // see readOccurrence
     }
 
     private fun leaveWaitingState() {
