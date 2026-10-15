@@ -37,8 +37,8 @@ const CONTACT = 'andrew.kirkovski@gmail.com'
       device(s)</strong>: your alarms and their settings, app preferences (clock format, first day
       of week, language), and any background images you choose. When an alarm goes off, the phone sends your paired watch what it
       needs to ring. Huawei will not approve waking the watch to sync the alarm list, so the setting to show your alarm list on
-      the watch is hidden in the app, and the feature is off; this does not affect alarms ringing on the watch.
-      If the hidden setting is turned on, a copy of your alarms is also kept
+      the watch is turned off; this does not affect alarms ringing on the watch.
+      If it is turned on, a copy of your alarms is also kept
       on the watch so it can show them. None of this data is uploaded anywhere.
     </p>
 
@@ -71,7 +71,7 @@ const CONTACT = 'andrew.kirkovski@gmail.com'
       <strong>Huawei Wear Engine</strong>, over Bluetooth through the <strong>Huawei Health</strong>
       app. These messages contain your alarm data, ring/snooze/dismiss signals, and — if you choose
       a watch background — that image. Sending a watch background remains a separate action that you choose. Huawei will not
-      approve waking the watch to sync the alarm list, so the optional alarm-list sync setting is hidden in the app.
+      approve waking the watch to sync the alarm list, so the alarm-list sync setting is turned off.
       Alarm ringing is unaffected. The data goes only between your two paired devices; we do not
       receive it. Because this transport is provided by Huawei, Huawei's handling of the connection
       is governed by
@@ -103,11 +103,14 @@ const CONTACT = 'andrew.kirkovski@gmail.com'
     <h2>8. Data retention and deletion</h2>
     <p>
       All data is stored locally, so you control it entirely. Deleting an alarm removes it from the
-      phone. While alarm-list sync is off, phone alarm-list changes are not sent to the watch. If the hidden
-      alarm-list sync setting is turned on, deleting an alarm also removes it from the watch on the next sync, and turning
+      phone. While alarm-list sync is off, phone alarm-list changes are not sent to the watch. If alarm-list
+      sync is turned on, deleting an alarm also removes it from the watch on the next sync, and turning
       the feature off removes the copy of your alarms from the watch. Uninstalling the phone app removes its data from the
       phone. Uninstalling the watch app does <strong>not</strong> remove its data from the watch; to have it removed, contact the
       developer for help.
+      If alarm-list sync was turned on in an earlier version, a copy of the alarm list may remain on the watch. An updated
+      watch app deletes it after the next alarm rings on the watch. With an older watch app it stays until the watch app's
+      data is cleared; contact the developer for help removing it.
       We hold no copies, so there is nothing for us to delete on your behalf.
     </p>
 

@@ -62,7 +62,7 @@ const CONTACT = 'mailto:andrew.kirkovski@gmail.com?subject=GT%20Wake%20on%20Harm
       phone alarm sync. Note that the watch reminder only fires while you are wearing the watch.
     </p>
     <p>
-      What you do not get natively: your phone's alarm list shown on the watch, and GT Wake's per-alarm extras such
+      What you do not get natively: GT Wake's per-alarm extras such
       as background images and vibration patterns. If those matter to you, see the donation note below — that is
       what a HarmonyOS build would need.
     </p>
@@ -87,7 +87,7 @@ const CONTACT = 'mailto:andrew.kirkovski@gmail.com?subject=GT%20Wake%20on%20Harm
 
     <h2>The watch app</h2>
     <p>
-      GT Wake on the watch is a companion to the phone app — it handles the ring and can show your alarm list, but the phone
+      GT Wake on the watch is a companion to the phone app — it handles the ring, but the phone
       schedules everything. Without a supported phone there is nothing for it to sync with. It installs on
       Huawei Watch GT 3 and newer GT-series watches and on Watch FIT 3 and newer through
       <strong>Huawei Health → Devices → your watch → AppGallery</strong>.

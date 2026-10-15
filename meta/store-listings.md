@@ -59,9 +59,7 @@ goes off, and Huawei Health only lets you set a separate alarm that lives on the
 watch alone. GT Wake closes that gap.
 
 One alarm in two places: set it once on the phone, it rings on both, and
-snoozing or dismissing on either device settles it everywhere. You can also turn
-on an alarm list on the watch in Settings, which the built-in reminder does not
-offer.
+snoozing or dismissing on either device settles it everywhere.
 
 Works with any Android phone, including Huawei phones on EMUI and HarmonyOS 4
 or earlier. Not supported on HarmonyOS 5 (NEXT).
@@ -98,9 +96,7 @@ Xiaomi и прочих — этого нет: часы Huawei молчат, ко
 часах. GT Wake закрывает этот пробел.
 
 Один будильник сразу в двух местах: поставьте его на телефоне, он звонит на обоих
-устройствах, а откладывание или выключение на любом из них действует везде. Плюс
-в настройках можно включить список будильников на часах — встроенное напоминание
-этого не умеет.
+устройствах, а откладывание или выключение на любом из них действует везде.
 
 Работает с любым телефоном Android, включая телефоны Huawei на EMUI и
 HarmonyOS 4 или более ранних версиях. HarmonyOS 5 (NEXT) не поддерживается.
@@ -138,8 +134,6 @@ Samsung, Pixel, Xiaomi і іншых — гэтага няма: гадзінні
 
 Адзін будзільнік адразу ў двух месцах: пастаўце яго на тэлефоне, ён звоніць на
 абодвух прыладах, а адкладванне або выключэнне на любой з іх дзейнічае ўсюды.
-Плюс у наладах можна ўключыць спіс будзільнікаў на гадзінніку — убудаванае
-напаміну гэтага не ўмее.
 
 Працуе з любым тэлефонам Android, уключаючы тэлефоны Huawei на EMUI і
 HarmonyOS 4 або больш ранніх версіях. HarmonyOS 5 (NEXT) не падтрымліваецца.
@@ -176,9 +170,7 @@ Pixel, Xiaomi та інших — цього немає: годинник Huawei
 живе тільки на годиннику. GT Wake закриває цю прогалину.
 
 Один будильник одразу у двох місцях: поставте його на телефоні, він дзвонить на
-обох пристроях, а відкладання або вимкнення на будь-якому з них діє всюди. Плюс
-у налаштуваннях можна ввімкнути список будильників на годиннику — вбудоване
-нагадування цього не вміє.
+обох пристроях, а відкладання або вимкнення на будь-якому з них діє всюди.
 
 Працює з будь-яким телефоном Android, зокрема з телефонами Huawei на EMUI та
 HarmonyOS 4 або ранніших версіях. HarmonyOS 5 (NEXT) не підтримується.
@@ -216,8 +208,6 @@ wyłącznie na zegarku. GT Wake wypełnia tę lukę.
 
 Jeden alarm w dwóch miejscach naraz: ustaw go na telefonie, zadzwoni na obu
 urządzeniach, a drzemka lub wyłączenie na którymkolwiek z nich działa wszędzie.
-Do tego w ustawieniach można włączyć listę alarmów na zegarku — wbudowane
-przypomnienie tego nie ma.
 
 Działa z każdym telefonem z Androidem, w tym z telefonami Huawei na EMUI oraz
 HarmonyOS 4 i starszym. HarmonyOS 5 (NEXT) nie jest obsługiwany.
@@ -252,7 +242,7 @@ GT Wake Companion 是一款简洁可靠的手机闹钟，还能在你的华为 W
 华为手表毫无反应，而华为运动健康只能设置一个仅存在于手表上的独立闹钟。GT Wake 填补了这一空白。
 
 同一个闹钟同时存在于两处：在手机上设置一次，手机和手表一起响铃，在任意一台设备上
-小睡或关闭，另一台也随之生效。此外还可以在设置中开启手表上的闹钟列表——系统自带的提醒做不到这一点。
+小睡或关闭，另一台也随之生效。
 
 支持任何 Android 手机，包括运行 EMUI 与 HarmonyOS 4 及更早版本的华为手机。
 不支持 HarmonyOS 5（NEXT）。
@@ -284,13 +274,11 @@ Huawei Watch GT 6 Pro rings in lock-step with your phone, and you can dismiss or
 snooze it right from the watch — no need to reach for the phone.
 
 Alarms are created and managed in the GT Wake Companion app on your phone;
-this watch app handles the ring. Showing your upcoming alarms on the watch is
-optional, and you turn it on in the phone app.
+this watch app handles the ring.
 
 Features
 • Your phone alarms ring on your wrist, in sync
 • Snooze or dismiss from the watch
-• Optional list of your upcoming alarms (turn it on in the phone app)
 • Your own background picture on the watch
 • Light on the battery
 
@@ -315,13 +303,11 @@ GT Wake переносит будильники вашего телефона н
 отключить или отложить его прямо с часов — не доставая телефон.
 
 Будильники создаются и настраиваются в приложении GT Wake Companion на
-телефоне; это приложение для часов отвечает за звонок. Список ближайших
-будильников на часах можно включить в приложении на телефоне.
+телефоне; это приложение для часов отвечает за звонок.
 
 Возможности
 • Будильники телефона звонят на запястье синхронно
 • Откладывание или отключение с часов
-• Список ближайших будильников по желанию (включается на телефоне)
 • Своя фоновая картинка на часах
 • Бережно к батарее
 
@@ -346,13 +332,11 @@ GT Wake пераносіць будзільнікі вашага тэлефон�
 можаце выключыць або адкласці яго проста з гадзінніка — не дастаючы тэлефон.
 
 Будзільнікі ствараюцца і наладжваюцца ў прыкладанні GT Wake Companion на
-тэлефоне; гэтае прыкладанне для гадзінніка адказвае за званок. Спіс бліжэйшых
-будзільнікаў на гадзінніку можна ўключыць у прыкладанні на тэлефоне.
+тэлефоне; гэтае прыкладанне для гадзінніка адказвае за званок.
 
 Магчымасці
 • Будзільнікі тэлефона звоняць на запясці сінхронна
 • Адкладванне або выключэнне з гадзінніка
-• Спіс бліжэйшых будзільнікаў па жаданні (уключаецца на тэлефоне)
 • Свой фонавы малюнак на гадзінніку
 • Беражліва да батарэі
 
@@ -378,13 +362,11 @@ GT Wake переносить будильники вашого телефона 
 вимкнути або відкласти його прямо з годинника — не діставати телефон.
 
 Будильники створюються та налаштовуються в застосунку GT Wake Companion на
-телефоні; цей застосунок для годинника відповідає за дзвінок. Список найближчих
-будильників на годиннику можна ввімкнути в застосунку на телефоні.
+телефоні; цей застосунок для годинника відповідає за дзвінок.
 
 Можливості
 • Будильники телефона дзвонять на зап'ясті синхронно
 • Відкладання або вимкнення з годинника
-• Список найближчих будильників за бажанням (вмикається на телефоні)
 • Власне фонове зображення на годиннику
 • Дбайливо до батареї
 
@@ -409,13 +391,11 @@ Huawei Watch GT 6 Pro dzwoni równo z telefonem, a Ty możesz go wyłączyć lub
 bezpośrednio z zegarka — bez sięgania po telefon.
 
 Alarmy tworzysz i konfigurujesz w aplikacji GT Wake Companion na telefonie; ta
-aplikacja na zegarek obsługuje dzwonek. Listę najbliższych alarmów na zegarku
-można włączyć w aplikacji na telefonie.
+aplikacja na zegarek obsługuje dzwonek.
 
 Funkcje
 • Alarmy z telefonu dzwonią na nadgarstku jednocześnie
 • Drzemka lub wyłączenie z zegarka
-• Opcjonalna lista najbliższych alarmów (włączana na telefonie)
 • Własne tło na zegarku
 • Oszczędny dla baterii
 
@@ -438,13 +418,11 @@ Stworzone dla serii Huawei Watch GT 6.
 GT Wake 把手机的闹钟带到你的手腕上。闹钟响起时，华为 Watch GT 6 Pro 手表会与手机同步响铃，
 你可以直接在手表上关闭或小睡——无需拿起手机。
 
-闹钟在手机上的 GT Wake Companion 应用中创建和管理；这款手表应用负责响铃。如需在手表上
-显示即将到来的闹钟列表，可在手机应用中开启。
+闹钟在手机上的 GT Wake Companion 应用中创建和管理；这款手表应用负责响铃。
 
 功能
 • 手机闹钟在手腕上同步响起
 • 在手表上小睡或关闭
-• 可选显示即将到来的闹钟列表（在手机应用中开启）
 • 可为手表设置自己的背景图
 • 省电
 
@@ -571,7 +549,7 @@ screen is the natural place) so Huawei §7.1's in-app-link requirement is met.
 - **phone → watch:** always the AppGallery URL (watch is AppGallery-only).
 - **watch → phone:** `https://gtwake.kirkouski.com/watch` (zh-CN: `/watch/zh`) since 2026-09-28 —
   the watch's empty-state QR (`onboarding_qr`, per-locale i18n key, so a locale can diverge without
-  a code change). The help page explains the optional alarm list and links the stores and
+  a code change). The help page says the alarm list sync is turned off and links the stores and
   `/download`. From 2026-09-05 to 2026-09-28 the QR pointed straight at `/download`. Routing through a page we control means a store link can change without re-releasing the
   watch app, which otherwise costs a full AppGallery review cycle. The page picks the store from the
   UA: **AppGallery unless the UA reads as a non-Huawei Android phone** — desktop, iOS and anything
@@ -590,7 +568,7 @@ paragraph is one line so it pastes without stray line breaks.
 ```
 1. Vibration fix. When an alarm has to launch the watch app (cold start), the watch could stop vibrating after the first buzz. The vibration pattern now runs on a timer that survives a busy app start, so it continues until the alarm is dismissed or snoozed.
 
-2. By default, the watch no longer opens when alarms change on the phone. The watch alarm list is now optional and off by default. Ringing, dismiss and snooze on the watch work either way. When a user turns the list on (Settings > Watch > "Show alarm list on watch"), the phone app asks for consent and explains that the watch will briefly open GT Wake after each change, because Huawei's watch connection can only deliver to a running app. With the list off, opening GT Wake on the watch shows a short "Set alarms on your phone" screen; that is the intended default, not a missing feature. Its QR code opens a help page (gtwake.kirkouski.com/watch). Changing or removing the watch background picture also asks for consent first, for the same reason.
+2. The watch no longer opens when alarms change on the phone. Alarm list sync is turned off. Ringing, dismiss and snooze on the watch work as before. Opening GT Wake on the watch shows a short "Set alarms on your phone" screen; that is intended, not a missing feature. Its QR code opens a help page (gtwake.kirkouski.com/watch). Changing or removing the watch background picture asks for consent first, because the watch briefly opens GT Wake to receive it.
 
 To test the watch ring quickly, tap Help > Debug > "Fire alarm NOW (test watch ring)" in the phone app.
 

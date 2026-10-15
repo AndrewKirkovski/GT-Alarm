@@ -121,7 +121,7 @@ const vibIcons = [Vibrate, MoonStar, BedDouble, AudioWaveform]
       </p>
     </section>
 
-    <!-- Optional list sync: the only difference between the panels is the arrow. -->
+    <!-- Alarm list sync is turned off: alarms still ring on the watch. -->
     <section class="mt-12">
       <h2 class="text-xl font-bold">{{ t.listTitle }}</h2>
       <div class="mt-4 grid gap-4 sm:grid-cols-2">
@@ -153,35 +153,6 @@ const vibIcons = [Vibrate, MoonStar, BedDouble, AudioWaveform]
             </WatchFrame>
           </svg>
           <figcaption class="text-sm text-muted-foreground">{{ t.listOffText }}</figcaption>
-        </figure>
-
-        <figure class="wh-panel">
-          <h3 class="font-semibold">{{ t.listOn }}</h3>
-          <svg class="wh-fig" viewBox="0 0 320 200" role="img" :aria-label="t.listOnLabel">
-            <PhoneFrame :x="18" :y="22" :scale="0.62">
-              <rect class="wh-row-hi" x="18" y="52" width="100" height="44" rx="11" />
-              <text class="wh-time wh-start" x="30" y="83" font-size="24">07:00</text>
-              <rect class="wh-row" x="18" y="106" width="100" height="44" rx="11" />
-              <rect class="wh-ink-faint" x="30" y="122" width="44" height="12" rx="6" />
-              <rect class="wh-row" x="18" y="160" width="100" height="44" rx="11" />
-              <rect class="wh-ink-faint" x="30" y="176" width="44" height="12" rx="6" />
-              <g transform="translate(110 56)">
-                <circle class="wh-fill-edit" r="17" />
-                <path class="wh-pencil" d="M-6 6 L-6 1.5 L4 -8.5 L8.5 -4 L-1.5 6 Z" />
-              </g>
-            </PhoneFrame>
-            <path class="wh-link" d="M114 100 L 170 100" marker-end="url(#wh-arrow-link)" />
-            <WatchFrame :cx="240" :cy="100" :scale="0.56">
-              <rect class="wh-ink-faint" x="-22" y="-70" width="44" height="8" rx="4" />
-              <g v-for="y in [-52, -14, 24]" :key="y">
-                <rect class="wh-wrow" x="-58" :y="y" width="116" height="30" rx="9" />
-                <circle class="wh-fill-on" cx="-46" :cy="y + 15" r="4" />
-                <rect class="wh-ink" x="-36" :y="y + 9" width="38" height="12" rx="6" />
-                <circle v-for="dx in [16, 26, 36, 46]" :key="dx" class="wh-fill-day" :cx="dx" :cy="y + 15" r="3.2" />
-              </g>
-            </WatchFrame>
-          </svg>
-          <figcaption class="text-sm text-muted-foreground">{{ t.listOnText }}</figcaption>
         </figure>
       </div>
 

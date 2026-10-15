@@ -21,9 +21,6 @@ export interface WatchHelpCopy {
   listOff: string
   listOffText: string
   listOffLabel: string
-  listOn: string
-  listOnText: string
-  listOnLabel: string
   listWhy: string
   listPathLabel: string
   listPath: [string, string, string]
@@ -57,14 +54,11 @@ export const en: WatchHelpCopy = {
   appGallery: 'AppGallery',
   play: 'Google Play',
   apkLink: 'Or download the app file',
-  listTitle: 'Optional alarm list on watch',
-  listOff: 'Off (default)',
-  listOffText: 'Alarm list sync is off, and its setting was removed. Alarms still ring on the watch.',
-  listOffLabel: 'Alarm list sync is off, and its setting was removed from the app. Ringing alarms on the watch still works.',
-  listOn: 'Optional list sync',
-  listOnText: 'Not in the app. If you have questions, contact the developer.',
-  listOnLabel: 'The optional alarm list sync setting was removed from the app. This does not affect alarms ringing on the watch.',
-  listWhy: 'Huawei will not approve waking the watch to sync the alarm list, so the setting was removed from the app. If you have questions, contact the developer through Help in the phone app, or by email.',
+  listTitle: 'Alarm list on the watch',
+  listOff: 'Turned off',
+  listOffText: 'Alarm list sync is turned off. Alarms still ring on the watch.',
+  listOffLabel: 'Alarm list sync is turned off. Alarms still ring on the watch.',
+  listWhy: 'Huawei will not approve waking the watch to sync the alarm list, so the alarm list sync is turned off. This does not affect alarms ringing on the watch. If you have questions, contact the developer through Help in the phone app, or by email.',
   listPathLabel: 'To contact the developer',
   listPath: ['Phone app', 'Help', 'Contact developer'],
   listSupportEmail: 'andrew.kirkovski@gmail.com',
@@ -95,14 +89,11 @@ export const zh: WatchHelpCopy = {
   appGallery: '华为应用市场',
   play: 'Google Play',
   apkLink: '或直接下载安装文件（英文页面）',
-  listTitle: '可选的手表闹钟列表',
-  listOff: '关闭（默认）',
-  listOffText: '闹钟列表同步已关闭，其设置已被移除。手表闹钟仍会正常响铃。',
-  listOffLabel: '闹钟列表同步已关闭，其设置已从应用中移除。这不会影响手表闹钟响铃。',
-  listOn: '可选的列表同步',
-  listOnText: '应用中没有此设置。如有疑问，请联系开发者。',
-  listOnLabel: '可选的闹钟列表同步设置已从应用中移除。这不会影响手表闹钟响铃。',
-  listWhy: '华为不会批准为同步闹钟列表而唤醒手表，因此该设置已从应用中移除。如有疑问，请在手机应用中打开“帮助”，或通过邮件联系开发者。',
+  listTitle: '手表上的闹钟列表',
+  listOff: '已关闭',
+  listOffText: '闹钟列表同步已关闭。手表闹钟仍会正常响铃。',
+  listOffLabel: '闹钟列表同步已关闭。手表闹钟仍会正常响铃。',
+  listWhy: '华为不会批准为同步闹钟列表而唤醒手表，因此闹钟列表同步已关闭。这不会影响手表闹钟响铃。如有疑问，请在手机应用中打开“帮助”，或通过邮件联系开发者。',
   listPathLabel: '联系开发者的方式',
   listPath: ['手机应用', '帮助', '联系开发者'],
   listSupportEmail: 'andrew.kirkovski@gmail.com',
