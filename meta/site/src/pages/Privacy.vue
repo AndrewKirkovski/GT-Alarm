@@ -109,7 +109,8 @@ const CONTACT = 'andrew.kirkovski@gmail.com'
       phone. Uninstalling the watch app does <strong>not</strong> remove its data from the watch; to have it removed, contact the
       developer for help.
       If an earlier version sent your alarm list to the watch (versions before 1.0.11 always did), a copy may remain there.
-      An updated watch app deletes it when an alarm on the watch is dismissed or snoozed. With an older watch app it stays
+      When the phone app is version 1.0.11 or later and alarm-list sync is off, an updated watch app deletes that copy after
+      the next alarm that rings on the watch is dismissed or snoozed. With an older watch app it stays
       until the watch app's data is cleared; contact the developer for help removing it.
       We hold no copies, so there is nothing for us to delete on your behalf.
     </p>
