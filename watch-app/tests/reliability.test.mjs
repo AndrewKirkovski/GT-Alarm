@@ -246,6 +246,7 @@ function ringFixture({ transportOk = true, setMode = 'now', deleteMode = 'now', 
     },
   }
   const lives = []
+  const timeouts = []
   const send = type => (id, firedAt, stamp, done, isLive) => {
     sent.push({ type, alarmId: id, firedAt, updatedAtEpoch: stamp })
     lives.push(isLive)
@@ -263,10 +264,13 @@ function ringFixture({ transportOk = true, setMode = 'now', deleteMode = 'now', 
       deleteById(id, done) { done?.(true) }, setOnChange() {} },
     SettingsStore: { get(done) { done({ use24Hour: true, firstDayOfWeek: 2 }) } },
     Screen: {}, PrivacyStore: {}, IncomingHandler: {},
-    setTimeout() { return 1 }, clearTimeout() {}, setInterval() { return 1 }, clearInterval() {},
+    // One-shot timers never fire on their own here (a dropped cold-start timer);
+    // a test runs them from `timeouts` when it wants a healthy queue.
+    setTimeout(fn) { timeouts.push(fn); return 1 }, clearTimeout() {},
+    setInterval() { return 1 }, clearInterval() {},
   })
   Object.assign(page, page.data, { $t: key => key })
-  return { page, timers, delays, counts, values, sets, deferred, sent, holds, ringing, lives, deletes, gets,
+  return { page, timers, delays, counts, values, sets, deferred, sent, holds, ringing, lives, deletes, gets, timeouts,
     terminated: () => terminated,
     setNow(value) { now = value },
     tick(name) { const fn = timers.get(name); assert.ok(fn, name); timers.delete(name); now += 1000; fn() },
@@ -408,8 +412,18 @@ test('a refused action rings the watch again and a new tap works', () => {
   assert.equal(f.delays.get('ringCap'), 360000)
   f.tick('crownArm')
   assert.equal(count.crown, 1, 'the crown is armed again')
+  assert.equal(f.terminated(), 0)
   f.page.onSnooze()
   assert.equal(f.sent.length, 2, 'the controls work again')
+  assert.equal(f.timers.has('ringCap'), false, 'the new request cap replaces the ring cap')
+  assert.ok(f.timers.has('terminate'))
+})
+
+test('the six minute cap of a refused request closes the app', () => {
+  const f = ringFixture()
+  f.ring()
+  f.page.onDismiss()
+  f.ack({ ok: false })
   f.tick('ringCap')
   assert.equal(f.terminated(), 1)
 })
@@ -896,6 +910,108 @@ test('a second record read cannot resend a request the phone refused after the f
   while (f.deletes.length) f.deletes.shift()()
   while (f.deferred.length) f.deferred.shift()()
   assert.equal(f.values.has(ACTION_KEY), false)
+})
+
+test('a normal ring is bounded by a nine minute cap that closes the app', () => {
+  const f = ringFixture()
+  f.ring()
+  assert.equal(f.delays.get('ringCap'), 540000)
+  assert.ok(f.timers.has('vibrate'), 'the ring buzzes')
+  assert.equal(f.terminated(), 0)
+  f.tick('ringCap')
+  assert.equal(f.terminated(), 1)
+})
+
+test('the nine minute cap is re-armed by a new ring and dropped when a request takes over', () => {
+  const f = ringFixture()
+  f.ring()
+  f.ring(2, 3000)
+  assert.equal(f.counts.get('ringCap'), 2, 'a new occurrence arms a fresh cap')
+  f.page.onDismiss()
+  assert.equal(f.timers.has('ringCap'), false, 'the request cap owns the close now')
+  assert.ok(f.timers.has('terminate'))
+  f.ack({ ok: false })
+  assert.equal(f.delays.get('ringCap'), 360000, 'a refused request keeps the six minute cap')
+  const r = resumeFixture(goodRecord, { ring: { id: 1, firedAt: 1000 } })
+  assert.equal(r.f.timers.has('ringCap'), false, 'a replayed request has its own cap')
+})
+
+test('a refused request is not sent again from a record whose delete had not landed', () => {
+  const f = ringFixture({ deleteMode: 'later' })
+  f.ring(1, 1000)
+  f.page.onDismiss()
+  assert.equal(f.sent.length, 1)
+  f.ack({ ok: false })
+  assert.equal(f.values.has(ACTION_KEY), true, 'the delete is still in flight')
+  f.page._resumePendingAction()
+  assert.equal(f.sent.length, 1, 'the refused request is not replayed')
+  f.page.onHide()
+  f.page._resumePendingAction()
+  assert.equal(f.sent.length, 1)
+  while (f.deletes.length) f.deletes.shift()()
+  assert.equal(f.values.has(ACTION_KEY), false)
+})
+
+test('a released request is not sent again from a record whose delete had not landed', () => {
+  const f = ringFixture({ transportOk: false, deleteMode: 'later' })
+  f.ring(1, 1000)
+  f.page.onDismiss()
+  f.tick('actionRetry')
+  f.tick('actionRetry')
+  assert.equal(f.sent.length, 3)
+  assert.equal(f.values.has(ACTION_KEY), true)
+  f.page._resumePendingAction()
+  assert.equal(f.sent.length, 3, 'the released request is not replayed')
+})
+
+test('a record written by an earlier process is still replayed', () => {
+  const { f, sentNow } = resumeFixture({ ...goodRecord, s: 1 }, { now: 50000 })
+  assert.equal(sentNow, 1)
+  assert.equal(f.sent.at(-1).updatedAtEpoch, 1)
+})
+
+test('the stored consent load starts from the ticker when the one-shot timer is dropped', () => {
+  const f = ringFixture()
+  let started = 0
+  f.page.startLoadRest = () => { started++ }
+  f.page.applyScreen({ W: 466, H: 466, shape: 'round' })
+  assert.equal(started, 0)
+  f.tick('loadRest')
+  assert.equal(started, 1)
+})
+
+test('the string load finishes from the ticker when every one-shot timer is dropped', () => {
+  const f = ringFixture()
+  let reveals = 0
+  f.page.maybeReveal = () => { reveals++ }
+  f.page.loadStrings()
+  let steps = 0
+  while (f.timers.has('i18n')) { f.tick('i18n'); assert.ok(++steps < 10) }
+  assert.equal(reveals, 1)
+  assert.equal(f.page.onbQr, 'strings.onboarding_qr', 'the last chunk ran')
+  assert.equal(f.page.privacyScan, 'strings.privacy_consent_scan')
+})
+
+test('the string load runs each chunk once when the one-shot timers do fire', () => {
+  const f = ringFixture()
+  let reveals = 0
+  f.page.maybeReveal = () => { reveals++ }
+  f.page.loadStrings()
+  while (f.timeouts.length) f.timeouts.shift()()
+  assert.equal(reveals, 1)
+  assert.equal(f.timers.has('i18n'), false, 'the backstop is cleared')
+})
+
+test('the crown settle window ends from the ticker when the one-shot timer is dropped', () => {
+  const f = ringFixture()
+  f.ring()
+  f.page._armCrownGesture()
+  const before = f.timeouts.length
+  f.page.onCrownTick()
+  assert.equal(f.timeouts.length, before, 'ticks are ignored while settling')
+  f.tick('crownSettle')
+  f.page.onCrownTick()
+  assert.equal(f.timeouts.length, before + 1, 'ticks count once settled')
 })
 
 const pageUrl = new URL('../entry/src/main/js/MainAbility/pages/index/index.js', import.meta.url)

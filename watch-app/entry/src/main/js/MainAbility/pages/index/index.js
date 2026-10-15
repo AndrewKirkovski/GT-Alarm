@@ -140,6 +140,7 @@ var _ampmPM = '';
 // Cold-start load latches; maybeReveal() flips contentReady when all set.
 var _onInitMs = 0;
 var _i18nDone = false;
+var _i18nStage = 1;
 var _privacyDone = false;
 // One-shot guard so startLoadRest() runs once (applyScreen + the
 // sized-safety could both reach it).
@@ -173,6 +174,10 @@ var TERMINATE_RETRY_CAP_MS = 11000;
 // After the phone refuses an action (ok:false) the ring is back on screen and
 // buzzing, so the short action cap is cancelled. This cap bounds the ring.
 var RING_CAP_MS = 360000;
+// A normal ring has no phone reply to wait for, so without a bound a dropped
+// Bluetooth link leaves the watch buzzing. Longer than the phone's 5 minute
+// auto-stop plus its 30/60/120 s retries.
+var RING_MAX_MS = 540000;
 // A saved action older than this is not replayed (see _resumePendingAction).
 var ACTION_RESUME_MAX_MS = 120000;
 // Long enough that the ring's DISMISSED/SNOOZED confirmation (shown for
@@ -249,8 +254,13 @@ function expediteTerminate(tag) {
     });
 }
 
+function armRingCap(ms) {
+    Ticker.set('ringCap', ms, function () { fireTerminate('ring'); });
+}
+
 function cancelTerminate() {
     Ticker.clear('terminate');
+    Ticker.clear('ringCap');
     _terminateScheduled = false;
 }
 
@@ -277,6 +287,19 @@ function dropRecord() {
 function fixRecord() {
     if (_pendingAction && _pendingAction.v === 1) saveRecord(_pendingAction);
     else dropRecord();
+}
+
+// Yield to the renderer between i18n chunks. A setTimeout keeps the load fast
+// (a ticker hop is up to 250 ms, x3 chunks); the ticker backstop runs the chunk
+// if a cold start drops that timer, which would leave the strings empty.
+function yieldTo(page, n) {
+    var run = function () {
+        if (_i18nStage >= n) return;
+        _i18nStage = n;
+        page['_loadStrings' + n]();
+    };
+    setTimeout(run, 0);
+    Ticker.set('i18n', 1000, run);
 }
 
 function clearPendingAction() {
@@ -826,9 +849,10 @@ export default {
         }
         // Defer the heavy load so the splash PAINTS before the blocking i18n.
         var selfAS = this;
-        setTimeout(function () {
-            selfAS.startLoadRest();
-        }, 0);
+        // The one-shot timer is the fast path; the ticker is the backstop for a
+        // cold start that drops it (startLoadRest runs once, whichever is first).
+        setTimeout(function () { selfAS.startLoadRest(); }, 0);
+        Ticker.set('loadRest', 1000, function () { selfAS.startLoadRest(); });
     },
 
     // Reveal the cold-start content once dims + i18n + privacy + connection are
@@ -871,16 +895,14 @@ export default {
         this.ringTitle = this.$t('strings.reminder_default_title');
         _repeatOnce = this.$t('strings.repeat_once');
         _repeatTimer = this.$t('strings.repeat_timer');
-        var self = this;
-        setTimeout(function () { self._loadStrings2(); }, 0);
+        yieldTo(this, 2);
     },
     _loadStrings2: function () {
         _editOnPhoneToast = this.$t('strings.edit_on_phone');
         _d0 = this.$t('strings.day_sun');
         _d1 = this.$t('strings.day_mon');
         _d2 = this.$t('strings.day_tue');
-        var self = this;
-        setTimeout(function () { self._loadStrings3(); }, 0);
+        yieldTo(this, 3);
     },
     _loadStrings3: function () {
         _d3 = this.$t('strings.day_wed');
@@ -892,8 +914,7 @@ export default {
         this.privacyTitle = this.$t('strings.privacy_consent_title');
         this.privacyBody = this.$t('strings.privacy_consent_body_short');
         this.privacyScan = this.$t('strings.privacy_consent_scan');
-        var self = this;
-        setTimeout(function () { self._loadStrings4(); }, 0);
+        yieldTo(this, 4);
     },
     _loadStrings4: function () {
         this.privacyAgree = this.$t('strings.privacy_consent_agree');
@@ -902,6 +923,7 @@ export default {
         this.onbScan = this.$t('strings.onboarding_scan');
         this.onbQr = this.$t('strings.onboarding_qr');
         _i18nDone = true;
+        Ticker.clear('i18n');
         this.maybeReveal();
     },
 
@@ -1230,9 +1252,9 @@ export default {
         }
         // Swallow any scrollend the scrollTo() above may emit, then start
         // honoring real crown ticks.
-        setTimeout(function () {
+        Ticker.set('crownSettle', CROWN_SETTLE_MS, function () {
             _crownIgnoreScroll = false;
-        }, CROWN_SETTLE_MS);
+        });
     },
     // Arm the crown gesture on the Ticker, after the ring stack has rendered.
     _armCrown: function () {
@@ -1392,7 +1414,6 @@ export default {
         _ringPattern = VIBRATION_PATTERNS[h.vibrationPattern] ? h.vibrationPattern : 'PULSE';
         _ringWatchVib = h.watchVibrationEnabled !== false;
         cancelTerminate();
-        Ticker.clear('ringCap');
         // A previous ring's "back to list" flip must not land on this one.
         Ticker.clear('peerFlash');
         this.screen = 'ring';
@@ -1435,6 +1456,7 @@ export default {
             // rendered — the $refs entry resolves only after the render pass.
             this._armCrown();
             this.startVibrate();
+            armRingCap(RING_MAX_MS);
         }
     },
 
@@ -1608,7 +1630,7 @@ export default {
             if (this.screen === 'ring' && !this.ended && _alarmId === action.a &&
                     _ringFiredAt === action.f) {
                 cancelTerminate();
-                Ticker.set('ringCap', RING_CAP_MS, function () { fireTerminate('ring'); });
+                armRingCap(RING_CAP_MS);
                 this._setKeepScreenOn(true);
                 this._armCrown();
                 this.startVibrate();
@@ -1634,6 +1656,7 @@ export default {
             if (!action || (action.t !== 'd' && action.t !== 's') || action.v !== 1 ||
                     !isPos(action.a) || !isPos(action.f) || !isPos(action.s) ||
                     Math.abs(Date.now() - action.s) >= ACTION_RESUME_MAX_MS || gen !== _resumeGen ||
+                    action.s <= _lastActionStamp ||
                     (action.a === _lastEndedAlarmId && action.f === _lastEndedFiredAt) ||
                     (self.screen === 'ring' && (self.ended || _alarmId !== action.a ||
                         _ringFiredAt !== action.f))) {
