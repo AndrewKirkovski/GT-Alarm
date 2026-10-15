@@ -196,6 +196,7 @@
     <string name="setup_perm_exact_alarm_body">允许使用精确闹钟定时，而非大致的后台调度。如果关闭，已安排的闹钟将不可靠。</string>
     <string name="setup_perm_fsi_title">全屏闹钟</string>
     <string name="setup_perm_fsi_body">允许闹钟界面在锁屏上方显示。如果开启后仍保持关闭，请联系开发者。</string>
+    <string name="setup_perm_fsi_channel_body">GT Wake 的闹钟通知级别设置过低，闹钟界面可能无法打开。请将闹钟通知类别设为“提醒”。</string>
     <string name="setup_perm_battery_title">电池：无限制</string>
     <string name="setup_perm_battery_body">可选。仅在必需项检查通过后闹钟仍延迟时再尝试。</string>
 
@@ -247,6 +248,6 @@
     <string name="watch_picture_confirm_ok">继续</string>
     <string name="field_watch_vibration_hint">手表上的勿扰模式、睡眠模式或振动设为“无”可能会使振动静音。</string>
     <string name="help_watch_sync_title">闹钟列表同步</string>
-    <string name="help_watch_sync_body">华为不会批准唤醒手表以同步闹钟列表，因此此设置已被移除。手表上的闹钟仍可正常响铃。如有疑问，请联系开发者。</string>
+    <string name="help_watch_sync_body">华为不会批准唤醒手表以同步闹钟列表，因此闹钟列表同步已关闭。手表上的闹钟仍可正常响铃。如有疑问，请联系开发者。</string>
     <string name="watch_list_sync_unlocked">已解锁闹钟列表同步设置。您可以在设置中启用它。</string>
 </resources>

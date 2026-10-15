@@ -278,6 +278,7 @@
     <string tools:ignore="MissingTranslation" name="setup_perm_exact_alarm_body">Allows alarm-clock timing instead of approximate background work. If this is off, scheduled alarms are not trustworthy.</string>
     <string tools:ignore="MissingTranslation" name="setup_perm_fsi_title">Full-screen alarm</string>
     <string tools:ignore="MissingTranslation" name="setup_perm_fsi_body">Allows the alarm screen to appear over the lock screen. If this stays off after you enable it, contact the developer.</string>
+    <string name="setup_perm_fsi_channel_body">GT Wake\'s Alarm notifications are set too low, so the alarm screen may not open. Set the Alarm notification category to Alert.</string>
     <string tools:ignore="MissingTranslation" name="setup_perm_battery_title">Battery: Unrestricted</string>
     <string tools:ignore="MissingTranslation" name="setup_perm_battery_body">Optional. Try this only if alarms are late after the required checks pass.</string>
 
@@ -325,7 +326,7 @@
     <string name="watch_picture_confirm_ok">Continue</string>
     <string name="field_watch_vibration_hint">Do Not Disturb, Sleep mode, or Vibration set to None on the watch can silence it.</string>
     <string name="help_watch_sync_title">Alarm list sync</string>
-    <string name="help_watch_sync_body">Huawei will not approve waking the watch to sync the alarm list, so this setting was removed. Alarms still ring on the watch. If you have questions, contact the developer.</string>
+    <string name="help_watch_sync_body">Huawei will not approve waking the watch to sync the alarm list, so alarm list sync is turned off. Alarms still ring on the watch. If you have questions, contact the developer.</string>
     <string name="help_watch_sync_url" translatable="false">mailto:andrew.kirkovski@gmail.com?subject=GT%20Wake%20-%20Alarm%20list%20sync</string>
     <string name="watch_list_sync_unlocked">Alarm list sync setting unlocked. You can enable it in Settings.</string>
 </resources>

@@ -17,6 +17,7 @@ import android.content.Intent
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,6 +63,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -83,6 +85,8 @@ import com.kirkouski.gtwake.companion.ui.settings.SettingsViewModel
 import com.kirkouski.gtwake.companion.voice.DefaultAlarmDetector
 import com.kirkouski.gtwake.companion.voice.DeviceBrand
 import com.kirkouski.gtwake.companion.voice.DeviceBrandDetector
+import com.kirkouski.gtwake.companion.wear.WatchSupport
+import com.kirkouski.gtwake.companion.wear.WatchSupportState
 
 /**
  * Unified Help screen. Every section is a collapsible [AccordionSection] so
@@ -133,9 +137,13 @@ fun HelpScreen(
     var debugOpen by rememberSaveable { mutableStateOf(false) }
     var watchSyncOpen by rememberSaveable { mutableStateOf(false) }
 
+    // Same rule as SettingsScreen: the setting only shows on watch-capable phones.
+    val watchSupported = remember { WatchSupport.state(context) == WatchSupportState.Supported }
     LaunchedEffect(settingsVm) {
         settingsVm.watchSyncUnlocked.collect {
-            Toast.makeText(context, R.string.watch_list_sync_unlocked, Toast.LENGTH_LONG).show()
+            if (watchSupported) {
+                Toast.makeText(context, R.string.watch_list_sync_unlocked, Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -398,7 +406,7 @@ private fun PermissionRow(
                 )
             }
             Text(
-                text = stringResource(check.item.bodyRes()),
+                text = stringResource(check.bodyRes),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 6.dp),
             )
@@ -656,10 +664,14 @@ private fun DebugContent(onFireAlarmNow: () -> Unit, onUnlockSync: () -> Unit) {
     Text(
         text = stringResource(R.string.help_debug_body),
         style = MaterialTheme.typography.bodyMedium,
-        modifier = Modifier.clickable {
-            if (taps < 7) {
-                taps++
-                if (taps == 7) onUnlockSync()
+        // pointerInput, not clickable: no ripple and no button semantics, so the
+        // tap target does not announce itself.
+        modifier = Modifier.pointerInput(Unit) {
+            detectTapGestures {
+                if (taps < 7) {
+                    taps++
+                    if (taps == 7) onUnlockSync()
+                }
             }
         },
     )
@@ -725,13 +737,6 @@ private fun PermissionAudit.Item.titleRes(): Int = when (this) {
     PermissionAudit.Item.EXACT_ALARM -> R.string.setup_perm_exact_alarm_title
     PermissionAudit.Item.FULL_SCREEN_INTENT -> R.string.setup_perm_fsi_title
     PermissionAudit.Item.BATTERY_UNRESTRICTED -> R.string.setup_perm_battery_title
-}
-
-private fun PermissionAudit.Item.bodyRes(): Int = when (this) {
-    PermissionAudit.Item.POST_NOTIFICATIONS -> R.string.setup_perm_notifications_body
-    PermissionAudit.Item.EXACT_ALARM -> R.string.setup_perm_exact_alarm_body
-    PermissionAudit.Item.FULL_SCREEN_INTENT -> R.string.setup_perm_fsi_body
-    PermissionAudit.Item.BATTERY_UNRESTRICTED -> R.string.setup_perm_battery_body
 }
 
 private fun PermissionAudit.Item.isRequiredForRing(): Boolean = when (this) {

@@ -103,10 +103,18 @@ class IntentExtrasMapperTest {
 
     @Test
     fun `absent vibrate extra keeps sound and default vibration`() {
-        val r1 = buildSimple(hour = 7, ringtone = null, vibrate = false)!!
+        val r1 = buildSimple(hour = 7, ringtone = null, vibrate = null)!!
         assertNull(r1.alarm.audioUri)
         assertFalse(r1.alarm.isVibrationOnly)
         assertTrue(r1.alarm.phoneVibrationEnabled)
+    }
+
+    @Test
+    fun `explicit EXTRA_VIBRATE false turns phone vibration off but keeps sound`() {
+        val r = buildSimple(hour = 7, ringtone = null, vibrate = false)!!
+        assertFalse(r.alarm.phoneVibrationEnabled)
+        assertFalse(r.alarm.isVibrationOnly)
+        assertNull(r.alarm.audioUri)
     }
 
     @Test
@@ -160,7 +168,7 @@ class IntentExtrasMapperTest {
         minutes: Int? = 0,
         message: String? = null,
         days: List<Int>? = null,
-        vibrate: Boolean = false,
+        vibrate: Boolean? = null,
         ringtone: String? = null,
         skipUi: Boolean = true,
     ) = IntentExtrasMapper.build(

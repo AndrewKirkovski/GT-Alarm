@@ -14,6 +14,7 @@ import android.os.Process
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import com.kirkouski.gtwake.companion.R
 import com.kirkouski.gtwake.companion.ring.AlarmNotifications
 
 /**
@@ -39,7 +40,19 @@ object PermissionAudit {
      * DENIED is the alarm notification channel (importance below HIGH or
      * blocked), so the UI opens the channel settings instead.
      */
-    data class Check(val item: Item, val status: Status, val channelBlocked: Boolean = false)
+    data class Check(val item: Item, val status: Status, val channelBlocked: Boolean = false) {
+        /** Explanation string for the row; the full-screen row names the channel when that is the cause. */
+        val bodyRes: Int
+            get() = when {
+                item == Item.FULL_SCREEN_INTENT && channelBlocked -> R.string.setup_perm_fsi_channel_body
+                else -> when (item) {
+                    Item.POST_NOTIFICATIONS -> R.string.setup_perm_notifications_body
+                    Item.EXACT_ALARM -> R.string.setup_perm_exact_alarm_body
+                    Item.FULL_SCREEN_INTENT -> R.string.setup_perm_fsi_body
+                    Item.BATTERY_UNRESTRICTED -> R.string.setup_perm_battery_body
+                }
+            }
+    }
 
     /** Run every check + return them in the order the UI should display. */
     fun audit(context: Context): List<Check> {

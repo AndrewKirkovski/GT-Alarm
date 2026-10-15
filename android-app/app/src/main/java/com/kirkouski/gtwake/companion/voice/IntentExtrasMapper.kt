@@ -13,7 +13,8 @@ data class IntentExtras(
     val minutes: Int?,
     val message: String?,
     val days: List<Int>?,
-    val vibrate: Boolean,
+    /** EXTRA_VIBRATE when the caller sent it; null when absent. */
+    val vibrate: Boolean?,
     val ringtone: String?,
     val skipUi: Boolean,
 )
@@ -35,7 +36,11 @@ object IntentExtrasMapper {
             },
             message = intent.getStringExtra(AlarmClock.EXTRA_MESSAGE),
             days = intent.getIntegerArrayListExtra(AlarmClock.EXTRA_DAYS)?.toList(),
-            vibrate = intent.getBooleanExtra(AlarmClock.EXTRA_VIBRATE, false),
+            vibrate = if (intent.hasExtra(AlarmClock.EXTRA_VIBRATE)) {
+                intent.getBooleanExtra(AlarmClock.EXTRA_VIBRATE, true)
+            } else {
+                null
+            },
             ringtone = intent.getStringExtra(AlarmClock.EXTRA_RINGTONE),
             skipUi = intent.getBooleanExtra(AlarmClock.EXTRA_SKIP_UI, false),
         )
@@ -47,9 +52,10 @@ object IntentExtrasMapper {
         if (hour !in 0..23) return null
         val safeMinute = (extras.minutes ?: 0).coerceIn(0, 59)
         val daysMask = extras.days?.fold(0) { acc, day -> acc or DaysOfWeek.fromCalendarDay(day) } ?: 0
-        // EXTRA_VIBRATE means "also vibrate", never "silent". Only the silent
-        // ringtone value makes an alarm vibration-only. A false or absent
-        // extra keeps the Alarm defaults (sound on, phone vibration on).
+        // EXTRA_VIBRATE means "whether to vibrate for this alarm", never
+        // "silent". An explicit false turns phone vibration off; true or absent
+        // keeps the default (on). Only the silent ringtone value makes an
+        // alarm vibration-only; sound is unaffected by EXTRA_VIBRATE.
         val isSilent = extras.ringtone == AlarmClock.VALUE_RINGTONE_SILENT
         val audioUri: String? = if (isSilent) null else extras.ringtone
         val isVibrationOnly = isSilent
@@ -62,7 +68,7 @@ object IntentExtrasMapper {
             audioUri = audioUri,
             audioName = null,
             isVibrationOnly = isVibrationOnly,
-            phoneVibrationEnabled = true,
+            phoneVibrationEnabled = extras.vibrate != false,
         )
         return ParsedSetAlarm(alarm, extras.skipUi)
     }

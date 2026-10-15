@@ -193,6 +193,7 @@
     <string name="setup_perm_exact_alarm_body">Pozwala na dokładne odmierzanie czasu alarmu zamiast przybliżonej pracy w tle. Jeśli to jest wyłączone, zaplanowane alarmy nie są niezawodne.</string>
     <string name="setup_perm_fsi_title">Alarm pełnoekranowy</string>
     <string name="setup_perm_fsi_body">Pozwala na wyświetlanie ekranu alarmu na ekranie blokady. Jeśli pozostaje wyłączone po włączeniu, skontaktuj się z autorem.</string>
+    <string name="setup_perm_fsi_channel_body">Powiadomienia alarmu GT Wake są ustawione zbyt nisko, więc ekran alarmu może się nie otworzyć. Ustaw kategorię powiadomień alarmu na Alert.</string>
     <string name="setup_perm_battery_title">Bateria: Bez ograniczeń</string>
     <string name="setup_perm_battery_body">Opcjonalne. Wypróbuj tylko, jeśli alarmy się spóźniają po przejściu wymaganych kontroli.</string>
 
@@ -244,6 +245,6 @@
     <string name="watch_picture_confirm_ok">Dalej</string>
     <string name="field_watch_vibration_hint">Tryb „Nie przeszkadzać”, tryb snu lub wibracje ustawione na „Brak” na zegarku mogą je wyciszyć.</string>
     <string name="help_watch_sync_title">Synchronizacja listy alarmów</string>
-    <string name="help_watch_sync_body">Huawei nie zatwierdza budzenia zegarka w celu synchronizacji listy alarmów, dlatego to ustawienie zostało usunięte. Alarmy nadal dzwonią na zegarku. Jeśli masz pytania, skontaktuj się z deweloperem.</string>
+    <string name="help_watch_sync_body">Huawei nie zatwierdza budzenia zegarka w celu synchronizacji listy alarmów, dlatego synchronizacja listy alarmów jest wyłączona. Alarmy nadal dzwonią na zegarku. Jeśli masz pytania, skontaktuj się z deweloperem.</string>
     <string name="watch_list_sync_unlocked">Odblokowano ustawienie synchronizacji listy alarmów. Możesz je włączyć w Ustawieniach.</string>
 </resources>
