@@ -464,40 +464,6 @@ class AlarmRepository @Inject constructor(
         Log.i(TAG, "delete id=$id stamp=$now")
     }
 
-    // Snooze using the alarm's own configured duration. Override is for
-    // tests / one-off explicit-minutes callers; production callers should
-    // pass null so the per-alarm value is honored.
-    // reason: ReturnCount=4 — three guards (missing alarm, snooze-disabled-or-
-    // capped, minutes<=DISABLED) each surface a distinct refusal reason in
-    // logs + a final success return; collapsing them would smear the diagnostic.
-    @Suppress("ReturnCount")
-    suspend fun snooze(id: Long, minutesOverride: Int? = null): Long? {
-        val alarm = dao.getById(id)?.toDomain() ?: return null
-        if (!alarm.isSnoozeEnabled && minutesOverride == null) {
-            // Refuses both snoozeMinutes==0 AND the consecutive-cap-hit case.
-            Log.w(TAG, "snooze id=$id refused — disabled or max-count reached")
-            return null
-        }
-        val minutes = minutesOverride ?: alarm.snoozeMinutes
-        if (minutes <= Alarm.SNOOZE_DISABLED) {
-            Log.w(TAG, "snooze id=$id refused — minutes=$minutes")
-            return null
-        }
-        val trigger = System.currentTimeMillis() + minutes * 60_000L
-        val newCount = alarm.consecutiveSnoozeCount + 1
-        // Room first (one statement), then arm AlarmManager; a refused arm reverts the row.
-        if (!commitSnooze(alarm, trigger, newCount)) return null
-        // Everything after a successful arm is best effort: the snooze is real now.
-        bestEffort("snooze bfu mirror") {
-            // BFU mirror must track the counter too (Tier 2D spec line 499).
-            bfuCache.upsert(alarm.copy(consecutiveSnoozeCount = newCount, snoozedUntilEpoch = trigger))
-        }
-        bestEffort("snooze watch sync") { scheduleWatchSync() }
-        bestEffort("snooze widgets") { refreshWidgets() }
-        Log.i(TAG, "snooze id=$id +${minutes}min trigger=$trigger count=$newCount")
-        return trigger
-    }
-
     /**
      * Mark the next firing as skipped (swipe-left). Computes the current
      * next-trigger and stores it as `skipNextEpoch`; NextTriggerCalculator
@@ -563,16 +529,19 @@ class AlarmRepository @Inject constructor(
         Log.i(TAG, "clearSkipNext id=${alarm.id}")
     }
 
-    /** Reset consecutive-snooze counter on dismiss/fire so the next ring
-     *  cycle starts from zero. Mirrors the change into BFU so the next
-     *  pre-unlock fire reads the reset value. */
+    /** End the snooze chain on dismiss: clear the snooze trigger AND the counter in ONE
+     *  statement, so no failure between two writes can leave a dismissed alarm with an
+     *  old trigger that a later bulk re-arm would ring. Everything after that statement
+     *  is best effort. Mirrors the change into BFU so the next pre-unlock fire reads it. */
     suspend fun resetSnoozeCounter(id: Long) {
-        dao.setConsecutiveSnoozeCount(id, 0)
+        dao.setSnooze(id, null, 0)
         // Bumps recorded before unlock belong to the chain being reset; leaving
         // them would add stale counts to Room at the next reconcile.
         bestEffort("resetSnoozeCounter drop bumps") { bfuCache.dropPendingSnoozeBumps(id) }
         bestEffort("resetSnoozeCounter bfu mirror") {
-            dao.getById(id)?.toDomain()?.let { bfuCache.upsert(it.copy(consecutiveSnoozeCount = 0)) }
+            dao.getById(id)?.toDomain()?.let {
+                bfuCache.upsert(it.copy(consecutiveSnoozeCount = 0, snoozedUntilEpoch = null))
+            }
         }
     }
 
@@ -651,7 +620,7 @@ class AlarmRepository @Inject constructor(
     private suspend fun bestEffort(what: String, block: suspend () -> Unit) {
         runCatching { block() }.onFailure { e ->
             if (e is CancellationException) throw e
-            Log.w(TAG, "$what failed after a successful arm: ${e.javaClass.simpleName}: ${e.message}")
+            Log.w(TAG, "$what follow-up failed after commit: ${e.javaClass.simpleName}: ${e.message}")
         }
     }
 

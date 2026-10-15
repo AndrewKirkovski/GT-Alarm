@@ -261,58 +261,6 @@ class AlarmRepositoryTest {
     }
 
     @Test
-    fun `snooze with explicit override schedules at trigger, returns trigger`() = runTest {
-        dao.upsert(AlarmEntity(id = 11L, label = "Z", hour = 8, minute = 0, daysOfWeek = 0,
-            enabled = true, audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L,
-            snoozeMinutes = 10))
-        val before = System.currentTimeMillis()
-
-        val trigger = repo.snooze(11L, minutesOverride = 5)
-
-        assertNotNull(trigger)
-        assertTrue("snooze must return a future trigger time", trigger!! >= before + 5 * 60_000L - 100L)
-        verify { scheduler.scheduleAtChecked(match { it.id == 11L }, eq(trigger)) }
-    }
-
-    @Test
-    fun `snooze without override reads the per-alarm snoozeMinutes`() = runTest {
-        dao.upsert(AlarmEntity(id = 12L, label = "Custom", hour = 8, minute = 0, daysOfWeek = 0,
-            enabled = true, audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L,
-            snoozeMinutes = 7))
-        val before = System.currentTimeMillis()
-
-        val trigger = repo.snooze(12L)
-
-        assertNotNull(trigger)
-        assertTrue(
-            "snooze must honor alarm's own 7-min duration",
-            trigger!! >= before + 7 * 60_000L - 100L && trigger <= before + 7 * 60_000L + 1_000L,
-        )
-        verify { scheduler.scheduleAtChecked(match { it.id == 12L }, eq(trigger)) }
-    }
-
-    @Test
-    fun `snooze on missing alarm returns null and does not schedule`() = runTest {
-        val trigger = repo.snooze(999L)
-        assertNull(trigger)
-        verify(exactly = 0) { scheduler.scheduleAtChecked(any(), any()) }
-    }
-
-    @Test
-    fun `snooze without override on snoozeMinutes=0 alarm returns null and does not schedule`() = runTest {
-        // Regression test: a 0-minute "snooze" would compute trigger = now + 0
-        // and immediately re-fire the alarm. The guard rejects the call.
-        dao.upsert(AlarmEntity(id = 13L, label = "Off", hour = 8, minute = 0, daysOfWeek = 0,
-            enabled = true, audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L,
-            snoozeMinutes = 0))
-
-        val trigger = repo.snooze(13L)
-
-        assertNull(trigger)
-        verify(exactly = 0) { scheduler.scheduleAtChecked(any(), any()) }
-    }
-
-    @Test
     fun `observeAlarms emits mapped domain objects`() = runTest {
         dao.upsert(AlarmEntity(id = 1L, label = "A", hour = 7, minute = 0, daysOfWeek = 0,
             enabled = true, audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 5L))
@@ -486,16 +434,6 @@ class AlarmRepositoryTest {
         assertEquals(1_800_000_000_000L, dao.getById(1L)?.snoozedUntilEpoch)
     }
 
-    @Test
-    fun `snooze with a failing UPDATE arms nothing`() = runTest {
-        dao.upsert(recurringRow().copy(snoozeMinutes = 5))
-        dao.failSetSnooze = true
-
-        runCatching { repo.snooze(1L) }
-
-        verify(exactly = 0) { scheduler.scheduleAtChecked(any(), any()) }
-    }
-
     // Fails before the change: the refusal was swallowed, the row kept the snooze and snoozeAt returned the trigger.
     @Test
     fun `snoozeAt reverts the row and throws when arming is refused`() = runTest {
@@ -511,15 +449,13 @@ class AlarmRepositoryTest {
     }
 
     @Test
-    fun `snooze reverts the row and returns null when arming is refused`() = runTest {
-        dao.upsert(recurringRow().copy(snoozeMinutes = 5))
-        every { scheduler.scheduleAtChecked(any(), any()) } returns false
+    fun `snoozeAt with a failing UPDATE arms nothing`() = runTest {
+        dao.upsert(recurringRow())
+        dao.failSetSnooze = true
 
-        assertNull(repo.snooze(1L))
+        runCatching { repo.snoozeAt(1L, 1_800_000_000_000L) }
 
-        assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
-        assertNull(dao.getById(1L)?.snoozedUntilEpoch)
-        coVerify(exactly = 0) { bfuCache.upsert(any()) }
+        verify(exactly = 0) { scheduler.scheduleAtChecked(any(), any()) }
     }
 
     // Fails before the change: the widget/BFU exception propagated out of snoozeAt after the arm.
@@ -564,6 +500,32 @@ class AlarmRepositoryTest {
 
         repo.resetSnoozeCounter(1L)
 
+        assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
+    }
+
+    // Fails before the change: the trigger survived (only the counter was cleared) and two statements ran.
+    @Test
+    fun `resetSnoozeCounter clears trigger and counter in one statement`() = runTest {
+        dao.upsert(recurringRow().copy(consecutiveSnoozeCount = 3, snoozedUntilEpoch = 1_800_000_000_000L))
+
+        repo.resetSnoozeCounter(1L)
+
+        assertEquals(listOf("setSnooze"), dao.events)
+        assertNull(dao.getById(1L)?.snoozedUntilEpoch)
+        assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
+    }
+
+    // Fails before the change: the trigger survived when only the later steps failed.
+    @Test
+    fun `resetSnoozeCounter clears the trigger and stays best effort after the statement`() = runTest {
+        dao.upsert(recurringRow().copy(consecutiveSnoozeCount = 3, snoozedUntilEpoch = 1_800_000_000_000L))
+        dao.failGetById = true
+        coEvery { bfuCache.dropPendingSnoozeBumps(any()) } throws IllegalStateException("bfu")
+
+        repo.resetSnoozeCounter(1L)
+
+        dao.failGetById = false
+        assertNull(dao.getById(1L)?.snoozedUntilEpoch)
         assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
     }
 
@@ -702,7 +664,7 @@ class AlarmRepositoryTest {
 
         repoWith(cache).resetSnoozeCounter(1L)
 
-        assertTrue(cache.drainPendingSnoozeBumps().isEmpty())
+        assertTrue(cache.drainPendingSnoozes().isEmpty())
         assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
     }
 

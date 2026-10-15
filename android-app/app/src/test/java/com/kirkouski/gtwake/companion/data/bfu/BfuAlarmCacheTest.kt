@@ -201,7 +201,7 @@ class BfuAlarmCacheTest {
         cache.markDismissed(7L)  // duplicate must not double-count
 
         val fresh = BfuAlarmCache(file)
-        assertEquals(setOf(7L, 13L), fresh.getPendingDismissals())
+        assertEquals(setOf(7L, 13L), diskDismissals())
     }
 
     @Test
@@ -212,9 +212,9 @@ class BfuAlarmCacheTest {
         val drained = cache.drainPendingDismissals()
 
         assertEquals(setOf(1L, 2L), drained)
-        assertTrue(cache.getPendingDismissals().isEmpty())
+        assertTrue(diskDismissals().isEmpty())
         // Persistence: a fresh instance also sees the cleared state.
-        assertTrue(BfuAlarmCache(file).getPendingDismissals().isEmpty())
+        assertTrue(diskDismissals().isEmpty())
     }
 
     @Test
@@ -224,7 +224,7 @@ class BfuAlarmCacheTest {
 
         cache.remove(5L)
 
-        assertEquals(setOf(6L), cache.getPendingDismissals())
+        assertEquals(setOf(6L), diskDismissals())
     }
 
     @Test
@@ -282,13 +282,14 @@ class BfuAlarmCacheTest {
     }
 
     @Test
-    fun `markPendingSnoozeBump increments the count and survives disk round-trip`() = runTest {
-        cache.markPendingSnoozeBump(7L)
-        cache.markPendingSnoozeBump(7L)
-        cache.markPendingSnoozeBump(13L)
+    fun `recordPreUnlockSnooze increments the count per id and survives disk round-trip`() = runTest {
+        cache.replaceAll(listOf(alarm(7L), alarm(13L)))
+        cache.recordPreUnlockSnooze(7L, 1L)
+        cache.recordPreUnlockSnooze(7L, 2L)
+        cache.recordPreUnlockSnooze(13L, 3L)
 
         val fresh = BfuAlarmCache(file)
-        val drained = fresh.drainPendingSnoozeBumps()
+        val drained = fresh.drainBumps()
         assertEquals(2, drained[7L])
         assertEquals(1, drained[13L])
     }
@@ -305,12 +306,12 @@ class BfuAlarmCacheTest {
             consecutiveSnoozeCount = 2,
         )
         cache.replaceAll(listOf(alarm))
-        cache.markPendingSnoozeBump(alarm.id)
+        cache.recordPreUnlockSnooze(alarm.id, 1L)
         cache.setSnoozedUntil(alarm.id, 1_800_000_000_000L)
 
         val fresh = BfuAlarmCache(file)
         assertEquals(1_800_000_000_000L, fresh.getAll().single().snoozedUntilEpoch)
-        assertEquals(mapOf(alarm.id to 1), fresh.drainPendingSnoozeBumps())
+        assertEquals(mapOf(alarm.id to 1), fresh.drainBumps())
         assertEquals(2, fresh.getAll().single().consecutiveSnoozeCount)
     }
 
@@ -348,7 +349,7 @@ class BfuAlarmCacheTest {
             snoozedUntilEpoch = 1_800_000_000_000L,
         )
         cache.replaceAll(listOf(alarm))
-        cache.markPendingSnoozeBump(alarm.id)
+        cache.recordPreUnlockSnooze(alarm.id, 1L)
         assertEquals(3, cache.getAll().single().consecutiveSnoozeCount)
 
         assertTrue(cache.setSnoozedUntil(alarm.id, null))
@@ -360,7 +361,7 @@ class BfuAlarmCacheTest {
         assertTrue(storedAlarm.isNull("snoozedUntilEpoch"))
         assertTrue(storedAlarm.isNull("skipNextEpoch"))
 
-        assertEquals(mapOf(alarm.id to 1), cache.drainPendingSnoozeBumps())
+        assertEquals(mapOf(alarm.id to 1), cache.drainBumps())
         assertEquals(2, cache.getAll().single().consecutiveSnoozeCount)
     }
 
@@ -379,13 +380,13 @@ class BfuAlarmCacheTest {
             skipNextEpoch = futureSkipEpoch,
         )
         cache.replaceAll(listOf(alarm))
-        cache.markPendingSnoozeBump(alarm.id)
+        cache.recordPreUnlockSnooze(alarm.id, 1L)
 
         assertTrue(cache.consumePastSkip(alarm.id, nowEpoch))
         val runtimeAlarm = cache.getAll().single()
         assertEquals(3, runtimeAlarm.consecutiveSnoozeCount)
         assertEquals(futureSkipEpoch, runtimeAlarm.skipNextEpoch)
-        assertEquals(mapOf(alarm.id to 1), cache.drainPendingSnoozeBumps())
+        assertEquals(mapOf(alarm.id to 1), cache.drainBumps())
         val rawAlarm = org.json.JSONObject(file.readText(Charsets.UTF_8))
             .getJSONArray("alarms").getJSONObject(0)
         assertEquals(2, rawAlarm.getInt("consecutiveSnoozeCount"))
@@ -447,7 +448,7 @@ class BfuAlarmCacheTest {
         assertEquals(1_800_000_300_000L, row.snoozedUntilEpoch)
         assertEquals(3, row.consecutiveSnoozeCount) // raw 1 + 2 bumps
         assertEquals(1, rawRow().getInt("consecutiveSnoozeCount"))
-        assertEquals(mapOf(42L to 2), fresh.drainPendingSnoozeBumps())
+        assertEquals(mapOf(42L to 2), fresh.drainBumps())
     }
 
     // Fails before the change: compile error (function missing).
@@ -466,7 +467,7 @@ class BfuAlarmCacheTest {
     @Test
     fun `recordPreUnlockSnooze returns false for a missing row`() = runTest {
         assertFalse(cache.recordPreUnlockSnooze(99L, 1L))
-        assertTrue(cache.drainPendingSnoozeBumps().isEmpty())
+        assertTrue(cache.drainBumps().isEmpty())
     }
 
     // Fails before the change: the pending bump survives the dismiss, so the drain returns {44=2}
@@ -482,8 +483,21 @@ class BfuAlarmCacheTest {
         val fresh = BfuAlarmCache(file)
         assertEquals(0, rawRow().getInt("consecutiveSnoozeCount"))
         assertEquals(0, fresh.getAll().single().consecutiveSnoozeCount)
-        assertEquals(setOf(44L), fresh.getPendingDismissals())
-        assertTrue(fresh.drainPendingSnoozeBumps().isEmpty())
+        assertEquals(setOf(44L), diskDismissals())
+        assertTrue(fresh.drainBumps().isEmpty())
+    }
+
+    // Fails before the change: markDismissed left the cached snoozedUntilEpoch in place.
+    @Test
+    fun `markDismissed clears the cached snooze trigger in the same write`() = runTest {
+        cache.replaceAll(listOf(alarm(53L)))
+        cache.recordPreUnlockSnooze(53L, 1_800_000_000_000L)
+
+        assertTrue(cache.markDismissed(53L))
+
+        assertEquals(null, cache.getAll().single().snoozedUntilEpoch)
+        assertTrue(rawRow().isNull("snoozedUntilEpoch"))
+        assertTrue(BfuAlarmCache(file).getAll().single().snoozedUntilEpoch == null)
     }
 
     @Test
@@ -493,7 +507,7 @@ class BfuAlarmCacheTest {
         cache.markDismissed(45L)
         cache.recordPreUnlockSnooze(45L, 2L)
 
-        assertEquals(mapOf(45L to 1), cache.drainPendingSnoozeBumps())
+        assertEquals(mapOf(45L to 1), cache.drainBumps())
     }
 
     // Fails before the change: drainPendingSnoozes does not exist (compile error).
@@ -522,12 +536,12 @@ class BfuAlarmCacheTest {
         assertTrue(cache.undoPreUnlockSnooze(52L, 1_000L))
         val fresh = BfuAlarmCache(file)
         assertEquals(1_000L, fresh.getAll().single().snoozedUntilEpoch)
-        assertEquals(mapOf(52L to 1), fresh.drainPendingSnoozeBumps())
+        assertEquals(mapOf(52L to 1), fresh.drainBumps())
 
         cache.recordPreUnlockSnooze(52L, 3_000L)
         assertTrue(cache.undoPreUnlockSnooze(52L, 1_000L))
         assertTrue(cache.undoPreUnlockSnooze(52L, null))
-        assertTrue(cache.drainPendingSnoozeBumps().isEmpty())
+        assertTrue(cache.drainBumps().isEmpty())
         assertEquals(null, cache.getAll().single().snoozedUntilEpoch)
     }
 
@@ -538,7 +552,7 @@ class BfuAlarmCacheTest {
         cache.recordPreUnlockSnooze(47L, 1L)
 
         assertTrue(cache.dropPendingSnoozeBumps(46L))
-        assertEquals(mapOf(47L to 1), BfuAlarmCache(file).drainPendingSnoozeBumps())
+        assertEquals(mapOf(47L to 1), BfuAlarmCache(file).drainBumps())
     }
 
     // Fails before the change: the drain returns the items and empties memory although the write failed.
@@ -546,13 +560,12 @@ class BfuAlarmCacheTest {
     fun `drains keep their items when the clear cannot be written`() = runTest {
         cache.replaceAll(listOf(alarm(48L)))
         cache.markDismissed(48L)
-        cache.markPendingSnoozeBump(48L)
+        cache.recordPreUnlockSnooze(48L, 1L)
         blockAtomicWrite()
 
         assertTrue(cache.drainPendingDismissals().isEmpty())
-        assertTrue(cache.drainPendingSnoozeBumps().isEmpty())
-        assertEquals(setOf(48L), cache.getPendingDismissals())
-        assertEquals(setOf(48L), BfuAlarmCache(file).getPendingDismissals())
+        assertTrue(cache.drainBumps().isEmpty())
+        assertEquals(setOf(48L), diskDismissals())
         // getAll() folds pending bumps into the count, so 1 proves the bump was
         // kept both in memory and on disk (a drain would need a write, still blocked).
         assertEquals(1, cache.getAll().single { it.id == 48L }.consecutiveSnoozeCount)
@@ -581,8 +594,7 @@ class BfuAlarmCacheTest {
         blockAtomicWrite()
 
         assertFalse(cache.markDismissed(28L))
-        assertTrue(cache.getPendingDismissals().isEmpty())
-        assertTrue(BfuAlarmCache(file).getPendingDismissals().isEmpty())
+        assertTrue(diskDismissals().isEmpty())
         assertEquals(diskBefore, file.readText(Charsets.UTF_8))
     }
 
@@ -594,32 +606,44 @@ class BfuAlarmCacheTest {
         val diskBefore = file.readText(Charsets.UTF_8)
         blockAtomicWrite()
 
-        assertFalse(cache.markPendingSnoozeBump(alarm.id))
+        assertFalse(cache.recordPreUnlockSnooze(alarm.id, 1L))
         assertEquals(2, cache.getAll().single().consecutiveSnoozeCount)
-        assertTrue(cache.drainPendingSnoozeBumps().isEmpty())
+        assertTrue(cache.drainBumps().isEmpty())
         assertEquals(2, BfuAlarmCache(file).getAll().single().consecutiveSnoozeCount)
         assertEquals(diskBefore, file.readText(Charsets.UTF_8))
     }
 
     @Test
-    fun `drainPendingSnoozeBumps clears the map atomically`() = runTest {
-        cache.markPendingSnoozeBump(1L)
-        cache.markPendingSnoozeBump(1L)
+    fun `drainPendingSnoozes clears the map atomically`() = runTest {
+        cache.replaceAll(listOf(alarm(1L)))
+        cache.recordPreUnlockSnooze(1L, 1L)
+        cache.recordPreUnlockSnooze(1L, 2L)
 
-        val drained = cache.drainPendingSnoozeBumps()
+        val drained = cache.drainBumps()
         assertEquals(mapOf(1L to 2), drained)
-        assertTrue(BfuAlarmCache(file).drainPendingSnoozeBumps().isEmpty())
+        assertTrue(BfuAlarmCache(file).drainBumps().isEmpty())
     }
 
     @Test
     fun `remove drops the matching id from pendingSnoozeBumps too`() = runTest {
-        cache.markPendingSnoozeBump(5L)
-        cache.markPendingSnoozeBump(6L)
+        cache.replaceAll(listOf(alarm(5L), alarm(6L)))
+        cache.recordPreUnlockSnooze(5L, 1L)
+        cache.recordPreUnlockSnooze(6L, 1L)
 
         cache.remove(5L)
 
-        val drained = cache.drainPendingSnoozeBumps()
+        val drained = cache.drainBumps()
         assertEquals(mapOf(6L to 1), drained)
+    }
+
+    /** Pending bumps by id, via the production drain. */
+    private suspend fun BfuAlarmCache.drainBumps(): Map<Long, Int> =
+        drainPendingSnoozes().mapValues { it.value.bump }
+
+    /** Pending dismissal ids as stored on disk (a peek; does not drain). */
+    private fun diskDismissals(): Set<Long> {
+        val arr = org.json.JSONObject(file.readText(Charsets.UTF_8)).getJSONArray("pendingDismissals")
+        return (0 until arr.length()).map { arr.getLong(it) }.toSet()
     }
 
     private fun blockAtomicWrite() {
