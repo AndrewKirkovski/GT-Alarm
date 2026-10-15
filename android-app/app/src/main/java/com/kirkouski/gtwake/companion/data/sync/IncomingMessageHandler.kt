@@ -252,8 +252,8 @@ class IncomingMessageHandler @Inject constructor(
                 action = AlarmRingService.ACTION_DISMISS
                 putExtra(AlarmRingService.EXTRA_ALARM_ID, alarmId)
                 putExtra(AlarmRingService.EXTRA_FROM_PEER, true)
-                firedAtEpoch?.let { putExtra("fired_at", it) }
-                requestStamp?.let { putExtra("request_stamp", it) }
+                firedAtEpoch?.let { putExtra(AlarmRingService.EXTRA_FIRED_AT, it) }
+                requestStamp?.let { putExtra(AlarmRingService.EXTRA_REQUEST_STAMP, it) }
             }
 
         fun buildSnoozeFromPeerIntent(
@@ -267,8 +267,8 @@ class IncomingMessageHandler @Inject constructor(
             putExtra(AlarmRingService.EXTRA_ALARM_ID, alarmId)
             putExtra(AlarmRingService.EXTRA_FROM_PEER, true)
             rescheduleEpoch?.let { putExtra(AlarmRingService.EXTRA_RESCHEDULE_EPOCH, it) }
-            firedAtEpoch?.let { putExtra("fired_at", it) }
-            requestStamp?.let { putExtra("request_stamp", it) }
+            firedAtEpoch?.let { putExtra(AlarmRingService.EXTRA_FIRED_AT, it) }
+            requestStamp?.let { putExtra(AlarmRingService.EXTRA_REQUEST_STAMP, it) }
         }
     }
 }

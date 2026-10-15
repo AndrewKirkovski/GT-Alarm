@@ -119,16 +119,19 @@ class HuaweiWearBridge @Inject constructor(
     private var pairedDevice: Device? = null
     private var pairedDeviceResolvedAtElapsedMs: Long = 0L
 
-    // Uuid of the device the receiver is registered for. Cleared together with
-    // [receiverRegistered] in exactly one place ([unregisterReceiverLocked]).
+    // Uuid of the device the receiver is registered for. Changed together with
+    // [receiverRegistered]: cleared by [unregisterReceiverLocked], set or cleared
+    // by the register result in [ensureReceiverRegisteredFor].
     @Volatile
     private var receiverDeviceUuid: String? = null
     @Volatile
     private var receiverRegistered: Boolean = false
 
-    // True after a register call that did not report success. A timed-out or
-    // failed Task may still have registered late, so the next register is
-    // always preceded by an unregister (idempotent). Guarded by connectionMutex.
+    // True while the SDK may hold a registration we do not know about: a
+    // register or unregister call that timed out (or was cancelled) may still
+    // complete later. A definite failure does not set it. While it is set, the
+    // next register is preceded by an unregister (idempotent). Guarded by
+    // connectionMutex.
     private var receiverRegistrationUncertain: Boolean = false
 
     // Unregister calls whose Task has not reached a terminal result (success or
@@ -315,8 +318,8 @@ class HuaweiWearBridge @Inject constructor(
 
     /**
      * Shared completion path for the dismiss / snooze ack deferreds.
-     * Matches by alarmId so a stale ack from a previous action can't
-     * satisfy a fresh wait; compareAndSet guards against the rare race
+     * Matching rules are in [replyMatches] (strict on firedAt + stamp, alarm
+     * ID only for legacy watches); compareAndSet guards against the rare race
      * with the awaiter's timeout-finally clear.
      */
     private fun completePendingAck(
@@ -391,9 +394,9 @@ class HuaweiWearBridge @Inject constructor(
     /**
      * Receiver path for `alarm_ringing`. Extracted into its own method to
      * keep the receiver lambda's complexity in check (ComplexCondition
-     * threshold). Matches by alarmId so a stale reply from a previous
-     * fire can't satisfy a fresh pre-arm wait; compareAndSet guards
-     * against the rare race with requestPreArm's finally-clear.
+     * threshold). Matching rules are in [replyMatches], so a stale reply
+     * from a previous fire can't satisfy a fresh pre-arm wait; compareAndSet
+     * guards against the rare race with requestPreArm's finally-clear.
      */
     private fun handleAlarmRinging(msg: IncomingMessage.AlarmRinging) {
         // The watch just confirmed its ring page is up — peer is
@@ -1224,9 +1227,10 @@ class HuaweiWearBridge @Inject constructor(
     }
 
     /**
-     * The only place that clears receiver ownership. Unregister is idempotent
-     * and its result is ignored: either way the phone no longer wants the
-     * receiver registered. Caller holds [connectionMutex].
+     * Clears receiver ownership. Unregister is idempotent, and either way the
+     * phone no longer wants the receiver registered; the result only decides
+     * whether ownership is settled (see [receiverRegistrationUncertain]).
+     * Returns true when settled. Caller holds [connectionMutex].
      */
     private suspend fun unregisterReceiverLocked(op: String): Boolean {
         val outcome = awaitTaskOutcome(op, pendingUnregisters) { p2pClient.unregisterReceiver(receiver) }
