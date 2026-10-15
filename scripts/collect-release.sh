@@ -22,9 +22,9 @@
 #   ./scripts/collect-release.sh --phone         phone only (skip the watch entirely)
 #   ./scripts/collect-release.sh --watch         watch only
 #   ./scripts/collect-release.sh --build         build then collect (honours --phone/--watch/--hap)
-#   ./scripts/collect-release.sh --hap           ALSO collect the standalone watch HAP candidate
-#                                                (explicit opt-in; a missing HAP never fails
-#                                                a release without this flag)
+#   ./scripts/collect-release.sh --hap           ALSO collect the standalone watch HAP package
+#                                                (explicit opt-in diagnostic; a missing HAP
+#                                                never fails a release without this flag)
 #   ./scripts/collect-release.sh --force         allow overwriting existing files in dist/
 #
 # Output (gitignored): dist/
@@ -32,8 +32,10 @@
 #   gtwake-phone-<phone versionName>-<versionCode>.aab   (Google Play)
 #   gtwake-watch-<watch version.name>-<version.code>.app (AppGallery Connect)
 #   candidates/gtwake-watch-<name>-<code>-candidate-<YYYYMMDD-HHMM>.hap
-#     (only with --hap; a CANDIDATE, publish only after independent signature,
-#      profile and install verification)
+#     (only with --hap; a DIAGNOSTIC Lite .bin package built in debug build mode
+#      with release signing. A hand install fails signature verification, so it is
+#      never a store artifact or a public download. Only a package with exactly one
+#      *.bin entry is collected.)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,6 +50,7 @@ DO_PHONE=1
 DO_WATCH=1
 DO_BUILD=0
 DO_HAP=0
+HAP_STEP_FAILED=0
 FORCE=0
 for arg in "$@"; do
   case "$arg" in
@@ -105,7 +108,8 @@ if [ "$DO_BUILD" -eq 1 ]; then
       && [ -f "$REPO_ROOT/watch-app/build/outputs/release/watch-app-release-signed.app" ]; then
       # Exit 2 with the .app present = only the optional HAP step failed. Keep going
       # so the .app is still collected; the missing HAP is reported below.
-      echo "    WARNING: standalone HAP step failed; continuing with the .app." >&2
+      echo "    WARNING: standalone HAP step failed; continuing with the .app. No HAP will be collected." >&2
+      HAP_STEP_FAILED=1
     elif [ "$watch_rc" -ne 0 ]; then
       exit "$watch_rc"
     fi
@@ -143,9 +147,9 @@ copy_one() {
   copied=$((copied + 1))
 }
 
-# Read the HAP's own version name/code out of its config.json. A Lite Wearable
-# HAP (see build-watch-release.sh --hap) holds one signed .bin instead, with
-# config.json stored inside it as plain text, so fall back to that entry.
+# Read the HAP's own version name/code. A Lite Wearable install package (see
+# build-watch-release.sh --hap) holds one signed .bin, with config.json stored
+# inside it as plain text.
 hap_field() {
   # $1 = hap, $2 = name|code
   # Never fails: an unreadable config.json yields an empty string, and the caller
@@ -156,6 +160,11 @@ hap_field() {
 }
 
 collect_hap() {
+  if [ "$HAP_STEP_FAILED" -eq 1 ]; then
+    echo "    MISSING: the standalone HAP step failed in this build; not collecting any HAP" >&2
+    missing=$((missing + 1))
+    return 0
+  fi
   local haps
   mapfile -t haps < <(find "$HAP_SRC_DIR" -type f -name '*-signed.hap' -print 2>/dev/null | sort)
   if [ "${#haps[@]}" -ne 1 ]; then
@@ -165,6 +174,13 @@ collect_hap() {
   fi
   if ! command -v unzip >/dev/null 2>&1; then
     echo "    REFUSED: unzip not found, cannot check the HAP's own version against the manifest" >&2
+    refused=$((refused + 1))
+    return 0
+  fi
+  local entries
+  entries="$(unzip -Z1 "${haps[0]}" 2>/dev/null || true)"
+  if [ "$(printf '%s\n' "$entries" | grep -c .)" -ne 1 ] || ! printf '%s\n' "$entries" | grep -q '[.]bin$'; then
+    echo "    REFUSED: ${haps[0]} is not a Lite install package (expected exactly one *.bin entry and no root config.json)" >&2
     refused=$((refused + 1))
     return 0
   fi

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the SIGNED RELEASE .app (App Pack) for Huawei AppGallery submission.
-# With --hap, also build a standalone release-product HAP CANDIDATE for
-# verification/distribution review (opt-in, see below).
+# With --hap, also build a standalone Lite .bin HAP package as a DIAGNOSTIC
+# (opt-in, see below). It is not a store artifact and not a public download.
 #
 # This is the STORE artifact, NOT the dev-loop HAP. Differences from
 # build-watch.sh:
@@ -9,11 +9,13 @@
 #     (build-profile.json5 signingConfigs[release]), not the debug cert.
 #   - assembleApp      -> produces the .app App Pack AppGallery requires,
 #     not a sideloadable .hap.
-#   - --hap (opt-in)   -> afterwards runs assembleHap and reports the standalone
-#     HAP. NOTE: the signed HAP may already exist from assembleApp (hvigor
-#     reported SignHap UP-TO-DATE), so assembleHap is NOT proven to produce it
-#     independently; the script only reports what is on disk. Build-only: the
-#     HAP is never pushed to or pruned from a phone.
+#   - --hap (opt-in)   -> afterwards deletes the plain-layout signed HAP that
+#     assembleApp leaves behind, then runs assembleHap in buildMode=debug with
+#     the release signing. That produces the installable Lite package: a zip
+#     with exactly one signed .bin entry. The script refuses any HAP that does
+#     not have that layout. Build-only: the HAP is never pushed to or pruned
+#     from a phone. A hand install of it fails signature verification (error
+#     31); treat it as a diagnostic only.
 #   - does NOT push to the phone; the .app is uploaded to AppGallery Connect.
 #
 # The release product is wired to the entry module via build-profile.json5
@@ -98,6 +100,9 @@ fi
 # --- Optional standalone HAP candidate (--hap) --------------------------------
 # Never extract a HAP from the App Pack: a standalone HAP has its own signing
 # and provisioning metadata. A failure here must NOT hide the .app above.
+# The signed HAP that assembleApp (release mode) leaves behind has the plain
+# layout, so it is deleted before assembleHap runs: if assembleHap fails, no
+# stale wrong-format HAP may remain for collect-release.sh to pick up.
 #
 # buildMode=debug is deliberate. hvigor wraps a Lite Wearable app in the signed
 # .bin package that DevEco Assistant can install only when
@@ -108,7 +113,8 @@ fi
 # release certificate and profile.
 build_hap_candidate() {
   echo ""
-  echo "==> Building standalone HAP candidate (product=release signing, buildMode=debug for the Lite .bin package)"
+  echo "==> Building standalone HAP (product=release signing, buildMode=debug for the Lite .bin package)"
+  find "$WATCH_DIR/entry/build/release/outputs" -type f -name '*-signed.hap' -delete 2>/dev/null || true
   "$HVIGOR" assembleHap --mode module -p product=release -p "buildMode=debug" --no-daemon || return 1
 
   local haps
@@ -118,9 +124,23 @@ build_hap_candidate() {
     return 1
   fi
   local hap="${haps[0]}"
-  echo "==> Standalone release HAP CANDIDATE: $hap ($(stat -c %s "$hap") bytes)"
+  echo "==> Standalone HAP (diagnostic): $hap ($(stat -c %s "$hap") bytes)"
 
-  # The HAP's own identity (config.json inside the zip).
+  # Layout check: a Lite install package is a zip with exactly one entry, a
+  # *.bin, and no root config.json. Anything else is the plain App Pack layout.
+  if ! command -v unzip >/dev/null 2>&1; then
+    echo "ERROR: unzip not found, cannot check the HAP layout; refusing the HAP." >&2
+    return 1
+  fi
+  local entries
+  entries="$(unzip -Z1 "$hap" 2>/dev/null || true)"
+  if [ "$(printf '%s\n' "$entries" | grep -c .)" -ne 1 ] || ! printf '%s\n' "$entries" | grep -q '[.]bin$'; then
+    echo "ERROR: HAP is not a Lite install package (expected exactly one *.bin entry and no root config.json). Entries:" >&2
+    printf '%s\n' "$entries" | sed 's/^/    /' >&2
+    return 1
+  fi
+
+  # The HAP's own identity (config.json inside the .bin entry, plain text).
   if command -v unzip >/dev/null 2>&1; then
     local vblock
     # config.json sits inside the signed .bin entry of a Lite HAP (plain text).
@@ -134,7 +154,7 @@ build_hap_candidate() {
   # Embedded provisioning profile: print only these two fields.
   echo "    profile type:             $(grep -a -o '"type"[[:space:]]*:[[:space:]]*"[a-z_]*"' "$hap" | sort -u | tr '\n' ' ')"
   echo "    app-distribution-type:    $(grep -a -o '"app-distribution-type"[[:space:]]*:[[:space:]]*"[a-z_]*"' "$hap" | sort -u | tr '\n' ' ')"
-  echo "    CANDIDATE ONLY: verify signature, profile and an install on a watch before any distribution."
+  echo "    DIAGNOSTIC ONLY: a hand install of this package fails signature verification (error 31). Do not publish it."
 }
 
 if ! build_hap_candidate; then
