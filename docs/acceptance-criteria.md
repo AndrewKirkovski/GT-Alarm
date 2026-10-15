@@ -34,18 +34,35 @@ and transport-only success in this document.
   skip it; snooze, disable and delete stay authoritative because they run later on the
   same AlarmManager request code.
 - 🟡 Alarm list sync is hidden until the user taps the debug description in phone
-  Help seven times. Unlocking reveals the setting and leaves it disabled. Upgrading
+  Help seven times (no tap ripple and no accessibility action, so nothing hints at it).
+  Unlocking reveals the setting and leaves it disabled. App and site texts say only that
+  alarm list sync is turned off and to contact the developer with questions. Upgrading
   an existing enabled preference disables it without sending or clearing the watch
   list. Ring delivery and separately chosen picture transfers continue.
 - 🟡 Watch dismiss and snooze (updated watch, request carries `firedAt`): the phone
   replies `ok:true` after the action commits, `ok:false` only when the ring is still
   current and nothing changed, nothing to a duplicate already in progress, and the
   existing `alarm_dismissed`/`alarm_snoozed` message when that occurrence already ended.
-  Replies never wake the watch. Results are remembered in memory per ring service; there
+  Replies are sent without a wake-up ping (a reply can still launch a closed watch app,
+  which closes itself again). Results are remembered in memory per ring service; there
   are no persistent receipts. After a committed watch action the phone keeps its ring
   screen and service up 6 s, so a watch retry can still be answered.
-- 🟡 Released watches (1.0.11 and older) keep their old behaviour: their replies match
-  by alarm ID, and they never receive the new reply types.
+- 🟡 Released watches (1.0.11 and older; the AppGallery watch app is 1.0.7) keep their
+  old behaviour: their replies match by alarm ID, and they never receive the new reply
+  types. They end whatever ring is on screen when told `alarm_dismissed`, so on a takeover
+  the phone tells the watch that the old alarm ended only when the new alarm's
+  `alarm_fired` did not reach the watch.
+- 🟡 Back on the phone ring screen snoozes the alarm, or dismisses it when snooze is off,
+  through the same path as the buttons. While the screen waits for the watch, Back does
+  nothing, so the Activity the watch link needs stays alive.
+- 🟡 A watch ring stops by itself after 9 minutes (longer than the phone's 5-minute
+  auto-stop plus its retries), so a lost Bluetooth link cannot keep the watch vibrating.
+  After an `ok:false` refusal the watch keeps its 6-minute cap.
+- 🟡 Clock, time-zone and app-update broadcasts before the first unlock re-arm from the
+  device-protected cache instead of Room, and every boot/time branch catches its errors,
+  so they cannot crash the app (and with it a pre-unlock ring).
+- 🟡 Dismiss clears the alarm's snooze trigger together with its snooze count (one Room
+  statement; the pre-unlock cache clears both in one write).
 - 🟡 `alarm_fired` carries `supportsActionAck: true` only while the phone can receive
   (user unlocked and receiver registered). On a cold-process alarm the ring waits up to
   1.5 s for the receiver registration (device lookup and register, no watch wake) before

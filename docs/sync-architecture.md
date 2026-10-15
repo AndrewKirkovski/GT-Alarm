@@ -31,7 +31,7 @@ confirmation and occurrence matching; no required protocol version or new IDs ex
 | `alarm_fired` | `firedAt` identifies the occurrence. `supportsActionAck: true` is sent only while the phone can receive (unlocked, receiver registered) and asks an updated watch to wait for a committed reply. |
 | `alarm_dismissed`, `alarm_snoozed` (watch to phone) | An updated watch adds `firedAt` and keeps one `updatedAtEpoch` across retries. Released watches send neither. |
 | `alarm_dismissed`, `alarm_snoozed` (phone to watch) | Also used, with `firedAt`, to answer a watch request for an occurrence that already ended on the phone. |
-| `alarm_dismissed_ack`, `alarm_snoozed_ack` (phone to watch) | Only for requests that carried `firedAt`. Echo the request `updatedAtEpoch` and `firedAt`; `ok:false` means the phone ring is still current and nothing changed. Never sent with a wake. |
+| `alarm_dismissed_ack`, `alarm_snoozed_ack` (phone to watch) | Only for requests that carried `firedAt`. Echo the request `updatedAtEpoch` and `firedAt`; `ok:false` means the phone ring is still current and nothing changed. Sent without a wake-up ping. A reply can still launch a closed watch app, which closes itself again. |
 | `alarm_dismissed_ack`, `alarm_snoozed_ack`, `alarm_ringing` (watch to phone) | With `firedAt`: matched strictly (occurrence and stamp). Without `firedAt` (released watches): matched by alarm ID only, as before. |
 | `sync_check`, `sync_hash` | Echo `updatedAtEpoch` when supplied. `sync_hash.supportsCommitAck: true` announces persistence acknowledgements. |
 | `sync_replace`, `alarms_received` | Text and file replacement use the same acknowledgement, with persisted list hash and replacement timestamp. Failed persistence sends no successful acknowledgement. A released watch's own stamp is accepted when the hash matches. |
@@ -53,10 +53,21 @@ a watch retry inside that window is received (Wear Engine delivers to the phone 
 while an Activity is alive). Without a ring screen, the watch stops retrying and
 closes without a success flash; the phone is already in its final state.
 
+When a second alarm takes over a ring, the phone applies the first alarm's dismiss
+policy in a background job that also survives the service stopping. It tells the watch
+that the first alarm ended only if the second alarm's `alarm_fired` did not reach the
+watch: released watch apps (1.0.11 and older; the AppGallery watch app is 1.0.7) end
+whatever ring is on screen when they get `alarm_dismissed`. A phone Stop while an
+`alarm_fired` send (pre-arm or catch-up) is still in flight counts as "the watch may be
+ringing", so the end message is sent. A watch ring stops by itself after 9 minutes.
+
 The watch keeps one small pending action record for retries, only for phones that
-sent `supportsActionAck`. It replays a saved record only when it is under two minutes
-old and matches the ring occurrence. On `ok:false` it restores the ring (vibration,
-crown, screen hold) with a six-minute cap.
+sent `supportsActionAck`. On the list screen it replays any valid record that is under two
+minutes old, and records it has already handled in this run are dropped. The phone
+checks the ring occurrence: if that occurrence already ended, it answers with the
+phone-to-watch `alarm_dismissed`/`alarm_snoozed` for that `firedAt`. `ok:false` means the
+phone ring is still current and nothing changed; the watch then restores the ring
+(vibration, crown, screen hold) with a six-minute cap.
 
 Known residual risk on the watch list store: each write has a 10 s deadline and the
 queue then waits up to another 10 s for a late callback. A native file write that
@@ -69,7 +80,7 @@ Receiver ownership on the phone: a send failure (206) no longer clears the P2P
 receiver registration, a registration whose outcome is unknown is unregistered before
 the next attempt, and installing the same incoming handler again does not cancel
 in-flight receive work. A failed device or permission lookup (error or timeout) keeps
-the cached device and registration; only a successful empty device list clears them.
+the cached device and registration; only a successful empty device list or a definite permission denial clears them.
 Every Wear Engine SDK wait is bounded (5 s for lookups, 8 s for text sends, 30 s for
 file sends).
 
