@@ -124,7 +124,7 @@ const vibIcons = [Vibrate, MoonStar, BedDouble, AudioWaveform]
     <!-- Alarm list sync is turned off: alarms still ring on the watch. -->
     <section class="mt-12">
       <h2 class="text-xl font-bold">{{ t.listTitle }}</h2>
-      <div class="mt-4 grid gap-4 sm:grid-cols-2">
+      <div class="mt-4 grid max-w-xl gap-4">
         <figure class="wh-panel">
           <h3 class="font-semibold">{{ t.listOff }}</h3>
           <svg class="wh-fig" viewBox="0 0 320 200" role="img" :aria-label="t.listOffLabel">
@@ -213,7 +213,6 @@ const vibIcons = [Vibrate, MoonStar, BedDouble, AudioWaveform]
   --wh-ink: #f1f5f9;
   --wh-row: #1d1a28;
   --wh-row-hi: #2a2540;
-  --wh-wrow: #1b1930;
   --wh-face: #6b6680;
   --wh-link: var(--brand-cyan);
   --wh-back: var(--brand-indigo);
@@ -246,7 +245,6 @@ const vibIcons = [Vibrate, MoonStar, BedDouble, AudioWaveform]
 .wh-ink-faint { fill: var(--wh-ink); opacity: 0.3; }
 .wh-row { fill: var(--wh-row); }
 .wh-row-hi { fill: var(--wh-row-hi); stroke: var(--brand-magenta); stroke-width: 2; }
-.wh-wrow { fill: var(--wh-wrow); }
 .wh-time {
   fill: var(--wh-ink);
   text-anchor: middle;
@@ -258,8 +256,6 @@ const vibIcons = [Vibrate, MoonStar, BedDouble, AudioWaveform]
 .wh-fill-link { fill: var(--wh-link); }
 .wh-fill-back { fill: var(--wh-back); }
 .wh-fill-edit { fill: var(--brand-magenta); }
-.wh-fill-on { fill: #3ccf5c; }
-.wh-fill-day { fill: #4fc3f7; }
 .wh-pencil { fill: none; stroke: #fff; stroke-width: 2; stroke-linejoin: round; }
 .wh-face line { stroke: var(--wh-face); stroke-width: 4; stroke-linecap: round; }
 .wh-face .wh-hand { stroke-width: 6; }

@@ -193,7 +193,7 @@
     <string name="setup_perm_exact_alarm_body">Pozwala na dokładne odmierzanie czasu alarmu zamiast przybliżonej pracy w tle. Jeśli to jest wyłączone, zaplanowane alarmy nie są niezawodne.</string>
     <string name="setup_perm_fsi_title">Alarm pełnoekranowy</string>
     <string name="setup_perm_fsi_body">Pozwala na wyświetlanie ekranu alarmu na ekranie blokady. Jeśli pozostaje wyłączone po włączeniu, skontaktuj się z autorem.</string>
-    <string name="setup_perm_fsi_channel_body">Powiadomienia alarmu GT Wake są ustawione zbyt nisko, więc ekran alarmu może się nie otworzyć. Ustaw kategorię powiadomień alarmu na Alert.</string>
+    <string name="setup_perm_fsi_channel_body">Powiadomienia alarmu GT Wake są ustawione zbyt nisko, więc ekran alarmu może się nie otworzyć. Ustaw kategorię powiadomień alarmu na Alert i włącz jej opcję wyskakującego okienka.</string>
     <string name="setup_perm_battery_title">Bateria: Bez ograniczeń</string>
     <string name="setup_perm_battery_body">Opcjonalne. Wypróbuj tylko, jeśli alarmy się spóźniają po przejściu wymaganych kontroli.</string>
 

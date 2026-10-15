@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const EFFECTIVE_DATE = '2026-10-12'
+const EFFECTIVE_DATE = '2026-10-15'
 const CONTACT = 'andrew.kirkovski@gmail.com'
 </script>
 
@@ -108,9 +108,9 @@ const CONTACT = 'andrew.kirkovski@gmail.com'
       the feature off removes the copy of your alarms from the watch. Uninstalling the phone app removes its data from the
       phone. Uninstalling the watch app does <strong>not</strong> remove its data from the watch; to have it removed, contact the
       developer for help.
-      If alarm-list sync was turned on in an earlier version, a copy of the alarm list may remain on the watch. An updated
-      watch app deletes it after the next alarm rings on the watch. With an older watch app it stays until the watch app's
-      data is cleared; contact the developer for help removing it.
+      If an earlier version sent your alarm list to the watch (versions before 1.0.11 always did), a copy may remain there.
+      An updated watch app deletes it when an alarm on the watch is dismissed or snoozed. With an older watch app it stays
+      until the watch app's data is cleared; contact the developer for help removing it.
       We hold no copies, so there is nothing for us to delete on your behalf.
     </p>
 

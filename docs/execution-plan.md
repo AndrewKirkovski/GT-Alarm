@@ -345,7 +345,7 @@ Before resubmitting (shipped as 1.0.11, 2026-10-01):
 - [x] Site deployed 2026-10-02 (`/watch`, `/watch/zh` live; download page serves 1.0.11).
 
 Follow-ups:
-- `wearBridge.js` send timeout and retry timers, and the crown debounce timers, are still one-shot `setTimeout`.
+- Still one-shot `setTimeout`, all non-critical: the crown gap and decide debounce timers, the deferred crown focus on the list screen, the tap hint and the logger flush. The `wearBridge.js` send timeout and retry timers run on the Ticker, as do the `loadRest` and `i18n` backstops (their zero-delay `setTimeout` is only the fast path), `crownSettle` and the 9-minute ring cap.
 - 390 × 390 round layout clips on the Privacy and ring screens (predates this work); fix or drop from `distroFilter`.
 
 ---

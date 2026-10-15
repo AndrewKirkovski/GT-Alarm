@@ -63,7 +63,7 @@ ringing", so the end message is sent. A watch ring stops by itself after 9 minut
 
 The watch keeps one small pending action record for retries, only for phones that
 sent `supportsActionAck`. On the list screen it replays any valid record that is under two
-minutes old, and records it has already handled in this run are dropped. The phone
+minutes old, and records it has already handled in this run are dropped. On the ring screen the watch itself drops a record that belongs to another occurrence or to a ring that has ended. The phone
 checks the ring occurrence: if that occurrence already ended, it answers with the
 phone-to-watch `alarm_dismissed`/`alarm_snoozed` for that `firedAt`. `ok:false` means the
 phone ring is still current and nothing changed; the watch then restores the ring

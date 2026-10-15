@@ -109,6 +109,11 @@ operations. A failure between those operations can leave partial state, even
 though a failed action must not receive a success acknowledgement. Test disk
 failure and process interruption before release.
 
+#### Known limits (October 2026)
+
+- With the old AppGallery watch app (1.0.7, also 1.0.11), rare timing races remain on takeover. Three alarms in the same minute, a new ring whose first send failed and is being re-sent, or a phone Stop during a takeover can still end the newer ring on the watch. Those watch apps end whatever ring is on screen. The updated watch app checks the alarm and is not affected.
+- A voice or set-alarm request that matches an existing alarm only switches it on. It ignores the requested vibration, ringtone and label (pre-existing behaviour).
+
 ### Status legend (honest)
 - ✅ **DONE** — code exists AND verified working on real device or emulator
 - 🟡 **CODED** — code exists, not yet verified end-to-end (assume nothing)
@@ -231,7 +236,7 @@ Do not implement against memory of how an API used to work. APIs change.
 
 ### Dismiss & snooze
 - 🟡 Dismiss from full-screen activity (primary button) and from notification action
-- 🟡 Snooze duration is configurable **per alarm** (`Alarm.snoozeMinutes`, range 1–60, default 10). The full-screen activity and notification action both call `AlarmRingService.handleSnooze`, which calls `AlarmRepository.snooze(id)` with no minutes override, causing the repo to read the alarm's own `snoozeMinutes` value. The edit screen exposes a preset chip row (1 / 5 / 10 / 30 min) and persists the choice via Room migration v3. Watch ring page reads the same field from its local `AlarmStore` copy of the alarm and uses it for the `rescheduleEpoch` it sends back to the phone. Wire format `alarm` payload carries `snoozeMinutes` on add/update/toggle.
+- 🟡 Snooze duration is configurable **per alarm** (`Alarm.snoozeMinutes`, range 1–60, default 10). The full-screen activity, the notification action and the watch all go through `AlarmRingService.commitSnooze`, which computes the trigger from the alarm's own `snoozeMinutes` value and commits it with `AlarmRepository.snoozeAt`. The edit screen exposes a preset chip row (1 / 5 / 10 / 30 min) and persists the choice via Room migration v3. Watch ring page reads the same field from its local `AlarmStore` copy of the alarm and uses it for the `rescheduleEpoch` it sends back to the phone. Wire format `alarm` payload carries `snoozeMinutes` on add/update/toggle.
 - 🟡 Snooze can be **disabled** per alarm: `Alarm.snoozeMinutes == Alarm.SNOOZE_DISABLED (0)` means the ring UI (`AlarmActivity` + heads-up notification) hides the Snooze button entirely. Edit screen exposes an "Off" chip as the first preset. Wire format preserves `0` end-to-end (`WearJsonCodec.parseAlarm` sentinel ladder: `<=0 → 0`, else clamp `[1,60]`). Peer-initiated snooze on a locally-disabled alarm collapses to a dismiss in `IncomingMessageHandler.applySnooze` to prevent a phantom 0-minute re-fire. `AlarmRepository.snooze` guards with an explicit `<= 0` early-return for the same reason. (Phase 5a+, 2026-05-14.)
 - 🟡 Snooze reuses `alarm.id` as `PendingIntent` `requestCode` so a second snooze cancels the first
 - 🟡 Concurrent `handleSnooze` / `handleDismiss` on `AlarmRingService` are serialized via `handlerMutex` so the row can't end up with `enabled=false` AND `snoozedUntilEpoch` set. Both handlers commit local truth (Room write) BEFORE the wear broadcast: a process kill between the two leaves the phone consistent and the watch recovers via the next sync hash mismatch. (Phase 5a+ review fix, 2026-05-14.)
@@ -823,9 +828,12 @@ Rejected on GT 6 Pro and FIT 5 Pro with three findings:
   logged 3 steps before dismiss. slim-7 (2026-10-01) buzzed for ~10 s until the phone dismissed
   it; confirmed by the tester, since slim-7 no longer logs individual steps. FIT 5 Pro not tested
   (no device).
-- 📋 Not moved: the crown debounce timers (250/550 ms; a 250 ms tick would change the gesture) and
-  the `wearBridge.js` send timeout / retry timers on the watch-originated dismiss path. Both are
-  still one-shot and still exposed to the same drop.
+- 📋 Not moved (non-critical, still one-shot `setTimeout` and exposed to the same drop): the crown
+  gap and decide debounce timers (250/550 ms; a 250 ms tick would change the gesture), the deferred
+  crown focus on the list screen, the tap hint, and the logger flush. The `wearBridge.js` send
+  timeout and retry timers run on the Ticker. Ticker backstops added later (the zero-delay
+  `setTimeout` stays as the fast path): `loadRest` and the `i18n` chunk loader; also `crownSettle`
+  and the 9-minute `ringCap` on the ring screen.
 - ✅ `ohos.permission.VIBRATE` is now declared in `config.json` `reqPermissions` (the SDK typings mark
   `@system.vibrator` with it). It was not the cause: the GT 6 Pro buzzed without it.
 - 🟡 Static hint under the phone's "Watch vibration" switch: watch Do Not Disturb, Sleep mode or
@@ -999,7 +1007,7 @@ the proposition itself wobbles.
   - **Components made `directBootAware="true"`:** `BootReceiver` (already), `AlarmBroadcastReceiver`, `AlarmRingService`, `AlarmActivity`. The `GtAlarmApp` Application class is NOT direct-boot-aware — the receiver path tolerates a partially-initialised process.
   - **Storage:** `data/bfu/BfuAlarmCache` — JSON file in `Context.createDeviceProtectedStorageContext().filesDir`. Schema v3. Mirror of enabled alarms (id, hour, minute, daysOfWeek, enabled, isVibrationOnly, snoozeMinutes, updatedAtEpoch, relativeMinutes, selfDestruct, vibrationPattern, volumeRampSeconds, maxSnoozeCount, consecutiveSnoozeCount, skipNextEpoch). Intentionally omits PII (label) and SAF URIs (audio / background) — both phone-only or unresolvable pre-unlock.
   - **Write-through:** every `AlarmRepository` mutation (`save`, `saveLocalOnly`, `setEnabled`, `setEnabledLocalOnly`, `delete`, `ensureDebugAlarmId`) updates the cache. `rescheduleAll` + `rescheduleAllOnBoot` rebuild the cache from Room as the post-unlock source-of-truth pass.
-  - **Boot branch:** `BootReceiver` routes `LOCKED_BOOT_COMPLETED → repository.rescheduleFromBfu()` (no Room); `BOOT_COMPLETED → repository.rescheduleAllOnBoot()` (Room); other broadcasts → `rescheduleAll()`.
+  - **Boot branch:** `BootReceiver` routes `LOCKED_BOOT_COMPLETED → repository.rescheduleFromBfu()` (no Room); `BOOT_COMPLETED → repository.rescheduleAllOnBoot()` (Room); before the first unlock `TIME_SET` / `TIMEZONE_CHANGED` / `MY_PACKAGE_REPLACED` re-arm from the BFU cache; `LOCALE_CHANGED` only refreshes widgets; errors are caught per branch; `BOOT_COMPLETED` always registers the watch receiver.
   - **Ring path pre-unlock:** `AlarmRingService.fetchAlarmForRing` reads Room when unlocked, otherwise the BFU cache. Audio routes through `AlarmAudioPlayer.start(forceBundledFallback = !isUserUnlocked)` which plays `R.raw.fallback_alarm` directly (ContentResolver-backed SAF + system-default URIs return null pre-unlock). Pre-unlock `handleDismiss` notifies the watch via `wearBridge.sendAlarmDismissed` (transport-only suspend) under `PRE_UNLOCK_SEND_TIMEOUT_MS = 3000ms` inside `serviceScope.launch` so the FGS stays alive during the send. `handleSnooze` reads `snoozeMinutes` from the BFU cache, calls `scheduler.scheduleAt`, then sends `wearBridge.sendAlarmSnoozed`.
   - **Phase A v1 scope cuts (documented):**
     - **Recurring alarms only re-armed pre-unlock.** `rescheduleFromBfu` filters to `daysOfWeek != 0`. One-shots scheduled to fire pre-unlock get a missed-during-downtime notification, then whatever `AlarmRingService.dismissAction` returns for that alarm — DELETE when `selfDestruct` is set, DISABLE otherwise. **Relative-ness is no longer a delete trigger** (changed in 1.0.8; the old rule was "DELETE (self-destruct / relative)", which ignored the user's "Don't delete after firing" choice on a missed timer). `rescheduleAllOnBoot`'s `intendedFireForOneShot` helper decides *whether* an alarm was missed, computing the fire time as scheduled at last user action (not "now") so a missed 7 AM doesn't silently roll to tomorrow's 7 AM; it no longer decides *what happens to it*.

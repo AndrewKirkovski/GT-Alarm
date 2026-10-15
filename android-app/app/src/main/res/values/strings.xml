@@ -278,7 +278,7 @@
     <string tools:ignore="MissingTranslation" name="setup_perm_exact_alarm_body">Allows alarm-clock timing instead of approximate background work. If this is off, scheduled alarms are not trustworthy.</string>
     <string tools:ignore="MissingTranslation" name="setup_perm_fsi_title">Full-screen alarm</string>
     <string tools:ignore="MissingTranslation" name="setup_perm_fsi_body">Allows the alarm screen to appear over the lock screen. If this stays off after you enable it, contact the developer.</string>
-    <string name="setup_perm_fsi_channel_body">GT Wake\'s Alarm notifications are set too low, so the alarm screen may not open. Set the Alarm notification category to Alert.</string>
+    <string name="setup_perm_fsi_channel_body">GT Wake\'s Alarm notifications are set too low, so the alarm screen may not open. Set the Alarm notification category to Alert and turn on its pop-up option.</string>
     <string tools:ignore="MissingTranslation" name="setup_perm_battery_title">Battery: Unrestricted</string>
     <string tools:ignore="MissingTranslation" name="setup_perm_battery_body">Optional. Try this only if alarms are late after the required checks pass.</string>
 
