@@ -200,8 +200,9 @@ class BfuAlarmCacheTest {
         cache.markDismissed(13L)
         cache.markDismissed(7L)  // duplicate must not double-count
 
-        val fresh = BfuAlarmCache(file)
         assertEquals(setOf(7L, 13L), diskDismissals())
+        // A fresh instance reads the same set back from disk.
+        assertEquals(setOf(7L, 13L), BfuAlarmCache(file).drainPendingDismissals())
     }
 
     @Test
@@ -214,7 +215,7 @@ class BfuAlarmCacheTest {
         assertEquals(setOf(1L, 2L), drained)
         assertTrue(diskDismissals().isEmpty())
         // Persistence: a fresh instance also sees the cleared state.
-        assertTrue(diskDismissals().isEmpty())
+        assertTrue(BfuAlarmCache(file).drainPendingDismissals().isEmpty())
     }
 
     @Test
@@ -570,6 +571,15 @@ class BfuAlarmCacheTest {
         // kept both in memory and on disk (a drain would need a write, still blocked).
         assertEquals(1, cache.getAll().single { it.id == 48L }.consecutiveSnoozeCount)
         assertEquals(1, BfuAlarmCache(file).getAll().single { it.id == 48L }.consecutiveSnoozeCount)
+
+        // Memory still holds the items: once the write works, the SAME instance drains
+        // them, and a second drain finds nothing. Would fail if the failed drain had
+        // already emptied the in-memory sets.
+        unblockAtomicWrite()
+        assertEquals(setOf(48L), cache.drainPendingDismissals())
+        assertEquals(mapOf(48L to 1), cache.drainBumps())
+        assertTrue(cache.drainPendingDismissals().isEmpty())
+        assertTrue(cache.drainBumps().isEmpty())
     }
 
     // Fails before the change: replaceAll/upsert/remove published memory before the write.
@@ -596,6 +606,12 @@ class BfuAlarmCacheTest {
         assertFalse(cache.markDismissed(28L))
         assertTrue(diskDismissals().isEmpty())
         assertEquals(diskBefore, file.readText(Charsets.UTF_8))
+
+        // Memory was not published either: with the write working again, the same
+        // instance drains nothing. Would fail (returns {28}) if markDismissed had
+        // added the id to memory before the failed write.
+        unblockAtomicWrite()
+        assertTrue(cache.drainPendingDismissals().isEmpty())
     }
 
     @Test
@@ -650,5 +666,9 @@ class BfuAlarmCacheTest {
         val tempPath = File(file.parentFile, "${file.name}.tmp")
         assertTrue("failed to create blocking temp directory", tempPath.mkdir())
         File(tempPath, "blocker").writeText("keep", Charsets.UTF_8)
+    }
+
+    private fun unblockAtomicWrite() {
+        assertTrue(File(file.parentFile, "${file.name}.tmp").deleteRecursively())
     }
 }

@@ -34,7 +34,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 // reason: TooManyFunctions — the repository exposes the full alarm CRUD
-// surface (save / setEnabled / setEnabledLocalOnly / delete / snooze /
+// surface (save / setEnabled / setEnabledLocalOnly / delete /
 // snoozeAt / rescheduleAll / rescheduleAllOnBoot / observeAlarms / getById /
 // getAll + the two-phase edit-screen save: saveLocalOnly + rescheduleAlarm
 // + scheduleWatchSync / syncWatchNow + the default-watch-bg helpers + debug
@@ -701,10 +701,11 @@ class AlarmRepository @Inject constructor(
         Log.i(TAG, "applyPendingDismissals count=${pending.size}")
         pending.forEach { id ->
             val alarm = dao.getById(id)?.toDomain() ?: return@forEach
-            // A dismiss ends the snooze chain. Reset the Room counter now so the
-            // pre-dismiss snoozes are not counted; snoozes made after the dismiss
-            // (next occurrence) are still pending in BFU and applied afterwards.
-            dao.setConsecutiveSnoozeCount(id, 0)
+            // A dismiss ends the snooze chain: clear the trigger AND the counter in one
+            // statement so pre-dismiss snoozes neither re-fire nor count. Snoozes made
+            // after the dismiss (next occurrence) are still pending in BFU and are
+            // applied afterwards by applyPendingSnoozeBumps.
+            dao.setSnooze(id, null, 0)
             when (com.kirkouski.gtwake.companion.ring.AlarmRingService.dismissAction(alarm)) {
                 com.kirkouski.gtwake.companion.ring.AlarmRingService.DismissAction.DELETE -> delete(id)
                 com.kirkouski.gtwake.companion.ring.AlarmRingService.DismissAction.DISABLE ->

@@ -39,7 +39,9 @@ class BootReceiver : BroadcastReceiver() {
                 throw e
             } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
                 // reason: a receiver must never crash the process (it would also kill a
-                // pre-unlock ring); the failure is logged and boot/unlock re-arms later.
+                // pre-unlock ring); the failure is logged. The next app start, unlock or
+                // boot/time event re-arms, and the boot branch still registers the watch
+                // handler when its re-arm fails (see execute).
                 Log.e(TAG, "action=$action unlocked=$unlocked route=$route failed", e)
             } finally {
                 pending.finish()
@@ -52,10 +54,15 @@ class BootReceiver : BroadcastReceiver() {
             // Pre-unlock: Room is locked, re-arm from the BFU cache.
             BootRoute.RESCHEDULE_FROM_BFU -> repository.rescheduleFromBfu()
             BootRoute.RESCHEDULE_ON_BOOT -> {
-                repository.rescheduleAllOnBoot()
-                // Idempotent — covers the case where the user
-                // dismisses morning alarm pre-MainActivity.
-                wearBridge.setIncomingHandler(incomingHandler)
+                try {
+                    repository.rescheduleAllOnBoot()
+                } finally {
+                    // Idempotent — covers the case where the user dismisses the morning
+                    // alarm pre-MainActivity. Registered even when the re-arm throws: the
+                    // caught failure no longer restarts the process, so without this the
+                    // watch Stop/Snooze would never reach the phone until the app opens.
+                    wearBridge.setIncomingHandler(incomingHandler)
+                }
             }
             // Locale-sensitive strings need re-render; alarm
             // schedule itself is locale-free.

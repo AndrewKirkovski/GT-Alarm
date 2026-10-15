@@ -679,6 +679,18 @@ class AlarmRepositoryTest {
         assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
     }
 
+    // Fails if applyPendingDismissals only resets the counter: the Room snooze trigger would survive.
+    @Test
+    fun `applyPendingDismissals clears the snooze trigger and counter together`() = runTest {
+        dao.upsert(recurringRow().copy(consecutiveSnoozeCount = 3, snoozedUntilEpoch = 1_800_000_000_000L))
+        coEvery { bfuCache.drainPendingDismissals() } returns setOf(1L)
+
+        repo.rescheduleAllOnBoot()
+
+        assertEquals(null, dao.getById(1L)?.snoozedUntilEpoch)
+        assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
+    }
+
     @Test
     fun `unlock reconciliation retains snooze trigger committed before unlock`() = runTest {
         val trigger = System.currentTimeMillis() + 600_000L
