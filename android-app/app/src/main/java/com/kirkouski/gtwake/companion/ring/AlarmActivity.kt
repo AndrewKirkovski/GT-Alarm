@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -59,6 +60,33 @@ class AlarmActivity : ComponentActivity() {
     private val activeAlarmId = mutableLongStateOf(-1L)
     private val activeFiredAtEpoch = mutableLongStateOf(-1L)
 
+    // Elapsed-realtime of the latest Dismiss/Snooze tap (0 = none). A replayed
+    // action failure older than this is ignored.
+    private var lastTapElapsedMs = 0L
+
+    // Whether the loaded alarm shows a Snooze button; Back uses it to choose
+    // between Snooze and Dismiss. Updated where the alarm row is loaded. True
+    // until then: a Back pressed before the row loads must not dismiss, and the
+    // service turns a snooze of a snooze-disabled alarm into its dismiss policy.
+    private var snoozeAvailable = true
+
+    // Back must not close the screen while the alarm rings: the watch's
+    // Stop/Snooze reach the phone only while this Activity is alive. Back sends
+    // the same action as the on-screen buttons. An object expression, so it adds
+    // no function to the class (detekt TooManyFunctions is at its limit).
+    private val backCallback = object : OnBackPressedCallback(true) {
+        override fun handleOnBackPressed() {
+            val id = activeAlarmId.longValue
+            val firedAt = activeFiredAtEpoch.longValue
+            when (RingEndedSignal.backChoice(id >= 0L, awaitingWatchState.value, snoozeAvailable)) {
+                RingEndedSignal.BackChoice.SNOOZE -> sendAction(AlarmRingService.ACTION_SNOOZE, id, firedAt)
+                RingEndedSignal.BackChoice.DISMISS -> sendAction(AlarmRingService.ACTION_DISMISS, id, firedAt)
+                RingEndedSignal.BackChoice.FINISH -> finishAndRemoveTask()
+                RingEndedSignal.BackChoice.IGNORE -> Unit
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Stamp BEFORE any work that could throw — the audit needs to know we
@@ -91,6 +119,8 @@ class AlarmActivity : ComponentActivity() {
             }
         }
 
+        onBackPressedDispatcher.addCallback(this, backCallback)
+
         setContent {
             var alarm by remember { mutableStateOf<Alarm?>(null) }
             var defaultBgUri by remember { mutableStateOf<String?>(null) }
@@ -111,12 +141,14 @@ class AlarmActivity : ComponentActivity() {
                     val loadedBackground = settingsStore.defaultPhoneBackgroundUri.first()
                     if (activeAlarmId.longValue == currentAlarmId && activeFiredAtEpoch.longValue == currentFiredAt) {
                         alarm = loadedAlarm
+                        snoozeAvailable = loadedAlarm?.isSnoozeEnabled == true
                         defaultBgUri = loadedBackground
                     }
                 } else {
                     val loadedAlarm = bfuCache.getAll().firstOrNull { it.id == currentAlarmId }
                     if (activeAlarmId.longValue == currentAlarmId && activeFiredAtEpoch.longValue == currentFiredAt) {
                         alarm = loadedAlarm
+                        snoozeAvailable = loadedAlarm?.isSnoozeEnabled == true
                         defaultBgUri = null
                     }
                 }
@@ -197,7 +229,9 @@ class AlarmActivity : ComponentActivity() {
         RingEndedSignal.actionFailures.collect { event ->
             // Only while waiting: the flow replays its last event, and one this
             // screen already handled must not undo a newer tap.
+            // A failure older than the latest tap belongs to an earlier tap.
             if (!isCurrentOccurrence(event) || !awaitingWatchState.value) return@collect
+            if (RingEndedSignal.isStaleFailure(event.emittedAtElapsedMs, lastTapElapsedMs)) return@collect
             Log.w(TAG, "action failed id=${event.alarmId} firedAt=${event.firedAtEpoch} — buttons restored")
             leaveWaitingState()
         }
@@ -260,6 +294,7 @@ class AlarmActivity : ComponentActivity() {
 
     private fun sendAction(action: String, alarmId: Long, firedAtEpoch: Long) {
         Log.i(TAG, "user tap action=$action id=$alarmId firedAt=$firedAtEpoch")
+        lastTapElapsedMs = android.os.SystemClock.elapsedRealtime()
         val intent = Intent(this, AlarmRingService::class.java).apply {
             this.action = action
             putExtra(AlarmRingService.EXTRA_ALARM_ID, alarmId)

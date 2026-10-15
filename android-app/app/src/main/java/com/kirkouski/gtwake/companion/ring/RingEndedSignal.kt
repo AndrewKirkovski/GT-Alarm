@@ -35,10 +35,36 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 object RingEndedSignal {
 
+    /**
+     * [emittedAtElapsedMs] is `SystemClock.elapsedRealtime()` at emit time. Only
+     * action failures set it (0 elsewhere); AlarmActivity uses it to ignore a
+     * replayed failure that is older than the user's latest tap.
+     */
     data class Event(
         val alarmId: Long,
         val firedAtEpoch: Long,
+        val emittedAtElapsedMs: Long = 0L,
     )
+
+    /** What the system Back gesture does on the phone ring screen. */
+    enum class BackChoice { IGNORE, SNOOZE, DISMISS, FINISH }
+
+    /**
+     * Back while ringing = Snooze, or Dismiss when this alarm has no snooze.
+     * While already waiting for the watch it is consumed. With nothing ringing
+     * it closes the screen as usual.
+     */
+    internal fun backChoice(ringing: Boolean, awaitingWatch: Boolean, snoozeEnabled: Boolean): BackChoice =
+        when {
+            !ringing -> BackChoice.FINISH
+            awaitingWatch -> BackChoice.IGNORE
+            snoozeEnabled -> BackChoice.SNOOZE
+            else -> BackChoice.DISMISS
+        }
+
+    /** A failure event emitted before the user's latest tap belongs to an older tap. */
+    internal fun isStaleFailure(failureAtElapsedMs: Long, lastTapAtElapsedMs: Long): Boolean =
+        failureAtElapsedMs < lastTapAtElapsedMs
 
     private val _events = MutableSharedFlow<Event>(
         replay = 1,
@@ -68,7 +94,7 @@ object RingEndedSignal {
     val actionFailures: SharedFlow<Event> = _actionFailures.asSharedFlow()
 
     fun emitActionFailed(alarmId: Long, firedAtEpoch: Long) {
-        _actionFailures.tryEmit(Event(alarmId, firedAtEpoch))
+        _actionFailures.tryEmit(Event(alarmId, firedAtEpoch, android.os.SystemClock.elapsedRealtime()))
     }
 
     // A watch dismiss/snooze for this occurrence was committed. The service

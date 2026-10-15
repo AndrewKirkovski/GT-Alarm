@@ -23,6 +23,7 @@ import com.kirkouski.gtwake.companion.wear.AlarmRingHints
 import com.kirkouski.gtwake.companion.wear.WearBridgeService
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -93,7 +94,20 @@ class AlarmRingService : Service() {
     }
 
     private val serviceScope by lazy { CoroutineScope(SupervisorJob() + ioDispatcher) }
+
+    // Runs the finalization of a superseded ring (its dismiss policy and its
+    // watch end message). onDestroy does NOT cancel this scope: a second alarm
+    // that ends quickly (a legacy watch dismiss tears the service down at
+    // once, or a fast phone dismiss) must not cancel the first alarm's
+    // one-shot disable or self-destruct delete half way. Every job here is
+    // bounded by its own timeout, and once [destroyed] is set it touches no
+    // ring state (see onMainWhileAlive).
+    private val finalizerScope by lazy { CoroutineScope(SupervisorJob() + ioDispatcher) }
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    // Set first thing in onDestroy. Read by the finalizer jobs, which outlive
+    // the service; everything else is main-thread state of a live service.
+    @Volatile private var destroyed: Boolean = false
 
     // Serializes the commit of dismiss/snooze and the takeover's finalization
     // of a superseded ring, PER ALARM ID. The race the lock exists for is
@@ -160,7 +174,37 @@ class AlarmRingService : Service() {
     // for this service instance only (decided: no persistent receipts).
     private val peerState = PeerActionState()
 
-    private data class SupersededRing(val key: OccurrenceKey, val watchMayBeRinging: Boolean)
+    // Occurrences whose alarm_fired (pre-arm or catch-up) is being delivered to
+    // the watch right now, MAIN THREAD ONLY. The 207 delivery record only
+    // appears when a send returns, so a phone Stop while the send is in flight
+    // would otherwise decide "the watch is not ringing" and send no end
+    // message, and the fire then lands and the watch rings. The entry is
+    // removed when the delivery effort returns on its own; the record decides
+    // from then on. An effort cut short by the ring's end and pre-unlock
+    // fire-and-forget sends keep their entry (their landing time is unknown);
+    // the set is per service and tiny.
+    private val fireSendsInFlight = mutableSetOf<OccurrenceKey>()
+
+    // The ring that replaced an older one. [settled] completes once its
+    // alarm_fired attempt is over (pre-arm returned) or the ring itself ended;
+    // [confirmed] says the watch answered alarm_ringing.
+    private class RingFire(val alarmId: Long, val startedElapsedMs: Long) {
+        val settled = CompletableDeferred<Unit>()
+
+        @Volatile var confirmed: Boolean = false
+    }
+
+    private data class SupersededRing(
+        val key: OccurrenceKey,
+        val watchMayBeRinging: Boolean,
+        // The old occurrence already had a committed outcome when the new ring
+        // took over; kept so a destroyed service need not be read again.
+        val endedAtTakeover: Boolean,
+        val replacedBy: RingFire? = null,
+    )
+
+    // The fire state of the CURRENT ring (null before the first ring).
+    private var ringFire: RingFire? = null
 
     private data class ActionClaim(
         val occurrence: OccurrenceKey,
@@ -267,8 +311,13 @@ class AlarmRingService : Service() {
         // ringJob.cancel() on the next takeover would otherwise cancel a
         // finalization that has not run yet, and the oldest of three quick
         // alarms would lose its dismiss policy. It still runs under
-        // its alarm's mutex and the new ring never waits for it.
-        superseded?.let { launchDetached("finish superseded ring id=${it.key.alarmId}") { finishSupersededRing(it) } }
+        // its alarm's mutex and the new ring never waits for it. It runs in
+        // finalizerScope, which a stopping service does not cancel.
+        superseded?.let { old ->
+            launchDetached("finish superseded ring id=${old.key.alarmId}", finalizerScope) {
+                finishSupersededRing(old)
+            }
+        }
         ringJob = serviceScope.launch { runRing(alarm, firedAtEpoch) }
     }
 
@@ -310,12 +359,22 @@ class AlarmRingService : Service() {
         val previous = if (currentAlarmId >= 0L) OccurrenceKey(currentAlarmId, currentFiredAtEpoch) else null
         // The previous occurrence's ring start, captured BEFORE it is reset:
         // the "could the watch be ringing it" check must not use the new ring's.
-        val superseded = previous?.takeIf { it.alarmId != alarm.id }
-            ?.let { SupersededRing(it, watchMayBeRinging(it.alarmId, ringStartedElapsedMs)) }
+        val superseded = previous?.takeIf { it.alarmId != alarm.id }?.let {
+            SupersededRing(
+                key = it,
+                watchMayBeRinging = watchMayBeRinging(it, ringStartedElapsedMs),
+                endedAtTakeover = peerState.outcomeOf(it) != null,
+            )
+        }
         ringJob?.cancel()
         ringJob = null
         stopCurrentRingResources()
         ringStartedElapsedMs = android.os.SystemClock.elapsedRealtime()
+        // The old ring's end message waits on THIS ring's alarm_fired outcome
+        // (see sendEndedToWatch): a released watch ends whatever ring is on
+        // screen, so it must not follow a fire that already reached the watch.
+        val fire = RingFire(alarm.id, ringStartedElapsedMs)
+        ringFire = fire
         // Phone wall time of this ring, sent as `firedAt` so the watch can
         // match re-sent copies. Strictly increasing within this service.
         val firedAtEpoch = maxOf(System.currentTimeMillis(), currentFiredAtEpoch + 1L)
@@ -333,7 +392,7 @@ class AlarmRingService : Service() {
         // Armed at ring start (not at audio start): a failed dismiss during the
         // pre-arm, before any audio exists, must still end up auto-stopped.
         scheduleAutoStop(alarm.id, firedAtEpoch, AUTO_STOP_MS)
-        return superseded
+        return superseded?.copy(replacedBy = fire)
     }
 
     // Everything after the synchronous start. Runs on the IO dispatcher;
@@ -473,10 +532,19 @@ class AlarmRingService : Service() {
     private suspend fun preArmWatchTimed(alarmId: Long, alarm: Alarm, firedAtEpoch: Long) {
         val prearmStartMs = System.currentTimeMillis()
         val ringHints = buildRingHints(alarm, firedAtEpoch)
-        val watchReady = preArmWatch(alarmId, ringHints)
+        val watchReady = preArmWatch(OccurrenceKey(alarmId, firedAtEpoch), ringHints)
         val prearmTookMs = System.currentTimeMillis() - prearmStartMs
         Log.i(TAG, "preArmWatch id=$alarmId ready=$watchReady took=${prearmTookMs}ms")
-        if (!watchReady) onMain { startWatchCatchUp(alarmId, firedAtEpoch, ringHints) }
+        onMain {
+            if (matchesCurrentOccurrence(alarmId, firedAtEpoch)) {
+                // A ring that ended first was settled by cancelRingTimers.
+                ringFire?.let {
+                    it.confirmed = watchReady
+                    it.settled.complete(Unit)
+                }
+            }
+            if (!watchReady) startWatchCatchUp(alarmId, firedAtEpoch, ringHints)
+        }
     }
 
     // Thin-client envelope hints — see AlarmRingHints KDoc. Computed once per
@@ -530,7 +598,8 @@ class AlarmRingService : Service() {
     // Try to wake the watch so it shows its own ring page in time with the
     // phone. Returns true if a 207 (COMM_SUCCESS) came back within budget;
     // false if no watch is paired/connected OR we timed out waiting.
-    private suspend fun preArmWatch(alarmId: Long, ringHints: AlarmRingHints): Boolean {
+    private suspend fun preArmWatch(occurrence: OccurrenceKey, ringHints: AlarmRingHints): Boolean {
+        val alarmId = occurrence.alarmId
         val info = wearBridge.pairedDeviceInfo.value
         if (info == null || !info.connected) {
             Log.d(TAG, "preArmWatch: no connected watch (info=$info) — skipping wait")
@@ -539,13 +608,21 @@ class AlarmRingService : Service() {
             wearBridge.sendAlarmFired(alarmId, ringHints)
             return false
         }
+        // A send to a connected watch starts now: until it comes back, a phone
+        // Stop must still reach the watch (see fireSendsInFlight).
+        onMain { fireSendsInFlight += occurrence }
         if (!isUserUnlocked) {
             // Pre-unlock: no incoming receiver, so await would hang. Fire-and-forget.
+            // The mark stays: when this send lands is unknown.
             Log.i(TAG, "preArmWatch: pre-unlock — sending fire-and-forget, no await")
             wearBridge.sendAlarmFired(alarmId, ringHints)
             return false
         }
-        return wearBridge.sendAlarmFiredAwaiting(alarmId, PREARM_TIMEOUT_MS, ringHints)
+        val ready = wearBridge.sendAlarmFiredAwaiting(alarmId, PREARM_TIMEOUT_MS, ringHints)
+        // Returned normally: the delivery record is authoritative from here.
+        // A cancelled send keeps its mark (the ring ended mid-delivery).
+        mainHandler.post { fireSendsInFlight -= occurrence }
+        return ready
     }
 
     // The pre-arm gives the watch PREARM_TIMEOUT_MS before the phone starts
@@ -565,8 +642,16 @@ class AlarmRingService : Service() {
         watchCatchUpJob?.cancel()
         // elapsedRealtime: immune to wall-clock jumps during the window.
         val deadline = ringStartedElapsedMs + WATCH_CATCHUP_WINDOW_MS
+        // The whole catch-up window counts as "delivery in progress", gaps
+        // between attempts included: an earlier attempt may land at any time.
+        val occurrence = OccurrenceKey(alarmId, firedAtEpoch)
+        fireSendsInFlight += occurrence
         watchCatchUpJob = launchDetached("watch catch-up id=$alarmId") {
             runWatchCatchUp(alarmId, firedAtEpoch, hints, deadline)
+            // Ran to its end (delivered, or the window is over): the delivery
+            // record decides from here. A job cancelled by the ring's end
+            // keeps its mark, so the end message of that ring is still sent.
+            mainHandler.post { fireSendsInFlight -= occurrence }
         }
     }
 
@@ -590,12 +675,25 @@ class AlarmRingService : Service() {
     // When that start is unknown (the process died mid-ring and the dismiss
     // came from the surviving notification, so both this service and the
     // bridge's delivery record are fresh), send anyway: a watch left ringing
-    // is worse than one extra wake.
-    private fun watchMayBeRinging(alarmId: Long, ringStartedMs: Long): Boolean {
-        if (ringStartedMs == 0L) return true
-        val may = wearBridge.wasAlarmFiredDelivered(alarmId, ringStartedMs)
-        if (!may) Log.i(TAG, "watch never received alarm_fired id=$alarmId — not sending end")
+    // is worse than one extra wake. The same rule covers an alarm_fired that
+    // is still being delivered (fireSendsInFlight): the 207 record does not
+    // exist yet, but the watch may ring a moment later.
+    // Main thread (fireSendsInFlight).
+    private fun watchMayBeRinging(occurrence: OccurrenceKey, ringStartedMs: Long): Boolean {
+        if (ringStartedMs == 0L || occurrence in fireSendsInFlight) return true
+        val may = wearBridge.wasAlarmFiredDelivered(occurrence.alarmId, ringStartedMs)
+        if (!may) Log.i(TAG, "watch never received alarm_fired id=${occurrence.alarmId} — not sending end")
         return may
+    }
+
+    // The end message of ring [occurrence] is wrong when a NEWER ring's
+    // alarm_fired already reached the watch: released watch apps (1.0.7 in the
+    // store, 1.0.11) do not compare alarm ids and would end the new ring. The
+    // new alarm_fired already replaced the old ring on every watch version.
+    // Main thread (reads the current ring).
+    private fun newerFireReachedWatch(occurrence: OccurrenceKey): Boolean {
+        if (currentAlarmId < 0L || matchesCurrentOccurrence(occurrence.alarmId, occurrence.firedAtEpoch)) return false
+        return wearBridge.wasAlarmFiredDelivered(currentAlarmId, ringStartedElapsedMs)
     }
 
     // ---------------------------------------------------------------------
@@ -893,10 +991,35 @@ class AlarmRingService : Service() {
         if (!posted) continuation.resumeWithException(IllegalStateException("main looper is not accepting work"))
     }
 
+    /**
+     * Like [onMain], for jobs that outlive the service (finalizerScope): once
+     * the service is destroyed the block is skipped and null is returned, so
+     * such a job never touches the ring state of a dead instance.
+     *
+     * onDestroy clears [mainHandler]'s queue, which drops a block posted just
+     * before it; each wait is therefore bounded, and the loop re-checks
+     * [destroyed] instead of hanging until the caller's timeout (which would
+     * cancel the very commit that must survive the stop). A wait that timed
+     * out cancels its continuation, so its block can never run late.
+     */
+    private suspend fun <T : Any> onMainWhileAlive(block: () -> T): T? {
+        while (!destroyed) {
+            val result = withTimeoutOrNull(MAIN_WHILE_ALIVE_WAIT_MS) {
+                onMain { if (destroyed) null else block() }
+            }
+            if (result != null) return result
+        }
+        return null
+    }
+
     // reason: a detached coroutine has no caller to report to; an uncaught
     // exception in serviceScope would crash the process mid-alarm.
     @Suppress("TooGenericExceptionCaught")
-    private fun launchDetached(label: String, block: suspend () -> Unit): Job = serviceScope.launch {
+    private fun launchDetached(
+        label: String,
+        scope: CoroutineScope = serviceScope,
+        block: suspend () -> Unit,
+    ): Job = scope.launch {
         try {
             block()
         } catch (e: CancellationException) {
@@ -906,7 +1029,12 @@ class AlarmRingService : Service() {
         }
     }
 
+    // Called by every path that ends the current ring (takeover, committed
+    // action, give-up, teardown, destroy). A ring that ends before its pre-arm
+    // returned will never deliver its fire from here, so the end message of an
+    // older ring that waits on it (sendEndedToWatch) stops waiting.
     private fun cancelRingTimers() {
+        ringFire?.settled?.complete(Unit)
         watchCatchUpJob?.cancel()
         watchCatchUpJob = null
         autoStopRunnable?.let { mainHandler.removeCallbacks(it) }
@@ -931,21 +1059,16 @@ class AlarmRingService : Service() {
     // The previous (different) alarm never got a dismiss/snooze. Apply its
     // dismiss policy under the mutex, unless an action for it already
     // committed. The watch is told DETACHED: the new ring must not wait for a
-    // send that has no inner timeout.
+    // send that has no inner timeout. This runs in finalizerScope (not
+    // cancelled when the service stops) and every step is bounded.
     private suspend fun finishSupersededRing(superseded: SupersededRing) {
         val key = superseded.key
         try {
-            val applied = mutexFor(key.alarmId).withLock {
-                val alreadyEnded = onMain { peerState.outcomeOf(key) != null }
-                if (!alreadyEnded) {
-                    commitDismiss(key.alarmId, fromPeer = true)
-                    onMain {
-                        peerState.recordSuccess(key, RingOutcome.DISMISSED, null)
-                    }
-                }
-                !alreadyEnded
+            val applied = withTimeoutOrNull(FINALIZE_TIMEOUT_MS) { applySupersededDismiss(superseded) }
+            if (applied == null) {
+                Log.e(TAG, "finalizing superseded ring timed out id=${key.alarmId} firedAt=${key.firedAtEpoch}")
             }
-            if (applied && superseded.watchMayBeRinging) notifyWatchEndedDetached(key)
+            if (applied == true && superseded.watchMayBeRinging) sendEndedToWatch(key, superseded.replacedBy)
         } catch (e: CancellationException) {
             throw e
         } catch (
@@ -958,11 +1081,40 @@ class AlarmRingService : Service() {
         }
     }
 
-    private fun notifyWatchEndedDetached(key: OccurrenceKey) {
-        launchDetached("superseded dismiss send id=${key.alarmId}") {
-            withTimeoutOrNull(SUPERSEDED_SEND_TIMEOUT_MS) {
-                wearBridge.sendAlarmDismissed(key.alarmId, firedAt = key.firedAtEpoch)
+    // True when the dismiss policy was applied by this call, false when an
+    // action had already ended the occurrence. The in-memory outcome is only
+    // recorded and read while the service is alive; a destroyed service takes
+    // its peerState with it, so the takeover-time snapshot stands in.
+    private suspend fun applySupersededDismiss(superseded: SupersededRing): Boolean {
+        val key = superseded.key
+        return mutexFor(key.alarmId).withLock {
+            val alreadyEnded = superseded.endedAtTakeover ||
+                onMainWhileAlive { peerState.outcomeOf(key) != null } == true
+            if (!alreadyEnded) {
+                commitDismiss(key.alarmId, fromPeer = true)
+                onMainWhileAlive { peerState.recordSuccess(key, RingOutcome.DISMISSED, null) }
             }
+            !alreadyEnded
+        }
+    }
+
+    // Tells the watch that ring [key] is over. Released watch apps end WHATEVER
+    // ring is on screen, so when the ring that replaced it ([replacedBy]) has
+    // already had its alarm_fired delivered, the end is not sent: that fire
+    // replaced the old ring on every watch version, and the end would stop the
+    // new one. The wait for the new ring's outcome and the send are bounded.
+    private suspend fun sendEndedToWatch(key: OccurrenceKey, replacedBy: RingFire?) {
+        if (replacedBy != null) {
+            withTimeoutOrNull(SUPERSEDED_FIRE_WAIT_MS) { replacedBy.settled.await() }
+            val reached = replacedBy.confirmed ||
+                wearBridge.wasAlarmFiredDelivered(replacedBy.alarmId, replacedBy.startedElapsedMs)
+            if (reached) {
+                Log.i(TAG, "new ring id=${replacedBy.alarmId} reached the watch — not ending id=${key.alarmId}")
+                return
+            }
+        }
+        withTimeoutOrNull(SUPERSEDED_SEND_TIMEOUT_MS) {
+            wearBridge.sendAlarmDismissed(key.alarmId, firedAt = key.firedAtEpoch)
         }
     }
 
@@ -1084,8 +1236,9 @@ class AlarmRingService : Service() {
     }
 
     // Commit local truth FIRST, then tell the watch. If the OS kills us between
-    // the two, the watch can recover via the next sync hash mismatch; the phone
-    // DB can't recover its own inconsistent state, so it gets priority.
+    // the two, the watch is simply not told (list sync is off by default, so
+    // nothing repairs it later); the phone DB can't recover its own
+    // inconsistent state, so it gets priority.
     // The occurrence check happens INSIDE the mutex: a takeover that finalized
     // this occurrence first wins, and this action is abandoned untouched.
     // reason: the commit touches Room, DataStore-backed repository code, the
@@ -1274,19 +1427,15 @@ class AlarmRingService : Service() {
 
     // The ring carries on after a failed action. Tell the Activity (a phone tap
     // that was ignored while a WATCH action was in flight leaves it on
-    // "waiting for watch") and make sure an auto-stop is armed.
+    // "waiting for watch"). No timer needs arming here: an open ring always has
+    // an auto-stop armed. takeOverService arms the 5-minute one; when it fires
+    // it re-arms through armAutoStopWatchdog (claimed) or retryAutoStop (an
+    // action was in flight), or gives up and ends the ring.
     private fun onActionFailedRingContinues(request: RingActionRequest, occurrence: OccurrenceKey) {
         RingEndedSignal.emitActionFailed(occurrence.alarmId, occurrence.firedAtEpoch)
-        when {
-            // The auto-stop's own save failed fast and its watchdog is already
-            // armed for the next attempt; only the last attempt ends here.
-            request.autoStop && autoStopFinalAttempt -> giveUpAutoStop(occurrence)
-            request.autoStop && autoStopRunnable == null -> retryAutoStop(occurrence)
-            // The auto-stop already ran (and lost the claim to this action), so
-            // nothing is armed any more.
-            !request.autoStop && autoStopRunnable == null ->
-                scheduleAutoStop(occurrence.alarmId, occurrence.firedAtEpoch, AUTO_STOP_RETRY_MS)
-        }
+        // The auto-stop's own save failed fast and its watchdog is already
+        // armed for the next attempt; only the last attempt ends here.
+        if (request.autoStop && autoStopFinalAttempt) giveUpAutoStop(occurrence)
     }
 
     // Armed when an auto-stop claims its occurrence, BEFORE the save. Next
@@ -1336,7 +1485,9 @@ class AlarmRingService : Service() {
         ringEnded = true
         cancelRingTimers()
         stopPlayback()
-        if (watchMayBeRinging(occurrence.alarmId, ringStartedElapsedMs)) notifyWatchEndedDetached(occurrence)
+        if (watchMayBeRinging(occurrence, ringStartedElapsedMs)) {
+            launchDetached("auto-stop dismiss send id=${occurrence.alarmId}") { sendEndedToWatch(occurrence, null) }
+        }
         scheduleGraceTeardown(occurrence)
     }
 
@@ -1346,9 +1497,15 @@ class AlarmRingService : Service() {
     private suspend fun finishLocalAction(claim: ActionClaim, committed: ActionResult.Committed) {
         val occurrence = claim.occurrence
         try {
-            if (watchMayBeRinging(occurrence.alarmId, claim.ringStartedMs)) {
-                broadcastToWatch(occurrence, committed)
+            // A takeover can have happened since the tap: then a newer ring's
+            // delivered alarm_fired replaces this one on the watch and an end
+            // message here would stop the new ring on a released watch app.
+            // The bridge's own re-send rounds inside the broadcast are not
+            // gated here, only the decision to start it.
+            val tellWatch = onMain {
+                watchMayBeRinging(occurrence, claim.ringStartedMs) && !newerFireReachedWatch(occurrence)
             }
+            if (tellWatch) broadcastToWatch(occurrence, committed)
         } finally {
             onMain { stopForegroundAndSelf(occurrence.alarmId, occurrence.firedAtEpoch) }
         }
@@ -1414,7 +1571,12 @@ class AlarmRingService : Service() {
     // lifecycle contract; non-blocking is the correct call. Critical writes
     // are committed BEFORE the broadcast (see commitAction ordering) so the
     // phone DB stays consistent even on mid-flight kill.
+    // The finalization of a superseded ring is the exception: it runs in
+    // finalizerScope, which is NOT cancelled here, so an older alarm's
+    // one-shot disable / self-destruct delete completes even when the newer
+    // ring ends at once. `destroyed` keeps those jobs away from ring state.
     override fun onDestroy() {
+        destroyed = true
         serviceScope.cancel()
         ringJob?.cancel()
         ringJob = null
@@ -1452,6 +1614,13 @@ class AlarmRingService : Service() {
         // after this long.
         private const val SUPERSEDED_SEND_TIMEOUT_MS = 5_000L
 
+        // The old ring's dismiss-policy commit runs outside serviceScope; this
+        // bound keeps a stalled save from holding that alarm's mutex forever.
+        private const val FINALIZE_TIMEOUT_MS = 30_000L
+
+        // One bounded wait of onMainWhileAlive for its block on the main thread.
+        private const val MAIN_WHILE_ALIVE_WAIT_MS = 1_000L
+
         // Grace before auditing whether the ring UI appeared. Must outlast the
         // window-transition + Activity onCreate that a successful FSI still has
         // to finish after audio starts, or a healthy ring reports a false
@@ -1476,6 +1645,11 @@ class AlarmRingService : Service() {
         // Cold process: how long ring start waits for the P2P receiver
         // registration before deciding whether to advertise supportsActionAck.
         private const val RECEIVE_READY_WAIT_MS = 1_500L
+
+        // How long the old ring's end message waits to learn whether the NEW
+        // ring's alarm_fired reached the watch: the pre-arm budget, the cold
+        // process receiver wait, and a margin for the settings read.
+        private const val SUPERSEDED_FIRE_WAIT_MS = PREARM_TIMEOUT_MS + RECEIVE_READY_WAIT_MS + 2_000L
 
         // Background re-send of alarm_fired after the pre-arm times out (see
         // startWatchCatchUp). The window covers slow cold starts without

@@ -470,13 +470,20 @@ class AlarmRingServiceTest {
     }
 
     /*
-     * Fails before: audio stopped only after a successful commit, nothing
-     * told the Activity, and auto-stop was never re-armed.
+     * Fails before: audio stopped only after a successful commit and nothing
+     * told the Activity. The ring is started through the normal path, so the
+     * 5-minute auto-stop armed at ring start must still be the armed one
+     * after the failure (an open ring always has an auto-stop).
      */
     @Test
-    fun `failed local dismiss silences the phone, emits ActionFailed and re-arms auto-stop`() = runTest {
+    fun `failed local dismiss silences the phone, emits ActionFailed and keeps the auto-stop armed`() = runTest {
         val env = newEnv()
-        env.setRing(1L, 1_000L)
+        coEvery { env.repository.getById(1L) } returns baseAlarm
+        env.ring(1L)
+        advanceUntilIdle()
+        val firedAt = env.firedAt()
+        val originalAutoStop = env.read("autoStopRunnable")
+        assertNotNull("armed at ring start", originalAutoStop)
         val audio = mockk<AlarmAudioPlayer>(relaxed = true)
         env.write("player", audio)
         coEvery { env.repository.getById(1L) } throws IOException("disk full")
@@ -485,15 +492,15 @@ class AlarmRingServiceTest {
             RingEndedSignal.actionFailures.collect { failures += it }
         }
 
-        env.action(dismissed, RingActionRequest(1L, fromPeer = false, firedAtEpoch = 1_000L))
+        env.action(dismissed, RingActionRequest(1L, fromPeer = false, firedAtEpoch = firedAt))
         advanceUntilIdle()
 
         verify(exactly = 1) { audio.stop() }
-        assertEquals(listOf(RingEndedSignal.Event(1L, 1_000L)), failures)
+        assertEquals(listOf(RingEndedSignal.Event(1L, firedAt)), failures)
         assertFalse(env.read("ringEnded") as Boolean)
         assertFalse("buttons work again", env.read("ringActionStarted") as Boolean)
-        assertNotNull("auto-stop is armed again", env.read("autoStopRunnable"))
-        assertTrue(env.delayed.any { it.second == 30_000L })
+        assertSame("the ring's own auto-stop is still armed", originalAutoStop, env.read("autoStopRunnable"))
+        assertTrue(env.delayed.any { it.second == 300_000L })
     }
 
     /*
@@ -716,25 +723,33 @@ class AlarmRingServiceTest {
 
     /*
      * Fails before: a failed WATCH action emitted no ActionFailed (a phone tap
-     * ignored while it was in flight stayed on "waiting for watch") and did not
-     * re-arm the auto-stop that had already run and been ignored.
+     * ignored while it was in flight stayed on "waiting for watch"). The ring
+     * started through the normal path keeps its own 5-minute auto-stop, so the
+     * failure does not need to arm a new one.
      */
     @Test
-    fun `failed watch action tells the Activity and re-arms the auto-stop`() = runTest {
+    fun `failed watch action tells the Activity and keeps the auto-stop armed`() = runTest {
         val env = newEnv()
-        env.setRing(1L, 1_000L)
+        coEvery { env.repository.getById(1L) } returns baseAlarm
+        env.ring(1L)
+        advanceUntilIdle()
+        val firedAt = env.firedAt()
+        val originalAutoStop = env.read("autoStopRunnable")
+        assertNotNull("armed at ring start", originalAutoStop)
         coEvery { env.repository.getById(1L) } throws IOException("disk full")
         val failures = mutableListOf<RingEndedSignal.Event>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
             RingEndedSignal.actionFailures.collect { failures += it }
         }
 
-        env.action(dismissed, RingActionRequest(1L, true, 1_000L, 5L))
+        env.action(dismissed, RingActionRequest(1L, true, firedAt, 5L))
         advanceUntilIdle()
 
-        verify(exactly = 1) { env.wearBridge.sendPeerActionAck(1L, "alarm_dismissed", 5L, 1_000L, false) }
-        assertEquals(listOf(RingEndedSignal.Event(1L, 1_000L)), failures)
-        assertTrue(env.delayed.any { it.second == 30_000L })
+        verify(exactly = 1) { env.wearBridge.sendPeerActionAck(1L, "alarm_dismissed", 5L, firedAt, false) }
+        assertEquals(listOf(RingEndedSignal.Event(1L, firedAt)), failures)
+        assertFalse(env.read("ringEnded") as Boolean)
+        assertSame("the ring's own auto-stop is still armed", originalAutoStop, env.read("autoStopRunnable"))
+        assertTrue(env.delayed.any { it.second == 300_000L })
     }
 
     /*
@@ -1030,6 +1045,155 @@ class AlarmRingServiceTest {
         assertEquals(1L, env.read("currentAlarmId"))
     }
 
+    // ---- takeover end message, finalization, in-flight fire --------------
+
+    /*
+     * Fails before: finishSupersededRing sent alarm_dismissed(1) whenever the
+     * watch had received alarm 1's fire, even though alarm 2's alarm_fired had
+     * just been delivered; a released watch app ends whatever ring is on
+     * screen, so it would have ended alarm 2. The old ring's dismiss policy is
+     * still applied.
+     */
+    @Test
+    fun `takeover does not end the old ring on the watch when the new ring's fire was delivered`() = runTest {
+        val env = newEnv()
+        env.watchConnected()
+        for (id in 1L..2L) coEvery { env.repository.getById(id) } returns baseAlarm.copy(id = id)
+        coEvery { env.wearBridge.sendAlarmFiredAwaiting(any(), any(), any()) } returns true
+        every { env.wearBridge.wasAlarmFiredDelivered(1L, any()) } returns true
+        env.ring(1L)
+        advanceUntilIdle()
+        // A known ring start, so the delivery record (not "start unknown") decides.
+        env.write("ringStartedElapsedMs", 5_000L)
+
+        env.ring(2L)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { env.repository.setEnabledLocalOnly(1L, false) }
+        coVerify(exactly = 0) { env.wearBridge.sendAlarmDismissed(any(), any()) }
+    }
+
+    /*
+     * Passes before and after: the old ring's end IS sent when the new ring's
+     * fire did not reach the watch (pre-arm not ready), so a watch that still
+     * shows the old ring does not keep ringing it. Pins the other half of the
+     * rule next to the test above.
+     */
+    @Test
+    fun `takeover ends the old ring on the watch when the new ring's fire did not reach it`() = runTest {
+        val env = newEnv()
+        env.watchConnected()
+        for (id in 1L..2L) coEvery { env.repository.getById(id) } returns baseAlarm.copy(id = id)
+        coEvery { env.wearBridge.sendAlarmFiredAwaiting(1L, any(), any()) } returns true
+        coEvery { env.wearBridge.sendAlarmFiredAwaiting(2L, any(), any()) } returns false
+        every { env.wearBridge.wasAlarmFiredDelivered(1L, any()) } returns true
+        env.ring(1L)
+        advanceUntilIdle()
+        val firstFiredAt = env.firedAt()
+        env.write("ringStartedElapsedMs", 5_000L)
+
+        env.ring(2L)
+        runCurrent()
+
+        coVerify(exactly = 1) { env.repository.setEnabledLocalOnly(1L, false) }
+        coVerify(exactly = 1) { env.wearBridge.sendAlarmDismissed(1L, firstFiredAt) }
+        env.scope.cancel() // stops alarm 2's catch-up loop
+    }
+
+    /*
+     * Fails before: the broadcast of a phone Stop that committed after a
+     * takeover was sent although alarm 2's fire had already reached the watch.
+     */
+    @Test
+    fun `phone Stop that commits after a takeover sends no end once the new fire was delivered`() = runTest {
+        val env = newEnv()
+        env.setRing(1L, 1_000L)
+        coEvery { env.repository.getById(1L) } coAnswers {
+            delay(1_000)
+            baseAlarm
+        }
+        coEvery { env.repository.getById(2L) } returns baseAlarm.copy(id = 2L)
+        every { env.wearBridge.wasAlarmFiredDelivered(2L, any()) } returns true
+        env.action(dismissed, RingActionRequest(1L, fromPeer = false, firedAtEpoch = 1_000L))
+        runCurrent()
+
+        env.ring(2L)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { env.repository.setEnabled(1L, false) }
+        coVerify(exactly = 0) { env.wearBridge.sendAlarmDismissedAwaiting(1L, any(), any()) }
+        coVerify(exactly = 0) { env.wearBridge.sendAlarmDismissed(1L, any()) }
+    }
+
+    /*
+     * Fails before: the finalization ran in serviceScope, which onDestroy
+     * cancels, so a second ring that ended at once left alarm 1's one-shot
+     * enabled (setEnabledLocalOnly was called 0 times). Nothing may be
+     * written to the destroyed service's peer state.
+     */
+    @Test
+    fun `old ring's dismiss policy is still committed when the service stops right after the takeover`() = runTest {
+        val env = newEnv()
+        coEvery { env.repository.getById(1L) } returns baseAlarm
+        coEvery { env.repository.getById(2L) } returns baseAlarm.copy(id = 2L)
+        env.ring(1L)
+        runCurrent()
+        val firstFiredAt = env.firedAt()
+
+        env.ring(2L)
+        env.invoke("onDestroy")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { env.repository.setEnabledLocalOnly(1L, false) }
+        assertNull(env.peerState().outcomeOf(OccurrenceKey(1L, firstFiredAt)))
+    }
+
+    /*
+     * Fails before: watchMayBeRinging read only the 207 delivery record, which
+     * does not exist while the pre-arm send is still in flight, so the Stop
+     * sent no end message and the fire then landed on the watch.
+     */
+    @Test
+    fun `phone Stop while the alarm_fired send is in flight still tells the watch`() = runTest {
+        val env = newEnv()
+        env.watchConnected()
+        coEvery { env.repository.getById(1L) } returns baseAlarm
+        coEvery { env.wearBridge.sendAlarmFiredAwaiting(1L, any(), any()) } coAnswers { awaitCancellation() }
+        env.ring(1L)
+        runCurrent()
+        val firedAt = env.firedAt()
+        // A known ring start, so "unknown start sends anyway" does not hide the gap.
+        env.write("ringStartedElapsedMs", 5_000L)
+
+        env.action(dismissed, RingActionRequest(1L, fromPeer = false, firedAtEpoch = firedAt))
+        runCurrent()
+
+        coVerify(exactly = 1) { env.wearBridge.sendAlarmDismissedAwaiting(1L, any(), firedAt) }
+        env.scope.cancel()
+    }
+
+    /*
+     * Fails before: same cause as above for the catch-up loop. The Stop lands
+     * in the gap between two attempts; an earlier attempt may still land.
+     */
+    @Test
+    fun `phone Stop between catch-up attempts still tells the watch`() = runTest {
+        val env = newEnv()
+        env.watchConnected()
+        coEvery { env.repository.getById(1L) } returns baseAlarm
+        coEvery { env.wearBridge.sendAlarmFiredAwaiting(1L, any(), any()) } returns false
+        env.ring(1L)
+        runCurrent()
+        val firedAt = env.firedAt()
+        env.write("ringStartedElapsedMs", 5_000L)
+
+        env.action(dismissed, RingActionRequest(1L, fromPeer = false, firedAtEpoch = firedAt))
+        runCurrent()
+
+        coVerify(exactly = 1) { env.wearBridge.sendAlarmDismissedAwaiting(1L, any(), firedAt) }
+        env.scope.cancel()
+    }
+
     // ---- harness ---------------------------------------------------------
 
     private fun TestScope.newEnv(unlocked: Boolean = true) = Env(this, unlocked)
@@ -1042,6 +1206,9 @@ class AlarmRingServiceTest {
         val bfuCache = mockk<BfuAlarmCache>(relaxed = true)
         private val handler = mockk<Handler>(relaxed = true)
         val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScope.testScheduler))
+
+        /** Stand-in for finalizerScope, which a stopping service does not cancel. */
+        private val finalizerScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScope.testScheduler))
 
         /** Delayed runnables posted on the mocked main Handler: (runnable, delayMs). */
         val delayed = mutableListOf<Pair<Runnable, Long>>()
@@ -1082,6 +1249,8 @@ class AlarmRingServiceTest {
             write("bfuCache", bfuCache)
             write("ioDispatcher", StandardTestDispatcher(testScope.testScheduler))
             write("serviceScope\$delegate", lazyOf(scope))
+            write("finalizerScope\$delegate", lazyOf(finalizerScope))
+            write("fireSendsInFlight", mutableSetOf<OccurrenceKey>())
             write("mainHandler", handler)
             write("alarmMutexes", java.util.concurrent.ConcurrentHashMap<Long, kotlinx.coroutines.sync.Mutex>())
             write("peerState", PeerActionState())
