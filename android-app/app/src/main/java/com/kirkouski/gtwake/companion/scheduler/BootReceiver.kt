@@ -53,6 +53,7 @@ class BootReceiver : BroadcastReceiver() {
     private suspend fun execute(route: BootRoute) {
         when (route) {
             // Pre-unlock: Room is locked, re-arm from the BFU cache.
+            BootRoute.RESCHEDULE_FROM_BFU_AT_BOOT -> repository.rescheduleFromBfu(atBoot = true)
             BootRoute.RESCHEDULE_FROM_BFU -> repository.rescheduleFromBfu()
             BootRoute.RESCHEDULE_ON_BOOT -> {
                 try {
@@ -78,15 +79,23 @@ class BootReceiver : BroadcastReceiver() {
 }
 
 /** What [BootReceiver] runs for a broadcast. */
-internal enum class BootRoute { RESCHEDULE_FROM_BFU, RESCHEDULE_ON_BOOT, REFRESH_WIDGETS, RESCHEDULE_ALL }
+internal enum class BootRoute {
+    RESCHEDULE_FROM_BFU_AT_BOOT,
+    RESCHEDULE_FROM_BFU,
+    RESCHEDULE_ON_BOOT,
+    REFRESH_WIDGETS,
+    RESCHEDULE_ALL,
+}
 
 /**
  * Pure routing decision. Before the first unlock Room (credential-encrypted) throws,
  * so TIME_SET / TIMEZONE_CHANGED / MY_PACKAGE_REPLACED re-arm from the BFU cache
- * instead; BOOT_COMPLETED re-arms everything from Room after unlock anyway.
+ * instead; BOOT_COMPLETED re-arms everything from Room after unlock anyway. Only the
+ * locked boot itself arms one-shots that came due since boot (nothing can have rung
+ * before it).
  */
 internal fun routeFor(action: String?, unlocked: Boolean): BootRoute = when (action) {
-    Intent.ACTION_LOCKED_BOOT_COMPLETED -> BootRoute.RESCHEDULE_FROM_BFU
+    Intent.ACTION_LOCKED_BOOT_COMPLETED -> BootRoute.RESCHEDULE_FROM_BFU_AT_BOOT
     Intent.ACTION_BOOT_COMPLETED -> BootRoute.RESCHEDULE_ON_BOOT
     Intent.ACTION_LOCALE_CHANGED -> BootRoute.REFRESH_WIDGETS
     else -> if (unlocked) BootRoute.RESCHEDULE_ALL else BootRoute.RESCHEDULE_FROM_BFU

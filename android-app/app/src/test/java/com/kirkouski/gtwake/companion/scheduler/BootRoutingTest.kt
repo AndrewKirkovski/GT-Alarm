@@ -27,10 +27,12 @@ class BootRoutingTest {
         }
     }
 
+    // Only the locked boot may arm a one-shot that came due since boot: nothing
+    // can have rung before it, while a later event may hit a ring in progress.
     @Test
-    fun `locked boot always uses the BFU cache`() {
-        assertEquals(BootRoute.RESCHEDULE_FROM_BFU, routeFor(Intent.ACTION_LOCKED_BOOT_COMPLETED, false))
-        assertEquals(BootRoute.RESCHEDULE_FROM_BFU, routeFor(Intent.ACTION_LOCKED_BOOT_COMPLETED, true))
+    fun `locked boot always uses the BFU cache in its boot mode`() {
+        assertEquals(BootRoute.RESCHEDULE_FROM_BFU_AT_BOOT, routeFor(Intent.ACTION_LOCKED_BOOT_COMPLETED, false))
+        assertEquals(BootRoute.RESCHEDULE_FROM_BFU_AT_BOOT, routeFor(Intent.ACTION_LOCKED_BOOT_COMPLETED, true))
     }
 
     @Test

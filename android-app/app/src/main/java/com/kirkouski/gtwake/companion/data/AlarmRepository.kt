@@ -642,21 +642,24 @@ class AlarmRepository @Inject constructor(
     }
 
     /** Pre-unlock re-arm from the BFU cache (Room is locked). Recurring alarms
-     *  re-arm as usual. A one-shot re-arms at its intended fire when that time
-     *  is after boot, so an alarm due before the first unlock still rings (a
-     *  time already passed since boot fires at once). One whose time passed
-     *  while the phone was off is left for [rescheduleAllOnBoot] to report as
-     *  missed, and one already dismissed on the lock screen stays unarmed. */
-    fun rescheduleFromBfu() {
+     *  re-arm as usual. A one-shot re-arms at its intended fire while that time
+     *  is still ahead, so an alarm due before the first unlock still rings. At
+     *  boot ([atBoot]) a one-shot that came due since boot fires at once; a later
+     *  locked time or package event leaves it alone, because it may be ringing
+     *  right now and re-arming its past time would ring it again. One whose time
+     *  passed while the phone was off is left for [rescheduleAllOnBoot] to report
+     *  as missed, and one already dismissed on the lock screen stays unarmed. */
+    fun rescheduleFromBfu(atBoot: Boolean = false) {
         // relative alarms invariant-require daysOfWeek==0 (Alarm.init),
         // so the filter catches both.
         val cached = bfuCache.getAll()
         val recurring = cached.filter { it.daysOfWeek != 0 }
         val dismissed = bfuCache.pendingDismissalIds()
-        val bootAt = bootStartedAt(System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        val earliest = if (atBoot) bootStartedAt(now) else now
         val oneShots = cached.mapNotNull { alarm ->
             if (alarm.daysOfWeek != 0 || alarm.id in dismissed) return@mapNotNull null
-            intendedFireForOneShot(alarm)?.takeIf { it >= bootAt }?.let { alarm to it }
+            intendedFireForOneShot(alarm)?.takeIf { it >= earliest }?.let { alarm to it }
         }
         Log.i(
             TAG,

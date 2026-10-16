@@ -392,6 +392,48 @@ class AlarmRepositoryTest {
         verify(exactly = 1) { scheduler.scheduleAt(match { it.id == 2L }, expectedFire(oneShot)) }
     }
 
+    // Booted an hour ago; a one-shot came due half an hour ago, while locked.
+    private fun <T> bootedAnHourAgo(block: () -> T): T {
+        io.mockk.mockkStatic(android.os.SystemClock::class)
+        every { android.os.SystemClock.elapsedRealtime() } returns 3_600_000L
+        return try {
+            block()
+        } finally {
+            io.mockk.unmockkStatic(android.os.SystemClock::class)
+        }
+    }
+
+    private fun oneShotDueSinceBoot(): Alarm {
+        val due = java.time.ZonedDateTime.now().minusMinutes(30)
+        return Alarm(
+            id = 4L, hour = due.hour, minute = due.minute, daysOfWeek = 0,
+            enabled = true, updatedAtEpoch = System.currentTimeMillis() - 7_200_000L,
+        )
+    }
+
+    @Test
+    fun `locked boot fires at once a one-shot that came due since boot`() = runTest {
+        val oneShot = oneShotDueSinceBoot()
+        every { bfuCache.getAll() } returns listOf(oneShot)
+        every { bfuCache.pendingDismissalIds() } returns emptySet()
+
+        bootedAnHourAgo { repo.rescheduleFromBfu(atBoot = true) }
+
+        verify(exactly = 1) { scheduler.scheduleAt(match { it.id == 4L }, expectedFire(oneShot)) }
+    }
+
+    // Fails without the boot-only rule: the past trigger is re-armed, so AlarmManager
+    // fires it at once and an alarm that is ringing right now starts over.
+    @Test
+    fun `a later locked time event does not re-arm a one-shot that came due since boot`() = runTest {
+        every { bfuCache.getAll() } returns listOf(oneShotDueSinceBoot())
+        every { bfuCache.pendingDismissalIds() } returns emptySet()
+
+        bootedAnHourAgo { repo.rescheduleFromBfu(atBoot = false) }
+
+        verify(exactly = 0) { scheduler.scheduleAt(any(), any()) }
+    }
+
     @Test
     fun `rescheduleFromBfu does not re-arm a one-shot dismissed on the lock screen`() = runTest {
         every { bfuCache.getAll() } returns listOf(oneShotDueIn(2L, hours = 2))
