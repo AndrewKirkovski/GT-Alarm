@@ -27,12 +27,19 @@ class BootRoutingTest {
         }
     }
 
-    // Only the locked boot may arm a one-shot that came due since boot: nothing
+    // Only a locked boot may arm a one-shot that came due since boot: nothing
     // can have rung before it, while a later event may hit a ring in progress.
     @Test
-    fun `locked boot always uses the BFU cache in its boot mode`() {
+    fun `locked boot while locked uses the BFU cache in its boot mode`() {
         assertEquals(BootRoute.RESCHEDULE_FROM_BFU_AT_BOOT, routeFor(Intent.ACTION_LOCKED_BOOT_COMPLETED, false))
-        assertEquals(BootRoute.RESCHEDULE_FROM_BFU_AT_BOOT, routeFor(Intent.ACTION_LOCKED_BOOT_COMPLETED, true))
+    }
+
+    // Android 15+ re-sends LOCKED_BOOT_COMPLETED on the first launch after a
+    // force-stop, with the user unlocked; boot mode there would ring again a
+    // one-shot that already fired. BOOT_COMPLETED reconciles from Room instead.
+    @Test
+    fun `locked boot delivered while unlocked does not use boot mode`() {
+        assertEquals(BootRoute.RESCHEDULE_FROM_BFU, routeFor(Intent.ACTION_LOCKED_BOOT_COMPLETED, true))
     }
 
     @Test

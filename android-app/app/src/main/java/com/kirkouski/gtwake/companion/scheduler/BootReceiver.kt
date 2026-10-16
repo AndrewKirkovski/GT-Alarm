@@ -90,12 +90,15 @@ internal enum class BootRoute {
 /**
  * Pure routing decision. Before the first unlock Room (credential-encrypted) throws,
  * so TIME_SET / TIMEZONE_CHANGED / MY_PACKAGE_REPLACED re-arm from the BFU cache
- * instead; BOOT_COMPLETED re-arms everything from Room after unlock anyway. Only the
- * locked boot itself arms one-shots that came due since boot (nothing can have rung
- * before it).
+ * instead; BOOT_COMPLETED re-arms everything from Room after unlock anyway. Only a
+ * locked LOCKED_BOOT_COMPLETED arms one-shots that came due since boot (nothing can
+ * have rung before it). Android 15+ also sends it when the app leaves the stopped
+ * state (first launch after a force-stop); the user is unlocked then and
+ * BOOT_COMPLETED follows, so that delivery must not fire past one-shots again.
  */
 internal fun routeFor(action: String?, unlocked: Boolean): BootRoute = when (action) {
-    Intent.ACTION_LOCKED_BOOT_COMPLETED -> BootRoute.RESCHEDULE_FROM_BFU_AT_BOOT
+    Intent.ACTION_LOCKED_BOOT_COMPLETED ->
+        if (unlocked) BootRoute.RESCHEDULE_FROM_BFU else BootRoute.RESCHEDULE_FROM_BFU_AT_BOOT
     Intent.ACTION_BOOT_COMPLETED -> BootRoute.RESCHEDULE_ON_BOOT
     Intent.ACTION_LOCALE_CHANGED -> BootRoute.REFRESH_WIDGETS
     else -> if (unlocked) BootRoute.RESCHEDULE_ALL else BootRoute.RESCHEDULE_FROM_BFU
