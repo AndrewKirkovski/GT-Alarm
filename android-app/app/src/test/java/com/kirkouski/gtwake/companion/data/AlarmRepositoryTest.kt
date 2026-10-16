@@ -341,10 +341,9 @@ class AlarmRepositoryTest {
     }
 
     @Test
-    fun `rescheduleFromBfu re-arms only recurring alarms, skipping one-shots and relatives`() = runTest {
-        // Phase A v1 scope cut: BFU re-arm path skips one-shots because pre-
-        // unlock dismiss can't persist to Room. Recurring alarms have a
-        // well-defined next-occurrence so they re-arm cleanly.
+    fun `rescheduleFromBfu leaves one-shots whose time passed before boot unarmed`() = runTest {
+        // Both one-shots were due in 1970 (updatedAtEpoch = 1), long before
+        // this boot: the unlock reconcile reports them as missed instead.
         val recurring = Alarm(
             id = 1L, hour = 7, minute = 0, daysOfWeek = DaysOfWeek.WEEKDAYS,
             enabled = true, updatedAtEpoch = 1L,
@@ -362,6 +361,63 @@ class AlarmRepositoryTest {
         repo.rescheduleFromBfu()
 
         verify { scheduler.rescheduleAll(match { it.size == 1 && it[0].id == 1L }) }
+        verify(exactly = 0) { scheduler.scheduleAt(any(), any()) }
+    }
+
+    // A one-shot set last night for a time after this boot: the phone restarted
+    // and is still locked when it is due. Fails before the change: one-shots
+    // were never armed before the first unlock, so this alarm did not ring.
+    private fun oneShotDueIn(id: Long, hours: Long): Alarm {
+        val due = java.time.ZonedDateTime.now().plusHours(hours)
+        return Alarm(
+            id = id, hour = due.hour, minute = due.minute, daysOfWeek = 0,
+            enabled = true, updatedAtEpoch = System.currentTimeMillis() - 3_600_000L,
+        )
+    }
+
+    private fun expectedFire(alarm: Alarm): Long = com.kirkouski.gtwake.companion.domain.NextTriggerCalculator
+        .nextTriggerEpochMillis(
+            alarm,
+            java.time.Instant.ofEpochMilli(alarm.updatedAtEpoch).atZone(java.time.ZoneId.systemDefault()),
+        )
+
+    @Test
+    fun `rescheduleFromBfu arms a one-shot that is due after boot at its intended time`() = runTest {
+        val oneShot = oneShotDueIn(2L, hours = 2)
+        every { bfuCache.getAll() } returns listOf(oneShot)
+        every { bfuCache.pendingDismissalIds() } returns emptySet()
+
+        repo.rescheduleFromBfu()
+
+        verify(exactly = 1) { scheduler.scheduleAt(match { it.id == 2L }, expectedFire(oneShot)) }
+    }
+
+    @Test
+    fun `rescheduleFromBfu does not re-arm a one-shot dismissed on the lock screen`() = runTest {
+        every { bfuCache.getAll() } returns listOf(oneShotDueIn(2L, hours = 2))
+        every { bfuCache.pendingDismissalIds() } returns setOf(2L)
+
+        repo.rescheduleFromBfu()
+
+        verify(exactly = 0) { scheduler.scheduleAt(any(), any()) }
+    }
+
+    // Fails before the change: a relative timer's intended fire ignored its
+    // snooze, so a timer snoozed before a restart was not armed at all.
+    @Test
+    fun `rescheduleFromBfu arms a snoozed timer at its snooze time`() = runTest {
+        val snoozeAt = System.currentTimeMillis() + 300_000L
+        val timer = Alarm(
+            id = 3L, hour = 0, minute = 0, daysOfWeek = 0, enabled = true,
+            updatedAtEpoch = System.currentTimeMillis() - 3_600_000L, relativeMinutes = 5,
+            snoozedUntilEpoch = snoozeAt,
+        )
+        every { bfuCache.getAll() } returns listOf(timer)
+        every { bfuCache.pendingDismissalIds() } returns emptySet()
+
+        repo.rescheduleFromBfu()
+
+        verify(exactly = 1) { scheduler.scheduleAt(match { it.id == 3L }, snoozeAt) }
     }
 
     @Test

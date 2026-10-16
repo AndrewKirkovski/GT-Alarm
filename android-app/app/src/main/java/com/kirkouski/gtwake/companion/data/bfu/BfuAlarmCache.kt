@@ -66,6 +66,9 @@ class BfuAlarmCache @Inject constructor(
         }.let { java.util.Collections.unmodifiableList(it) }
     }
 
+    /** Lock-free read of the ids dismissed on the lock screen and not yet reconciled. */
+    fun pendingDismissalIds(): Set<Long> = loaded().pendingDismissals
+
     private fun loaded(): BfuState {
         stateRef.get()?.let { return it }
         val fresh = readFromDisk()

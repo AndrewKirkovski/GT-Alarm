@@ -39,7 +39,8 @@ import javax.inject.Singleton
  *   - [SettingsState.defaultRelativeRingtoneUri] / Name: default sound for
  *     new "in N minutes" alarms; null = system default.
  *
- * Memory note: pre-release; no migrations needed.
+ * Migrations: [WatchListSyncRestrictionMigration] turns off a list sync that an
+ * earlier version enabled (see `produceMigrations` on the DataStore).
  */
 @Singleton
 class SettingsStore @Inject constructor(

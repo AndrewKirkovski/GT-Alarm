@@ -39,9 +39,10 @@ class BootReceiver : BroadcastReceiver() {
                 throw e
             } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
                 // reason: a receiver must never crash the process (it would also kill a
-                // pre-unlock ring); the failure is logged. The next app start, unlock or
-                // boot/time event re-arms, and the boot branch still registers the watch
-                // handler when its re-arm fails (see execute).
+                // pre-unlock ring); the failure is logged. Nothing re-arms at app start:
+                // alarms armed before the first unlock stay armed, and the rest re-arm at
+                // the next boot or time event or when the alarm is saved. The boot branch
+                // still registers the watch handler when its re-arm fails (see execute).
                 Log.e(TAG, "action=$action unlocked=$unlocked route=$route failed", e)
             } finally {
                 pending.finish()

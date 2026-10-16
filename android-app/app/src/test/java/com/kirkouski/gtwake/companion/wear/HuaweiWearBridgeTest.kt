@@ -255,6 +255,53 @@ class HuaweiWearBridgeTest {
         assertFalse(dismiss.await())
     }
 
+    // An updated watch echoes firedAt, the phone's own stamp and ok:true. Once
+    // the pre-arm matched strictly, only this form can end a phone Stop/Snooze
+    // wait, so a slip in it would leave every phone Stop on "Waiting for watch…".
+    private suspend fun TestScope.strictPreArm(bridge: HuaweiWearBridge) {
+        val ringing = async { bridge.sendAlarmFiredAwaiting(3L, 10_000L, hints(firedAt = FIRED_AT)) }
+        runCurrent()
+        val stamp = sent.last { it.getString("type") == "alarm_fired" }.getLong("updatedAtEpoch")
+        deliver(fixture("watchToPhone", "alarm_ringing").put("firedAt", FIRED_AT).put("updatedAtEpoch", stamp))
+        assertTrue(ringing.await())
+    }
+
+    @Test
+    fun `updated watch reply with firedAt, stamp and ok true completes a dismiss wait`() = runTest {
+        val bridge = startedBridge()
+        strictPreArm(bridge)
+        val start = testScheduler.currentTime
+
+        val dismiss = async { bridge.sendAlarmDismissedAwaiting(3L, 12_000L, FIRED_AT) }
+        runCurrent()
+        val stamp = sent.last { it.getString("type") == "alarm_dismissed" }.getLong("updatedAtEpoch")
+        deliver(
+            fixture("watchToPhone", "alarm_dismissed_ack")
+                .put("firedAt", FIRED_AT).put("updatedAtEpoch", stamp).put("ok", true),
+        )
+
+        assertTrue(dismiss.await())
+        assertTrue("completed by the reply, not by the timeout", testScheduler.currentTime - start < 4_000L)
+    }
+
+    @Test
+    fun `updated watch reply with firedAt, stamp and ok true completes a snooze wait`() = runTest {
+        val bridge = startedBridge()
+        strictPreArm(bridge)
+        val start = testScheduler.currentTime
+
+        val snooze = async { bridge.sendAlarmSnoozedAwaiting(3L, 1_760_000_300_000L, 12_000L, FIRED_AT) }
+        runCurrent()
+        val stamp = sent.last { it.getString("type") == "alarm_snoozed" }.getLong("updatedAtEpoch")
+        deliver(
+            fixture("watchToPhone", "alarm_snoozed_ack")
+                .put("firedAt", FIRED_AT).put("updatedAtEpoch", stamp).put("ok", true),
+        )
+
+        assertTrue(snooze.await())
+        assertTrue("completed by the reply, not by the timeout", testScheduler.currentTime - start < 4_000L)
+    }
+
     // ---- B3 / B4: replies are sent without a wake --------------------------------
 
     // Fails on the old code: sendPeerActionAck went through performSend, which

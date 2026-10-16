@@ -641,20 +641,35 @@ class AlarmRepository @Inject constructor(
         bfuCache.replaceAll(alarms)
     }
 
-    /** Pre-unlock re-arm — recurring alarms only; one-shots are handled at
-     *  post-unlock reconcile via [intendedFireForOneShot]. */
+    /** Pre-unlock re-arm from the BFU cache (Room is locked). Recurring alarms
+     *  re-arm as usual. A one-shot re-arms at its intended fire when that time
+     *  is after boot, so an alarm due before the first unlock still rings (a
+     *  time already passed since boot fires at once). One whose time passed
+     *  while the phone was off is left for [rescheduleAllOnBoot] to report as
+     *  missed, and one already dismissed on the lock screen stays unarmed. */
     fun rescheduleFromBfu() {
         // relative alarms invariant-require daysOfWeek==0 (Alarm.init),
         // so the filter catches both.
         val cached = bfuCache.getAll()
         val recurring = cached.filter { it.daysOfWeek != 0 }
+        val dismissed = bfuCache.pendingDismissalIds()
+        val bootAt = bootStartedAt(System.currentTimeMillis())
+        val oneShots = cached.mapNotNull { alarm ->
+            if (alarm.daysOfWeek != 0 || alarm.id in dismissed) return@mapNotNull null
+            intendedFireForOneShot(alarm)?.takeIf { it >= bootAt }?.let { alarm to it }
+        }
         Log.i(
             TAG,
             "rescheduleFromBfu cached=${cached.size} recurringRearmed=${recurring.size} " +
-                "skippedOneShots=${cached.size - recurring.size}",
+                "oneShotsRearmed=${oneShots.size}",
         )
         scheduler.rescheduleAll(recurring)
+        oneShots.forEach { (alarm, fire) -> scheduler.scheduleAt(alarm, fire) }
     }
+
+    // Wall time of this boot. Clamp: wall-clock can move backwards (NTP/manual);
+    // a future boot time would misclassify every past-due alarm as missed.
+    private fun bootStartedAt(now: Long): Long = (now - SystemClock.elapsedRealtime()).coerceAtMost(now)
 
     /** Reconcile from Room post-unlock; one-shots whose intended fire predates
      *  boot are notified + disabled/deleted (recurring excluded — they refire
@@ -664,10 +679,10 @@ class AlarmRepository @Inject constructor(
     suspend fun rescheduleAllOnBoot() {
         applyPendingDismissals()
         applyPendingSnoozeBumps()
-        val now = System.currentTimeMillis()
-        // Clamp: wall-clock can move backwards (NTP/manual); a future
-        // bootCompleteAt would misclassify every past-due alarm as missed.
-        val bootCompleteAt = (now - SystemClock.elapsedRealtime()).coerceAtMost(now)
+        // One-shots due after boot were re-armed before unlock (rescheduleFromBfu)
+        // and handled by the ring path; only those due while the phone was off
+        // count as missed.
+        val bootCompleteAt = bootStartedAt(System.currentTimeMillis())
         val alarms = getAll().filter { it.enabled }
         val missed = mutableListOf<Alarm>()
         val keep = mutableListOf<Alarm>()
@@ -735,7 +750,8 @@ class AlarmRepository @Inject constructor(
     /** Intended fire as scheduled at last user action (edit/snooze).
      *  null for recurring (they refire tomorrow on their own). */
     private fun intendedFireForOneShot(alarm: Alarm): Long? {
-        if (alarm.isRelative) return alarm.computedFireEpoch()
+        // A snooze does not move updatedAtEpoch, so a snoozed timer's fire is the snooze.
+        if (alarm.isRelative) return maxOf(alarm.computedFireEpoch(), alarm.snoozedUntilEpoch ?: 0L)
         if (alarm.daysOfWeek != 0) return null
         // As-of edit time — recomputing now would silently roll a missed
         // 7am to tomorrow.

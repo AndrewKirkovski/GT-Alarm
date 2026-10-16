@@ -385,6 +385,22 @@ test('a released 1.0.11 ring completes the action on delivery and saves no recor
   assert.equal(f.values.has(ACTION_KEY), false)
 })
 
+// A released 1.0.11 phone puts firedAt in alarm_fired but not in its end
+// messages. A phone Stop or Snooze must still end the ring on an updated watch;
+// a stricter firedAt check in onPeerEnded would leave the watch buzzing.
+for (const type of ['alarm_dismissed', 'alarm_snoozed']) {
+  test(`a released 1.0.11 phone ${type} without firedAt ends a ring that has one`, () => {
+    const f = wiredFixture()
+    f.handler.handle({ ...released.phoneToWatch_1_0_11.alarm_fired })
+    assert.equal(f.page.screen, 'ring')
+    assert.ok(f.timers.has('vibrate'), 'the ring buzzes')
+    f.handler.handle({ ...released.phoneToWatch_1_0_11[type] })
+    assert.equal(f.page.ended, true)
+    assert.equal(f.timers.has('vibrate'), false, 'the buzz stops')
+    assert.equal(f.peerAcks.length, 1, 'the phone gets its confirmation')
+  })
+}
+
 test('a 1.0.10 phone resending alarm_fired without firedAt does not restart the ring', () => {
   const f = wiredFixture()
   const count = countVibration(f.page)

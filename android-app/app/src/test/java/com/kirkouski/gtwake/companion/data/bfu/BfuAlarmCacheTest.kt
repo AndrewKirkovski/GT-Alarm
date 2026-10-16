@@ -201,6 +201,8 @@ class BfuAlarmCacheTest {
         cache.markDismissed(7L)  // duplicate must not double-count
 
         assertEquals(setOf(7L, 13L), diskDismissals())
+        // The pre-unlock re-arm reads them without draining.
+        assertEquals(setOf(7L, 13L), cache.pendingDismissalIds())
         // A fresh instance reads the same set back from disk.
         assertEquals(setOf(7L, 13L), BfuAlarmCache(file).drainPendingDismissals())
     }
