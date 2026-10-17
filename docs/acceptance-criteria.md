@@ -871,6 +871,13 @@ Rejected on GT 6 Pro and FIT 5 Pro with three findings:
   watch app is updated. Both apps ship together.
 
 **Fire path hardening (found while reviewing the fix).**
+- 🟡 Storage and system failures no longer end a ring (2026-10-17, owner rule "error handling is a
+  must"): a failed alarm or settings read on the ring screen (`AlarmActivity.readOrNull`) shows the
+  plain screen; an uncaught failure in any `HuaweiWearBridge` coroutine (e.g. a Room or DataStore
+  error while handling a watch message) is logged by a scope-wide `CoroutineExceptionHandler`
+  instead of crashing the process (unit-tested); a vibrator fault no longer stops the tone from
+  starting (`AlarmAudioPlayer`). Each needs a storage or system failure to trigger, so there is no
+  device check.
 - 🟡 The 10 s pre-arm wrapped the send itself, so a slow cold start cancelled delivery and nothing
   re-sent it. `AlarmRingService.startWatchCatchUp` now keeps re-sending `alarm_fired` (25 s wake
   budget per attempt) until `alarm_ringing` arrives, the ring ends, or 90 s pass. The watch re-acks a

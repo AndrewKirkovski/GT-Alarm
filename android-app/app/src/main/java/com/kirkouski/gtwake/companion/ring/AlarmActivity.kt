@@ -36,6 +36,7 @@ import com.kirkouski.gtwake.companion.ui.components.PhoneRingOverlay
 import com.kirkouski.gtwake.companion.ui.edit.rememberBackgroundBitmap
 import com.kirkouski.gtwake.companion.util.TimeFormatter
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -137,8 +138,10 @@ class AlarmActivity : ComponentActivity() {
                 // renders the alarm time + (BFU-omitted) blank label and
                 // the default black background — degraded but functional.
                 if (isUserUnlocked) {
-                    val loadedAlarm = repository.getById(currentAlarmId)
-                    val loadedBackground = settingsStore.defaultPhoneBackgroundUri.first()
+                    val loadedAlarm = readOrNull("alarm row") { repository.getById(currentAlarmId) }
+                    val loadedBackground = readOrNull("default background") {
+                        settingsStore.defaultPhoneBackgroundUri.first()
+                    }
                     if (activeAlarmId.longValue == currentAlarmId && activeFiredAtEpoch.longValue == currentFiredAt) {
                         alarm = loadedAlarm
                         snoozeAvailable = loadedAlarm?.isSnoozeEnabled == true
@@ -414,6 +417,22 @@ class AlarmActivity : ComponentActivity() {
 
         private const val TAG = "AlarmActivity"
     }
+}
+
+// The ring screen's own reads (alarm row, default background). This Activity
+// shares the process with AlarmRingService, so an uncaught throw here would end
+// the ring; a failed read shows the plain screen instead (time only, black
+// background), and Back / the buttons still act on the current occurrence.
+// reason: Room and DataStore surface IOException, CorruptionException, SQLite
+// and migration failures with no common type.
+@Suppress("TooGenericExceptionCaught")
+private suspend fun <T> readOrNull(what: String, read: suspend () -> T?): T? = try {
+    read()
+} catch (e: CancellationException) {
+    throw e
+} catch (e: Exception) {
+    Log.w("AlarmActivity", "ring screen: $what read failed, showing defaults", e)
+    null
 }
 
 // Dimming overlay alpha — 0.45 chosen empirically so a bright lockscreen

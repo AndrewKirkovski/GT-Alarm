@@ -72,7 +72,12 @@ class AlarmAudioPlayer(private val context: Context) {
         // 1.0.6: sound (vibrateOnly) and phone vibration are independent switches.
         // Vibrate only when the phone-vibration switch is on; skip audio when
         // sound is off (vibrateOnly). Both off ⇒ fully silent (UI only).
-        if (phoneVibrationEnabled) startVibration(pattern)
+        // A vibrator fault must not keep the tone from starting (a throw here
+        // used to end the whole ring).
+        if (phoneVibrationEnabled) {
+            runCatching { startVibration(pattern) }
+                .onFailure { Log.w(TAG, "vibration failed to start: ${it.message}") }
+        }
         if (vibrateOnly) return
         if (forceBundledFallback) {
             playBundledFallback(volumeRampSeconds)

@@ -17,6 +17,7 @@ import com.huawei.wearengine.p2p.SendCallback
 import com.kirkouski.gtwake.companion.data.SettingsStore
 import com.kirkouski.gtwake.companion.data.sync.IncomingMessageHandler
 import com.kirkouski.gtwake.companion.domain.Alarm
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -148,6 +149,31 @@ class HuaweiWearBridgeTest {
         verify(exactly = 1) { p2pClient.unregisterReceiver(any<Receiver>()) }
         verify(exactly = 1) { p2pClient.registerReceiver(oldDevice, any<Receiver>()) }
         verify(exactly = 1) { p2pClient.registerReceiver(newDevice, any<Receiver>()) }
+    }
+
+    // A failing save while handling a watch message (Room for a legacy snooze,
+    // DataStore for watch_screen) threw out of the receive coroutine. With no
+    // handler that crashes the process on Android and ends any ring; runTest
+    // reports it as an uncaught exception. Later messages must still be handled.
+    // Fails before the change (checked 2026-10-17: uncaught IllegalStateException).
+    @Test
+    fun `a throwing message handler is contained and later messages are still handled`() = runTest {
+        val device = connectedDevice("watch-1")
+        every { deviceClient.bondedDevices } returns successfulTask(listOf(device))
+        val bridge = bridge(StandardTestDispatcher(testScheduler))
+        val handler = mockk<IncomingMessageHandler>()
+        var calls = 0
+        coEvery { handler.handle(any()) } answers {
+            calls++
+            throw IllegalStateException("database failed")
+        }
+        bridge.setIncomingHandler(handler)
+        runCurrent()
+
+        deliver(fixture("watchToPhone", "alarm_dismissed"))
+        deliver(fixture("watchToPhone", "alarm_snoozed"))
+
+        assertEquals(2, calls)
     }
 
     // ---- B1 / C3: legacy reply matching (fixture-driven) -----------------------

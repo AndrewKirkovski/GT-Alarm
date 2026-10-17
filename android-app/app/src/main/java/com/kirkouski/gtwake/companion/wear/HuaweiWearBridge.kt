@@ -24,6 +24,7 @@ import com.kirkouski.gtwake.companion.data.sync.AlarmHash
 import com.kirkouski.gtwake.companion.data.sync.IncomingMessage
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -76,7 +77,15 @@ class HuaweiWearBridge @Inject constructor(
 ) : WearBridgeService {
 
     private val supervisorJob: Job = SupervisorJob()
-    private val scope: CoroutineScope = CoroutineScope(ioDispatcher + supervisorJob)
+
+    // Every launch here is a child of a SupervisorJob (supervisorJob or attachJob),
+    // so this handler receives its uncaught failure. Without it a throw in inbound
+    // handling (a DataStore write for watch_screen, a Room read for a legacy snooze)
+    // would crash the process and end any ring with it.
+    private val failureHandler = CoroutineExceptionHandler { _, e ->
+        Log.e(TAG, "bridge coroutine failed; dropped", e)
+    }
+    private val scope: CoroutineScope = CoroutineScope(ioDispatcher + supervisorJob + failureHandler)
 
     private val _statusFlow = MutableStateFlow(WatchSyncStatus.NOT_CONNECTED)
     override val statusFlow: StateFlow<WatchSyncStatus> = _statusFlow.asStateFlow()
