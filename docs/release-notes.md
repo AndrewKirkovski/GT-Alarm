@@ -79,6 +79,10 @@ screen returning during a long ring with the always-on display on.
   (debug build mode on purpose). A store-signed package cannot be hand-installed (error 31), so the
   site's watch install page points to AppGallery only.
 - Phone APK signed with the usual `95F6…` certificate (checked with `apksigner`).
+- Site deployed 2026-10-19: `gtwake.kirkouski.com/download` serves `gtwake-1.0.12.apk`
+  (SHA-256 `db1031d9…924d`, matches `dist/`). The updated privacy pages (list-sync wording, effective
+  date 2026-10-15), the `/watch` help page and the AppGallery-only watch install page went live
+  with it.
 
 ---
 
