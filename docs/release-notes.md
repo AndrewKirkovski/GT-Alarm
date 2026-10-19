@@ -6,6 +6,7 @@ leaves the other's unchanged. The integer release codes are **per-app**.
 
 | versionName | phone code | watch code | tag | date |
 |---|---|---|---|---|
+| 1.0.12 | 12 | 1000012 | `v1.0.12` | 2026-10-19 |
 | 1.0.11 | 11 | 1000011 | `v1.0.11` | 2026-10-01 |
 | 1.0.10 | 10 | 1000010 | `v1.0.10` | 2026-09-10 |
 | 1.0.9 | 9 | 1000009 (watch resubmission; 1000008 rejected) | `v1.0.9` | 2026-08-29 |
@@ -19,6 +20,65 @@ leaves the other's unchanged. The integer release codes are **per-app**.
 Apps:
 - **Phone** — `com.kirkouski.gtwake.companion` (Android, Google Play + AppGallery + direct APK at `gtwake.kirkouski.com/download`), `versionCode` in `android-app/app/build.gradle.kts`. All three channels ship the **same signing cert** (`95F6…`), so users can move between them without uninstalling.
 - **Watch** — `com.kirkouski.gtwatch.watch` (HarmonyOS Lite Wearable, AppGallery only), `version.code` in `watch-app/entry/src/main/config.json`.
+
+---
+
+## 1.0.12 — 2026-10-19
+phone `versionCode 12` · watch `code 1000012` · tag `v1.0.12`
+
+Reliability release for both apps: one alarm tone, alarm list sync hidden for AppGallery, watch
+Stop and Snooze confirmed by the phone, and one-time alarms that ring after a restart.
+
+**One alarm tone.** The ring notification channel is now silent (`alarm_ringing_v3`), so a phone
+with a system alarm tone no longer plays it on top of the app's own tone. The new channel copies the
+importance of the old one, and the setup checklist flags it when it is below High (the channel must
+be set to "Alert" with its pop-up option on).
+
+**Alarm list sync is turned off and hidden.** Huawei does not approve waking the watch to sync the
+list. The setting is hidden and off; an upgrade that had it on is turned off without waking the
+watch. The app and the website say only "contact the developer". An updated watch deletes a list it
+still holds at the end of the next ring when the phone app (1.0.11 or later) has list sync off.
+
+**Watch Stop and Snooze are confirmed.** An updated watch sends its action with the alarm occurrence
+(`firedAt`) and a request stamp. The phone saves the action first, then replies `ok:true`, or
+`ok:false` when nothing changed and the phone is still ringing; a reply never wakes the watch. The
+phone keeps its ring screen for 6 s after a watch action, so a repeated request still reaches it.
+The watch shows success only after the reply; with no reply after three tries it stays quiet and
+closes. Released watches (1.0.7 on AppGallery, 1.0.11) and released phones (1.0.10, 1.0.11) keep
+their old behaviour.
+
+**Phone ring handling.**
+- Back on the ring screen snoozes when snooze is allowed, otherwise dismisses.
+- The next repeat of an alarm is armed when the ring starts, so a quick Stop, Snooze or second
+  alarm can no longer skip tomorrow's alarm. A second alarm that takes over the ring now ends the
+  first one with its own dismiss policy; a few rare races remain with the 1.0.7 watch (three alarms
+  within a minute, a phone Stop during a takeover).
+- A dismiss ends the snooze chain (trigger and count), also for a lock-screen dismiss applied at
+  unlock.
+- A Stop that fails to save restores the buttons, and the 5-minute auto-stop retries.
+- A storage or system failure (ring screen reads, watch message handling, vibration) no longer
+  crashes the app or silences the alarm.
+
+**Restart.** Before the first unlock after a restart, one-time alarms are now armed too, so one due
+while the phone is still locked rings on time; it used to stay silent and ring the next day. Boot
+handling no longer touches locked storage, and the watch receiver is always registered after unlock.
+
+**Watch.** A ring ends by itself after 9 minutes; requests the phone already handled are not sent
+again; startup steps have Ticker backstops, because ACELite can drop one-shot timers on a cold
+start. Release page bundle 64,450 B (1.0.11: 65,088 B).
+
+**Verified on device** (2026-10-19, SM-S948B + GT 6 Pro, test builds of this code): watch Stop,
+watch Snooze (the snooze rang again on both 5 minutes later) and phone Stop. The watch confirmed
+it was ringing 1.3 to 2.7 s after the alarm fired, including a retry after the usual 206 right after
+the watch app started, and each Stop or Snooze reached the other device in under 1 s. **Not yet
+verified on device:** a one-time alarm after a restart with the phone still locked, and the watch
+screen returning during a long ring with the always-on display on.
+
+**Release engineering.**
+- `build-watch-release.sh --hap` builds the installable Lite `.bin` package as a diagnostic only
+  (debug build mode on purpose). A store-signed package cannot be hand-installed (error 31), so the
+  site's watch install page points to AppGallery only.
+- Phone APK signed with the usual `95F6…` certificate (checked with `apksigner`).
 
 ---
 

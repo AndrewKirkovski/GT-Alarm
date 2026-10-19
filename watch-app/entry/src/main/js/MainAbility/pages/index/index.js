@@ -19,7 +19,7 @@ import Ticker from '../../common/ticker.js';
 
 // Logged at onInit so a log relay shows which build is running. For a
 // hardware-test build, also append it to `title` so the screen shows it.
-var BUILD_TAG = '1.0.11';
+var BUILD_TAG = '1.0.12';
 
 // Startup sequence (deterministic): get size → set responsive dims → show
 // splash (bg + centred hourglass) → load the rest (i18n/privacy/connection/
