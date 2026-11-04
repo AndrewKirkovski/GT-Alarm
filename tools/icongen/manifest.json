@@ -19,6 +19,13 @@
     }
   },
   "icons": [
+    { "name": "ic_hourglass",      "glyph": "hourglass",                "variant": "outline", "mode": "raw",    "paint": "white",          "size": 192, "out": "android", "_use": "bottom-nav Timer tab (tinted by Compose Icon)" },
+    { "name": "ic_hourglass_row",  "glyph": "hourglass",                "variant": "outline", "mode": "raw",    "paint": "muted",          "size": 192, "out": "android", "_use": "Settings: timer rows" },
+    { "name": "ic_stopwatch",      "glyph": "stopwatch",                "variant": "outline", "mode": "raw",    "paint": "white",          "size": 192, "out": "android", "_use": "bottom-nav Stopwatch tab and its notification" },
+    { "name": "ic_dots",           "glyph": "dots",                     "variant": "outline", "mode": "raw",    "paint": "white",          "size": 192, "out": "android", "_use": "bottom-nav More (tinted by Compose Icon)" },
+    { "name": "ic_pause",          "glyph": "player-pause",             "variant": "outline", "mode": "raw",    "paint": "white",          "size": 192, "out": "android", "_use": "stopwatch notification action" },
+    { "name": "ic_flag",           "glyph": "flag",                     "variant": "outline", "mode": "raw",    "paint": "white",          "size": 192, "out": "android", "_use": "stopwatch notification Lap action" },
+    { "name": "ic_copy",           "glyph": "copy",                     "variant": "outline", "mode": "raw",    "paint": "muted",          "size": 192, "out": "android", "_use": "stopwatch: copy laps" },
     { "name": "ic_alarm",          "glyph": "alarm",                    "variant": "outline", "mode": "raw",    "paint": "white",          "size": 192, "out": "android", "_use": "bottom-nav Alarms tab (tinted by Compose Icon)" },
     { "name": "ic_settings",       "glyph": "settings",                 "variant": "outline", "mode": "raw",    "paint": "white",          "size": 192, "out": "android", "_use": "bottom-nav Settings tab (tinted by Compose Icon)" },
     { "name": "ic_help",           "glyph": "help",                     "variant": "outline", "mode": "raw",    "paint": "white",          "size": 192, "out": "android", "_use": "bottom-nav Help tab (tinted by Compose Icon)" },

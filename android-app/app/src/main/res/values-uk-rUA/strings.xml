@@ -266,4 +266,25 @@
     <string name="settings_section_timers">Таймери</string>
     <string name="settings_alarm_defaults_intro">Звук використовується всіма будильниками без власного звуку. Налаштування відкладання копіюються в нові будильники.</string>
     <string name="settings_timer_defaults_intro">Звук використовується всіма таймерами без власного звуку. Налаштування відкладання копіюються в нові таймери.</string>
+    <string name="action_more">Ще</string>
+    <string name="action_start">Старт</string>
+    <string name="timer_hours">Години</string>
+    <string name="timer_minutes">Хвилини</string>
+    <string name="timer_ends_at">%1$s, завершиться о %2$s</string>
+    <string name="timer_snoozed_until">Відкладено до %1$s</string>
+    <string name="timer_cancel_title">Скасувати цей таймер?</string>
+    <string name="timer_cancel_body">Він зупиниться зараз і не пролунає.</string>
+    <string name="timer_cancel_confirm">Скасувати таймер</string>
+    <string name="timer_keep">Залишити таймер</string>
+    <string name="screen_stopwatch_title">Секундомір</string>
+    <string name="stopwatch_lap">Коло</string>
+    <string name="stopwatch_stop">Стоп</string>
+    <string name="stopwatch_reset">Скинути</string>
+    <string name="stopwatch_resume">Продовжити</string>
+    <string name="stopwatch_pause">Пауза</string>
+    <string name="stopwatch_laps">Кола</string>
+    <string name="stopwatch_copy_laps">Копіювати кола</string>
+    <string name="stopwatch_copied">Кола скопійовано</string>
+    <string name="stopwatch_reset_done">Секундомір скинуто</string>
+    <string name="stopwatch_lap_number">Коло %1$d</string>
 </resources>

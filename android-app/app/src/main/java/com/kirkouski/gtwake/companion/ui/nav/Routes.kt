@@ -10,6 +10,8 @@ object Routes {
     const val EDIT_WITH_ARG = "$EDIT?$EDIT_ARG_ID={$EDIT_ARG_ID}&$EDIT_ARG_MODE={$EDIT_ARG_MODE}"
     const val HELP = "help"
     const val SETTINGS = "settings"
+    const val TIMER = "timer"
+    const val STOPWATCH = "stopwatch"
     fun edit(id: Long?, mode: AlarmMode = AlarmMode.ABSOLUTE): String {
         val idPart = if (id != null) "$EDIT_ARG_ID=$id&" else ""
         return "$EDIT?${idPart}$EDIT_ARG_MODE=${mode.name}"

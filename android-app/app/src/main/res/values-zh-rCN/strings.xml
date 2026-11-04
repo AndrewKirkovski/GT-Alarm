@@ -258,4 +258,25 @@
     <string name="settings_section_timers">计时器</string>
     <string name="settings_alarm_defaults_intro">声音用于所有未单独设置声音的闹钟。稍后提醒设置会复制到新闹钟。</string>
     <string name="settings_timer_defaults_intro">声音用于所有未单独设置声音的计时器。稍后提醒设置会复制到新计时器。</string>
+    <string name="action_more">更多</string>
+    <string name="action_start">开始</string>
+    <string name="timer_hours">小时</string>
+    <string name="timer_minutes">分钟</string>
+    <string name="timer_ends_at">%1$s，%2$s 结束</string>
+    <string name="timer_snoozed_until">稍后提醒至 %1$s</string>
+    <string name="timer_cancel_title">取消此计时器？</string>
+    <string name="timer_cancel_body">它会立即停止，不会响铃。</string>
+    <string name="timer_cancel_confirm">取消计时器</string>
+    <string name="timer_keep">保留计时器</string>
+    <string name="screen_stopwatch_title">秒表</string>
+    <string name="stopwatch_lap">计次</string>
+    <string name="stopwatch_stop">停止</string>
+    <string name="stopwatch_reset">重置</string>
+    <string name="stopwatch_resume">继续</string>
+    <string name="stopwatch_pause">暂停</string>
+    <string name="stopwatch_laps">计次记录</string>
+    <string name="stopwatch_copy_laps">复制计次</string>
+    <string name="stopwatch_copied">已复制计次</string>
+    <string name="stopwatch_reset_done">秒表已重置</string>
+    <string name="stopwatch_lap_number">计次 %1$d</string>
 </resources>

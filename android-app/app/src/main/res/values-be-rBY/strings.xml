@@ -255,4 +255,25 @@
     <string name="settings_section_timers">Таймеры</string>
     <string name="settings_alarm_defaults_intro">Гук выкарыстоўваецца ўсімі будзільнікамі без уласнага гуку. Налады адкладвання капіруюцца ў новыя будзільнікі.</string>
     <string name="settings_timer_defaults_intro">Гук выкарыстоўваецца ўсімі таймерамі без уласнага гуку. Налады адкладвання капіруюцца ў новыя таймеры.</string>
+    <string name="action_more">Яшчэ</string>
+    <string name="action_start">Старт</string>
+    <string name="timer_hours">Гадзіны</string>
+    <string name="timer_minutes">Хвіліны</string>
+    <string name="timer_ends_at">%1$s, скончыцца ў %2$s</string>
+    <string name="timer_snoozed_until">Адкладзена да %1$s</string>
+    <string name="timer_cancel_title">Скасаваць гэты таймер?</string>
+    <string name="timer_cancel_body">Ён спыніцца зараз і не зазвініць.</string>
+    <string name="timer_cancel_confirm">Скасаваць таймер</string>
+    <string name="timer_keep">Пакінуць таймер</string>
+    <string name="screen_stopwatch_title">Секундамер</string>
+    <string name="stopwatch_lap">Круг</string>
+    <string name="stopwatch_stop">Стоп</string>
+    <string name="stopwatch_reset">Скід</string>
+    <string name="stopwatch_resume">Працягнуць</string>
+    <string name="stopwatch_pause">Паўза</string>
+    <string name="stopwatch_laps">Кругі</string>
+    <string name="stopwatch_copy_laps">Капіраваць кругі</string>
+    <string name="stopwatch_copied">Кругі скапіраваны</string>
+    <string name="stopwatch_reset_done">Секундамер скінуты</string>
+    <string name="stopwatch_lap_number">Круг %1$d</string>
 </resources>

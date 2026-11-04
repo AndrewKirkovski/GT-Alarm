@@ -136,5 +136,13 @@ data class Alarm(
         /** Sentinel: no cap on consecutive snoozes. */
         const val MAX_SNOOZE_COUNT_UNLIMITED = 0
         const val MAX_SNOOZE_COUNT_CAP = 20
+
+        /** A timer from the Timer tab, shaped like the editor's timer save. */
+        fun newTimer(minutes: Int, snoozeMinutes: Int, maxSnoozeCount: Int): Alarm = Alarm(
+            relativeMinutes = minutes,
+            selfDestruct = true,
+            snoozeMinutes = snoozeMinutes,
+            maxSnoozeCount = maxSnoozeCount,
+        )
     }
 }

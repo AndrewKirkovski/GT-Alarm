@@ -275,4 +275,25 @@
     <string name="settings_section_timers">Таймеры</string>
     <string name="settings_alarm_defaults_intro">Звук используется всеми будильниками без своего звука. Настройки откладывания копируются в новые будильники.</string>
     <string name="settings_timer_defaults_intro">Звук используется всеми таймерами без своего звука. Настройки откладывания копируются в новые таймеры.</string>
+    <string name="action_more">Ещё</string>
+    <string name="action_start">Старт</string>
+    <string name="timer_hours">Часы</string>
+    <string name="timer_minutes">Минуты</string>
+    <string name="timer_ends_at">%1$s, закончится в %2$s</string>
+    <string name="timer_snoozed_until">Отложено до %1$s</string>
+    <string name="timer_cancel_title">Отменить этот таймер?</string>
+    <string name="timer_cancel_body">Он остановится сейчас и не прозвонит.</string>
+    <string name="timer_cancel_confirm">Отменить таймер</string>
+    <string name="timer_keep">Оставить таймер</string>
+    <string name="screen_stopwatch_title">Секундомер</string>
+    <string name="stopwatch_lap">Круг</string>
+    <string name="stopwatch_stop">Стоп</string>
+    <string name="stopwatch_reset">Сброс</string>
+    <string name="stopwatch_resume">Продолжить</string>
+    <string name="stopwatch_pause">Пауза</string>
+    <string name="stopwatch_laps">Круги</string>
+    <string name="stopwatch_copy_laps">Копировать круги</string>
+    <string name="stopwatch_copied">Круги скопированы</string>
+    <string name="stopwatch_reset_done">Секундомер сброшен</string>
+    <string name="stopwatch_lap_number">Круг %1$d</string>
 </resources>

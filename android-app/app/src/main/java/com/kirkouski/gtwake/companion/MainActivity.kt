@@ -47,7 +47,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.graphics.Color
+import com.kirkouski.gtwake.companion.stopwatch.StopwatchRepository
+import com.kirkouski.gtwake.companion.ui.stopwatch.StopwatchScreen
 import com.kirkouski.gtwake.companion.ui.theme.GtAlarmTheme
+import com.kirkouski.gtwake.companion.ui.timer.TimerScreen
 import com.kirkouski.gtwake.companion.ui.theme.gtBackgroundBrush
 import com.kirkouski.gtwake.companion.wear.WearBridgeService
 import dagger.hilt.android.AndroidEntryPoint
@@ -68,6 +71,10 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var wearBridge: WearBridgeService
     @Inject lateinit var alarmRepository: AlarmRepository
     @Inject lateinit var onboardingState: OnboardingState
+    @Inject lateinit var stopwatchRepository: StopwatchRepository
+
+    // Set from the launch intent or onNewIntent, consumed once by the NavHost.
+    private var pendingScreen by mutableStateOf<String?>(null)
 
     // Wired in onStart — see GtAlarmApp direct-boot guard.
     @Inject lateinit var incomingHandler: com.kirkouski.gtwake.companion.data.sync.IncomingMessageHandler
@@ -102,8 +109,8 @@ class MainActivity : ComponentActivity() {
         requestNotificationPermission()
         ensureFullScreenIntentPermission()
 
-        val startAtEdit = intent.getStringExtra(EXTRA_DEEP_LINK_SCREEN) == SCREEN_ADD
-        Log.i(TAG, "onCreate deepLink=${intent.getStringExtra(EXTRA_DEEP_LINK_SCREEN)} startAtEdit=$startAtEdit")
+        if (savedInstanceState == null) pendingScreen = intent.getStringExtra(EXTRA_DEEP_LINK_SCREEN)
+        Log.i(TAG, "onCreate deepLink=$pendingScreen")
 
         setContent {
             GtAlarmTheme {
@@ -115,8 +122,12 @@ class MainActivity : ComponentActivity() {
                 ) {
                 val navController = rememberNavController()
                 val currentRoute by navController.currentBackStackEntryAsState()
-                LaunchedEffect(startAtEdit) {
-                    if (startAtEdit) navController.navigate(Routes.edit(null))
+                LaunchedEffect(pendingScreen) {
+                    when (pendingScreen) {
+                        SCREEN_ADD -> navController.navigate(Routes.edit(null))
+                        SCREEN_STOPWATCH -> navController.switchTab(Routes.STOPWATCH)
+                    }
+                    pendingScreen = null
                 }
                 Scaffold(
                     containerColor = Color.Transparent,
@@ -137,7 +148,13 @@ class MainActivity : ComponentActivity() {
                     ) {
                         composable(Routes.LIST) {
                             AlarmListScreen(
-                                onAdd = { mode -> navController.navigate(Routes.edit(null, mode)) },
+                                onAdd = { mode ->
+                                    if (mode == AlarmMode.RELATIVE) {
+                                        navController.switchTab(Routes.TIMER)
+                                    } else {
+                                        navController.navigate(Routes.edit(null, mode))
+                                    }
+                                },
                                 onEdit = { id -> navController.navigate(Routes.edit(id)) },
                                 onOpenBatteryOptSettings = { openBatteryOptSettings() },
                                 onOpenHelp = { navController.switchTab(Routes.HELP) },
@@ -145,6 +162,12 @@ class MainActivity : ComponentActivity() {
                                     wearBridge.requestPermissionFromActivity(this@MainActivity, onResult)
                                 },
                             )
+                        }
+                        composable(Routes.TIMER) {
+                            TimerScreen(onEdit = { id -> navController.navigate(Routes.edit(id)) })
+                        }
+                        composable(Routes.STOPWATCH) {
+                            StopwatchScreen()
                         }
                         composable(Routes.HELP) {
                             HelpScreen(
@@ -202,6 +225,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingScreen = intent.getStringExtra(EXTRA_DEEP_LINK_SCREEN)
+    }
+
     override fun onStart() {
         super.onStart()
         // Idempotent — covers the pre-unlock-deferred wire from GtAlarmApp.
@@ -209,6 +238,8 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             runCatching { alarmRepository.adoptDefaultSoundCopiesOnce() }
                 .onFailure { Log.w(TAG, "adoptDefaultSoundCopiesOnce failed: ${it.message}") }
+            runCatching { stopwatchRepository.repostNotification() }
+                .onFailure { Log.w(TAG, "stopwatch repost failed: ${it.message}") }
         }
         // Foreground-driven phone→watch reconcile (watch can't wake the phone).
         alarmRepository.scheduleWatchSync()
@@ -328,6 +359,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_DEEP_LINK_SCREEN = "screen"
         const val SCREEN_ADD = "add"
+        const val SCREEN_STOPWATCH = "stopwatch"
         private const val TAG = "MainActivity"
     }
 }

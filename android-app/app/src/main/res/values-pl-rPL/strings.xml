@@ -255,4 +255,25 @@
     <string name="settings_section_timers">Timery</string>
     <string name="settings_alarm_defaults_intro">Dźwięk jest używany przez wszystkie alarmy bez własnego dźwięku. Ustawienia drzemki są kopiowane do nowych alarmów.</string>
     <string name="settings_timer_defaults_intro">Dźwięk jest używany przez wszystkie timery bez własnego dźwięku. Ustawienia drzemki są kopiowane do nowych timerów.</string>
+    <string name="action_more">Więcej</string>
+    <string name="action_start">Start</string>
+    <string name="timer_hours">Godziny</string>
+    <string name="timer_minutes">Minuty</string>
+    <string name="timer_ends_at">%1$s, koniec o %2$s</string>
+    <string name="timer_snoozed_until">Drzemka do %1$s</string>
+    <string name="timer_cancel_title">Anulować ten timer?</string>
+    <string name="timer_cancel_body">Zatrzyma się teraz i nie zadzwoni.</string>
+    <string name="timer_cancel_confirm">Anuluj timer</string>
+    <string name="timer_keep">Zachowaj timer</string>
+    <string name="screen_stopwatch_title">Stoper</string>
+    <string name="stopwatch_lap">Okrążenie</string>
+    <string name="stopwatch_stop">Stop</string>
+    <string name="stopwatch_reset">Resetuj</string>
+    <string name="stopwatch_resume">Wznów</string>
+    <string name="stopwatch_pause">Pauza</string>
+    <string name="stopwatch_laps">Okrążenia</string>
+    <string name="stopwatch_copy_laps">Kopiuj okrążenia</string>
+    <string name="stopwatch_copied">Skopiowano okrążenia</string>
+    <string name="stopwatch_reset_done">Stoper wyzerowany</string>
+    <string name="stopwatch_lap_number">Okrążenie %1$d</string>
 </resources>

@@ -682,7 +682,7 @@ private fun TimerDefaultsSection(state: SettingsState, vm: SettingsViewModel, sh
             style = MaterialTheme.typography.bodySmall,
         )
         DefaultSoundRow(
-            iconRes = R.drawable.ic_timer,
+            iconRes = R.drawable.ic_hourglass_row,
             title = stringResource(R.string.field_sound),
             currentName = state.defaultRelativeRingtoneName,
             currentUri = state.defaultRelativeRingtoneUri,

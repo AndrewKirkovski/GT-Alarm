@@ -337,4 +337,25 @@
     <string name="settings_section_timers">Timers</string>
     <string name="settings_alarm_defaults_intro">The sound is used by every alarm without its own sound. Snooze settings are copied into new alarms.</string>
     <string name="settings_timer_defaults_intro">The sound is used by every timer without its own sound. Snooze settings are copied into new timers.</string>
+    <string name="action_more">More</string>
+    <string name="action_start">Start</string>
+    <string name="timer_hours">Hours</string>
+    <string name="timer_minutes">Minutes</string>
+    <string name="timer_ends_at">%1$s, ends %2$s</string>
+    <string name="timer_snoozed_until">Snoozed until %1$s</string>
+    <string name="timer_cancel_title">Cancel this timer?</string>
+    <string name="timer_cancel_body">It stops now and won\'t ring.</string>
+    <string name="timer_cancel_confirm">Cancel timer</string>
+    <string name="timer_keep">Keep timer</string>
+    <string name="screen_stopwatch_title">Stopwatch</string>
+    <string name="stopwatch_lap">Lap</string>
+    <string name="stopwatch_stop">Stop</string>
+    <string name="stopwatch_reset">Reset</string>
+    <string name="stopwatch_resume">Resume</string>
+    <string name="stopwatch_pause">Pause</string>
+    <string name="stopwatch_laps">Laps</string>
+    <string name="stopwatch_copy_laps">Copy laps</string>
+    <string name="stopwatch_copied">Laps copied</string>
+    <string name="stopwatch_reset_done">Stopwatch reset</string>
+    <string name="stopwatch_lap_number">Lap %1$d</string>
 </resources>
