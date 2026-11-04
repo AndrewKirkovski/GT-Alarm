@@ -55,10 +55,10 @@ When the user asks for a "new version" / release, follow this EXACTLY:
 1. **Ask the user for the new `versionName`** (e.g. `1.0.1`) — never invent it.
 2. **Apply `versionName` to each app being released:**
    - phone — `versionName` in `android-app/app/build.gradle.kts`
-   - watch — `version.name` in `watch-app/entry/src/main/config.json`
+   - watch — `version.name` in `watch-app/entry/src/main/config.json` and `BUILD_TAG` in `watch-app/entry/src/main/js/MainAbility/pages/index/index.js`
 3. **Bump the released app's integer release code by +1.** The two sequences are **INDEPENDENT** — phone `versionCode` is a small int (…2, 3, 4…); watch `version.code` is a HarmonyOS code (…1000001, 1000002…). Stores reject re-uploading the same code (Play: "version code N already used"; AppGallery: "version code already used"), so every app you actually upload MUST have a fresh code:
    - phone — `versionCode` in `android-app/app/build.gradle.kts`
-   - watch — `version.code` in `watch-app/entry/src/main/config.json`
+   - watch — `version.code` in `watch-app/entry/src/main/config.json` and `APP_CODE` in `watch-app/entry/src/main/js/MainAbility/common/wearBridge.js`. The two must be equal: `watch-app/tests/reliability.test.mjs` fails when they differ. The phone stores this code to gate breaking changes (`docs/sync-architecture.md`, "Watch app version").
 4. **Add a release-notes entry to [`docs/release-notes.md`](docs/release-notes.md):** a new row in the version table + a `## <version> — <YYYY-MM-DD>` section (fixes + release-engineering notes; absolute dates).
 5. **Commit** `Release v<version>: <summary>`, then create an **annotated tag** on that commit: `git tag -a v<version> -m "v<version>"`.
 6. **Push the commit AND the tag** (`git push origin main --follow-tags`).
@@ -179,6 +179,10 @@ Any watch-bound message whose loss is user-visible (`alarm_fired`, `alarm_dismis
 3. **Application-level ack** — wait for an ack envelope from the watch's JS handler, NOT just the 207 transport ACK. **207 means "delivered to the watch's Wear Engine layer", NOT "the JS receiver processed it"** — the receiver can be mid-bundle-load and silently drop it. On ack timeout, re-send the whole envelope (idempotent on the watch) for another round.
 
 Fire-and-forget is acceptable ONLY for non-critical traffic (log relay, toggle notifications the user can re-tap). When in doubt, add the ack loop. See `docs/sync-architecture.md` for the wire format of record.
+
+Named exceptions:
+- `watch_default_bg_cleared` counts transport 207 after the ping wake as success. Store watch 1.0.7 has no ack for this message, and a lost clear only leaves an old picture until the next change.
+- `ring_query` is sent by the watch, and its one repeat after 3 s is the retry. The reply is a normal `alarm_fired`, and no reply means "not ringing".
 
 ## Disk use and cleanup
 

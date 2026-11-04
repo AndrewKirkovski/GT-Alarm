@@ -24,6 +24,26 @@ This plan was written against the **HarmonyOS NEXT** watch app. On 2026-04-27 th
 
 ---
 
+## 1.0.13 (both apps)
+
+Coded on `main`, not pushed. Everything is 🟡 until checked on a device.
+
+- Hero line fix, sound and picture removal with one shared row, separate default snooze for alarms and timers.
+- 4-icon bottom menu, Timer tab, stopwatch.
+- Watch ring recovery (`ring_query`), watch version field (`appCode`), watch notice card, Versions card in Help.
+- Upcoming and snooze notifications.
+
+Still to do, in order:
+
+1. Watch diagnostic on a device, with always-on display on and off. It decides whether `onShow` restarts the buzz and crown.
+2. Wear Engine 5.0.2.306 trial on devices, against the current watch and store 1.0.7 with a release-signed phone build. If it passes: `getAppVersion`, watch system version in Help, and the ultra-long battery mode decision.
+3. UI review gate: normal, dark and worst case (320dp, font scale 2.0, Russian), shown to the owner.
+4. Independent review, then Codex alone.
+5. Device tests with visible-marker builds. Test 8 (the watch must not buzz from the upcoming notice) is a release gate.
+6. Release only when the owner asks: 1.0.13, phone code 13, watch code 1000013, `BUILD_TAG` and `APP_CODE` updated.
+
+---
+
 ## Findings summary (from 4 parallel scans, 2026-04-25)
 
 **Watch app:** AC items 1–20 all coded ✅/🟡 with no observed-vs-claimed discrepancies. Build clean (one expected `signingConfig` warning). 4 ArkTS warnings on `ColorMetrics.resourceColor` ("Function may throw exceptions") that we have not yet fixed — addressed in Phase 0a step 3 (extract `safeResourceColor` helper). **Zero unit tests.** No `entry/src/ohosTest/` folder. LWW prep #21–25 ❌ (expected — gated on Wear Engine).

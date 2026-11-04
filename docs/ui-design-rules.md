@@ -46,8 +46,8 @@ Read it end-to-end before touching any screen layout, card, pill, gradient, or f
 - Because the Box is viewport-sized, `size.height` in `drawWithContent` = screen height, so the fade position is screen-relative regardless of scroll position.
 - **Fade starts at the vertical midpoint of the bottom pill:**
   - `navBarPaddingDp = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()`
-  - `startY = size.height - navBarPaddingDp.toPx() - 40.dp.toPx()`
-  - 40dp = 12dp (pill outer vertical padding) + 28dp (half of 56dp pill height)
+  - Bottom nav: `startY = size.height - navBarPaddingDp.toPx() - 38.dp.toPx()`. 38dp = 8dp (pill outer vertical padding) + 30dp (half of the 60dp pill height).
+  - CancelSaveBar: 40dp = 12dp (pill outer vertical padding) + 28dp (half of the 56dp pill height).
   - `endY = size.height`
 
 ## Bottom scroll spacer
@@ -59,9 +59,47 @@ Read it end-to-end before touching any screen layout, card, pill, gradient, or f
 
 ## Pill design (CancelSaveBar / bottom nav)
 
-- Pills are `Surface` with `RoundedCornerShape(28.dp)`, height 56dp, shadow elevation 8dp.
-- Wrapped in a `Box` with `navigationBarsPadding()` + `padding(horizontal = 24.dp, vertical = 12.dp)`.
-- Buttons inside: `TextButton`, `weight(1f)`, full height, separated by `VerticalDivider`.
+- CancelSaveBar: `Surface` with `RoundedCornerShape(28.dp)`, height 56dp, shadow elevation 8dp, in a `Box` with `navigationBarsPadding()` + `padding(horizontal = 24.dp, vertical = 12.dp)`. Buttons inside: `TextButton`, `weight(1f)`, full height, separated by `VerticalDivider`.
+- Bottom nav: height 60dp, `padding(horizontal = 48.dp, vertical = 8.dp)`. 4 items, icons only (66dp per item at 360dp, 56dp at 320dp). The selected item is a pill that fills its cell. The whole cell is the tap target, at least 48dp. Long press shows the name in a tooltip, and TalkBack reads the name and the selected state.
+
+## Choosing and removing
+
+**Words.** One word for each thing, in all 6 locales: Sound, Picture, Remove, "Choose…", Change. Do not use Audio, Ringtone, Background image, Background, Clear, Reset, Set, Not set, System default or App default in these rows.
+
+**Shared row.** Every sound and picture row, in the alarm editor and in Settings, uses `ui/components/MediaChoiceRow.kt`:
+
+```
+[icon]  Sound                        [play, sound rows only]
+        What will really be used
+        [Choose… or Change]  [Remove]
+        [preview, picture rows only]
+```
+
+- The value line always names what will really be used. Preview plays that same sound, and it stops when Remove is pressed.
+- The main button uses `GtAccentButton`. Remove uses the neutral `GtFloatingButton`, because it removes a choice, not a file. Red stays for deleting alarms.
+- The buttons keep their own width and sit on their own line, so nothing jumps when Remove appears or goes away.
+- Tapping a picture preview does the same as the main button.
+
+**How things are removed.**
+
+| Action | Behaviour | Why |
+|---|---|---|
+| Remove a sound or picture from an alarm | Instant, with Undo | Reversible |
+| Remove a default sound or phone picture | Instant, with Undo | Reversible |
+| Stopwatch Reset | Instant, with Undo, paused state only | Reversible while the screen is open |
+| Remove the default watch picture | Dialog, `Remove picture` and `Keep picture` | It visibly wakes the watch and cannot be undone |
+| Cancel a running timer | Dialog, `Cancel timer` and `Keep timer` | It stops a live countdown |
+| Delete an alarm | Existing dialog | It destroys a saved alarm |
+
+A dialog names the effect and uses verb buttons, never OK or Yes. New dialog text states the fallback.
+
+**Feedback.** `GtSnackbarHost` sits above the bottom pill and outside the fading viewport, so the fade cannot hide it. Text is short, for example `Sound removed`, with the action `Undo`. The row changes too, so the result is still visible after the snackbar goes.
+
+**Accessibility.**
+- Tap targets are at least 48dp. `GtAccentButton`, `GtFloatingButton` and `OptionChip` keep their look and gain a 48dp target where they are reused.
+- The value line uses `onSurfaceVariant`. Primary cyan on white is about 3:1, which is too low for small text.
+- The value line is a polite live region, so TalkBack announces the new state.
+- Time displays use tabular digits, so numbers do not shake.
 
 ## Summary — what to check before any layout change
 

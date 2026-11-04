@@ -157,7 +157,28 @@ Do not implement against memory of how an API used to work. APIs change.
 | Hilt | **2.59.2** | Bumped from 2.57.1 because Kotlin 2.3 + KSP 2.3.7 needs Hilt ≥ 2.58 to avoid the "different class loader" error. `androidx.hilt.navigation.compose.hiltViewModel` is moved to `androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel`. |
 | Coroutines | **1.10.2** | |
 | Glance | **1.2.0-rc01** | Glance 1.2.0 stable not yet published (only `-alpha01`, `-beta01`, `-rc01` available as of 2026-04). RC1 is API-stable; downgrade to 1.1.1 reverts widget-side improvements. Bump to 1.2.0 stable when Google publishes it. |
+| Wear Engine SDK (phone) | **5.0.1.300** | Newest package found is 5.0.3.305. 5.0.2.306 is the only update on trial: see [the scan](#wear-engine-sdk-scan-2026-11-04). |
 | Detekt | **2.0.0-alpha.3** | Detekt 1.23.x doesn't support Kotlin 2.3. 2.0 is alpha but explicitly built against Kotlin 2.3 / Gradle 9.3 / AGP 9.0. Plugin namespace renamed from `io.gitlab.arturbosch.detekt` to `dev.detekt`. Several rule names renamed (e.g. `UnnecessaryAbstractClass` → `AbstractClassCanBeConcreteClass`/`AbstractClassCanBeInterface`). |
+
+### Wear Engine SDK scan (2026-11-04)
+
+Source: Huawei's change history, plus the manifest, public API and key code paths of all 12 published phone packages. Huawei Health's own code was not read.
+
+| Version | Health needed | Changes | Decision |
+|---|---|---|---|
+| 5.0.1.300 | 11.0.1.512 | File receive, status queries, watch notifications | Shipped |
+| 5.0.1.301, 5.0.1.302 | Not stated | `isAppInstalled`, `cancelFileTransfer`, per-call overloads, `getAllBondedDevices`, `WEAR_USER_STATUS` (enterprise only) | Small use |
+| 5.0.2.306 | 12.1.1.120 | `getAppVersion`, `getSoftwareVersion`, `getMaxMsgLength`, `reliableSend`. Adds `BLUETOOTH` and `BLUETOOTH_ADMIN`, which no SDK code uses | Trial target. Strip the 2 permissions |
+| 5.0.2.309 | 12.1.8.300 | Asks a Health provider before the first bind and throws code 16 or 4 unless it answers `true` | Avoid: changes the cold-start path of an alarm |
+| 5.0.2.310 | 13.1.1.300 | Tries `WearEngineExtendService` first. `minSdk` 23 | Avoid |
+| 5.0.3.300 to 5.0.3.302 | 13.1.3.300 and up | Power mode query. Checks Health's signing certificate before binding | Avoid |
+| 5.0.3.303 to 5.0.3.305 | 14.0.12.310 | SDK `<queries>` entry, `targetSdk` 34, `getDeviceFid` | Not needed: 5.0.1.300 runs on Android 16 today |
+
+The watch Lite SDK's newest version is 5.0.2.306, which we already ship. Phone and watch SDK versions do not have to match, because the phone SDK talks to Huawei Health and Health talks to the watch.
+
+Our calls (`send(device, msg, cb)`, `registerReceiver(device, receiver)`, `ping`) keep the same internal path through 5.0.2.306. UNKNOWN until the device trial: whether a saved Watch sync grant survives the API level change from 3 to 8, and whether `getAppVersion` covers Lite Wearable apps without opening the watch app.
+
+The trial must pass on devices before the pin moves: permission list equal to 1.0.12, an in-place update keeps the grant, `getAppVersion` returns the exact code within 5 s with the watch app closed and without opening or buzzing it, and the ring, Stop, Snooze, picture, list sync and reconnect paths pass with the current watch and with store 1.0.7. If any item fails, the pin stays at 5.0.1.300.
 
 ### HarmonyOS LiteWearable (current target — Phase 0b)
 | Setting | Value | Rationale |
@@ -201,6 +222,7 @@ Do not implement against memory of how an API used to work. APIs change.
 - 🟡 Persist across process kill + reboot — Room v2 (Phase 4 LWW migration) + `BootReceiver`
 - 🟡 List shows next firing time as relative + absolute — `subtitleLine(alarm)` in `AlarmListScreen.kt` renders `<days_label> · <relative_hint>` for enabled alarms (e.g. "Mon Wed Fri · in 14 hr"). `util/RelativeTime.formatUntil` delegates to `DateUtils.getRelativeTimeSpanString` with `FORMAT_ABBREV_RELATIVE` for one-component output that fits the row width. Trigger time recomputed on alarm change via `remember(alarm)`. (Phase 3 #4, 2026-04-26.)
 - 🟡 One-off alarm flips `enabled = false` after firing — `AlarmRingService.handleDismiss` flips via `repository.setEnabled(id, false)` when `daysOfWeek == 0`. Verified by `AlarmRingServiceTest.shouldAutoDisableOnDismiss` (Phase 3b.1, 2026-04-25).
+- 🟡 The hero line on the list formats the next trigger, so a timer or a snoozed alarm shows its real next time. (1.0.13.)
 
 ### Relative ("in N min") alarms — Phase 5b MVP
 - 🟡 New alarm-type toggle on `AlarmEditScreen` (At time / In…): RELATIVE mode is one-shot only — `daysOfWeek` forced to `0`. Mode toggle hidden when editing an existing alarm (switching type is a create+delete operation per spec).
@@ -208,6 +230,7 @@ Do not implement against memory of how an API used to work. APIs change.
 - 🟡 Computed fire time: `Alarm.computedFireEpoch() = updatedAtEpoch + relativeMinutes * 60_000L`. Re-toggling the alarm off→on bumps `updatedAtEpoch` which re-anchors the timer (countdown restarts).
 - 🟡 Live countdown on list row: `rememberRelativeCountdownText` ticks every 30 s when remaining > 60 s, every 1 s when ≤ 60 s, stops 5 s past fire OR immediately when the alarm is toggled off.
 - 🟡 Boot recovery: `AlarmRepository.rescheduleAllOnBoot` distinguishes "missed during current uptime" (re-arm normally — AlarmManager fires immediately) from "missed during downtime" (post a passive notification, then apply the same outcome a live dismiss would). Since 1.0.8 `handleMissedDuringDowntime` delegates to `AlarmRingService.dismissAction` rather than branching on `isRelative || selfDestruct`; the old short-circuit deleted every missed timer regardless of the flag, silently overriding "Don't delete after firing" whenever the fire was missed instead of dismissed. All three dismiss routes (live ring, BFU `applyPendingDismissals`, missed-during-downtime) now share one decision function. Covered by two `AlarmRepositoryTest` cases. Clock-rollback guard: `bootCompleteAt = (now - SystemClock.elapsedRealtime()).coerceAtMost(now)` so a wall-clock-backwards correction can't classify still-future alarms as missed.
+- 🟡 The Timer tab creates the same `Alarm` rows as the editor. See [Timer tab](#timer-tab-1013). (1.0.13.)
 
 ### Self-destruct (Delete after firing) — Phase 5b MVP
 - 🟡 `Alarm.selfDestruct`: boolean, one persisted field. Domain invariant: `selfDestruct == true` requires `daysOfWeek == 0`; enforced in `Alarm.kt`, edit screen save path, and **rejected** by `WearJsonCodec.parseAlarm`.
@@ -224,6 +247,7 @@ Do not implement against memory of how an API used to work. APIs change.
 - 🟡 Recurring auto-reschedules — `AlarmRingService.handleRing` reschedules when `daysOfWeek != 0`
 - 🟡 Survives reboot — `BootReceiver` triggered by **`BOOT_COMPLETED`** + **`LOCKED_BOOT_COMPLETED`** + **`MY_PACKAGE_REPLACED`** + **`TIMEZONE_CHANGED`** + **`TIME_SET`** (5 actions). On `LOCKED_BOOT_COMPLETED` (direct-boot path) we do NOT touch Room — we wake up on the user-unlocked broadcast and reschedule then. (Source: `developer.android.com/training/articles/direct-boot`.)
 - 🟡 Disable cancels exact PendingIntent — `AlarmManager.cancel(PI)` reusing the same `requestCode = alarm.id`
+- 🟡 `AlarmSchedulerImpl` does all notice work after the fire intent, so a notice problem cannot stop an alarm arming. Notice code uses its own receiver and never touches the fire `PendingIntent`. See [Status notifications](#status-notifications-1013). (1.0.13.)
 
 ### Ringing
 - 🟡 Full-screen alarm UI launches over the lockscreen — `AlarmActivity` with `setShowWhenLocked(true)` + `setTurnScreenOn(true)` + `FLAG_KEEP_SCREEN_ON`. The notification carries `setFullScreenIntent(PI, true)` so the lockscreen takeover happens whether the activity is visible or not. (Source: `developer.android.com/develop/ui/views/notifications/time-sensitive`.)
@@ -240,12 +264,56 @@ Do not implement against memory of how an API used to work. APIs change.
 - 🟡 Snooze can be **disabled** per alarm: `Alarm.snoozeMinutes == Alarm.SNOOZE_DISABLED (0)` means the ring UI (`AlarmActivity` + heads-up notification) hides the Snooze button entirely. Edit screen exposes an "Off" chip as the first preset. Wire format preserves `0` end-to-end (`WearJsonCodec.parseAlarm` sentinel ladder: `<=0 → 0`, else clamp `[1,60]`). Peer-initiated snooze on a locally-disabled alarm collapses to a dismiss in `IncomingMessageHandler.applySnooze` to prevent a phantom 0-minute re-fire. `AlarmRepository.snooze` guards with an explicit `<= 0` early-return for the same reason. (Phase 5a+, 2026-05-14.)
 - 🟡 Snooze reuses `alarm.id` as `PendingIntent` `requestCode` so a second snooze cancels the first
 - 🟡 Concurrent `handleSnooze` / `handleDismiss` on `AlarmRingService` are serialized via `handlerMutex` so the row can't end up with `enabled=false` AND `snoozedUntilEpoch` set. Both handlers commit local truth (Room write) BEFORE the wear broadcast: a process kill between the two leaves the phone consistent and the watch recovers via the next sync hash mismatch. (Phase 5a+ review fix, 2026-05-14.)
+- 🟡 Default snooze is separate for alarms and timers (`default_snooze_minutes`, `default_max_snooze_count`, `default_timer_snooze_minutes`, `default_timer_max_snooze_count`). Built-ins: alarms 10 minutes and unlimited, timers Off and unlimited. The value is copied into a new alarm or timer, so existing rows do not change. `SettingsStore.newAlarmSnooze()` and `newTimerSnooze()` log a read failure and return the built-ins, so creating an alarm never fails. In the editor, switching a new draft between alarm and timer applies that mode's default unless the user already changed the snooze rows. (1.0.13.)
 
 ### Audio picker
 - 🟡 SAF-based picker filtered to `audio/*` — `ActivityResultContracts.OpenDocument`
 - 🟡 URI persisted via `ContentResolver.takePersistableUriPermission(uri, FLAG_GRANT_READ_URI_PERMISSION)` immediately after callback
 - 🟡 Display name resolved through `OpenableColumns.DISPLAY_NAME` and shown in list
 - 🟡 New pick replaces previous URI
+- 🟡 Sound rows use one shared `MediaChoiceRow` in the editor and in Settings. The value line always names what will play: the alarm's own sound, `Default: <name>`, or `System alarm sound`. Preview plays that same sound. Remove shows only when there is a choice to remove. It is instant, with Undo in a snackbar. Silence stays with the Sound switch. (1.0.13.)
+- 🟡 New alarms no longer copy the default sound. An alarm with no sound of its own follows the live default, then the system alarm sound. One clean-up runs once after the update (`AlarmRepository.adoptDefaultSoundCopiesOnce`): alarms whose sound equals the current default lose their copy. It updates only `audioUri` and `audioName`, never `updatedAtEpoch`, because a timer's countdown anchors on that field. (1.0.13.)
+
+### Pictures (1.0.13)
+- 🟡 Picture rows use `MediaChoiceRow`. Removing an alarm picture or the default phone picture is instant, with Undo.
+- 🟡 The default watch picture row shows when the watch is connected or a picture is set. While the watch is disconnected, Change and Remove are disabled and a caption says to connect the watch.
+- 🟡 Removing the default watch picture uses a dialog (`Remove picture`, `Keep picture`), because it visibly wakes the watch and cannot be undone. The phone sends the clear first and clears the setting and the cached crop only after transport 207. On failure the row stays as it was and the snackbar says `Couldn't reach your watch. Try again.` There is no pending flag and no automatic retry.
+
+### Timer tab (1.0.13)
+- 🟡 Running timers come first in their own card, then a card with Hours and Minutes wheels, chips `10 min`, `15 min` and `30 min`, and Start. A chip starts at once, so a timer is two taps from anywhere. Whole minutes only: no seconds and no pause.
+- 🟡 A timer is an `Alarm` from `Alarm.newTimer`, with snooze from `newTimerSnooze()`, saved through `repository.save`. Timers also stay on the alarm list, because the hero and the widget rely on that.
+- 🟡 `TimerViewModel` ignores a second start within 900 ms, so a double tap makes one timer.
+- 🟡 Cancel shows a dialog (`Cancel timer`, `Keep timer`), then deletes the row.
+
+### Stopwatch (1.0.13)
+- 🟡 Package `stopwatch/` does not import `ring` or `scheduler`, and uses no service, wake lock or `AlarmManager`. State lives in its own DataStore `stopwatch_v1`.
+- 🟡 Time survives a closed app, a swiped notification, a force-stop and a reboot. The state stores the elapsed base, the wall-clock base and `Settings.Global.BOOT_COUNT`. On the same boot it uses elapsed time. After a real reboot it uses wall-clock time, with a negative result clamped to 0.
+- 🟡 Silent notification on LOW channel `stopwatch`, id 43, with a chronometer. Running: Pause and Lap. Paused: Resume, with fixed text. There is no Reset action, because a notification cannot offer Undo. `MainActivity.onStart` re-posts it while the stopwatch runs, which covers a swiped notification and a reboot. `BootReceiver` is not involved.
+- 🟡 Screen: hundredths, laps newest first, copy laps as text. Buttons keep fixed places, and the main action is always on the right. Reset has Undo while the snackbar shows.
+- 🟡 Criterion, not measured yet: at least 30 updates per second on a 60 Hz screen, at most 5% janky frames over 60 s (`gfxinfo`), and a paused value equal to the stored value.
+
+### Status notifications (1.0.13)
+- 🟡 LOW channel `alarm_status`, with no sound or vibration, so neither notice can wake anyone.
+- 🟡 Upcoming notice: Settings, Notifications, Off, 10, 30 or 60 minutes before. Default 30 minutes, so the update turns it on for everyone (owner decision, 2026-11-04). Stored in device-protected preferences. `schedule()` arms it with `setAndAllowWhileIdle` to `UpcomingAlarmReceiver`, which is inexact, so Doze can delay it. None for timers, snoozed alarms, before the first unlock, or when the lead has already passed.
+- 🟡 The upcoming notice reads `Alarm at 07:30` with the label below it, and has `Skip`. Skip on a repeating alarm skips the next ring. Skip on a one-time alarm applies its normal dismiss outcome.
+- 🟡 Snooze countdown: posted after the commit in `AlarmRingService.commitSnooze`, which covers phone, watch and pre-unlock snoozes. A failure to post cannot fail the snooze. It reads `Snoozed until 07:40` with a live countdown and `Stop`. Before the first unlock it has no Stop, because the receiver is not direct-boot aware. `AlarmRepository.stopSnooze` does nothing unless the alarm is still snoozed, so a late tap after the ring has no effect.
+- 🟡 Clearing: `scheduleAtChecked` disarms and removes the upcoming notice. `schedule` also removes the countdown unless the alarm is still snoozed, so a bulk re-arm keeps it. `cancel` removes both. Ring start removes posted notices but does not disarm, because the next repeat's notice may already be armed.
+- 🟡 Skip and Stop send no end message to the watch. Off the ring screen, store watch 1.0.7 can throw on one, which skips its ack and drain.
+- Release gate: Huawei Health may mirror these notices to the watch. A mirrored upcoming notice could buzz the watch 30 minutes before an alarm and wake the user early. Check on a device, and stop and ask the owner if the watch buzzes.
+
+### Bottom menu (1.0.13)
+- 🟡 4 items: Alarms, Timer, Stopwatch, More. Icons only, like Samsung Clock. Long press shows the name in a tooltip, and TalkBack reads the name and the selected state. This is an accepted exception to Material's label rule (owner decision, 2026-11-04). Layout: 66dp per item at 360dp, 56dp at 320dp.
+- 🟡 More opens a menu with Settings and Help, and shows as selected on those two routes.
+
+### Known limits (1.0.13)
+- An alarm cannot choose "no picture" while a default picture exists.
+- An alarm where the user picked the same file as the default by hand, before 1.0.13, follows the default after the update.
+- Before the first unlock an alarm plays the bundled tone, whatever the Sound row says.
+- The default watch picture can be removed only while the watch is connected. A lost clear after transport 207 leaves the old picture until the next change.
+- Removed phone pictures stay in the app's private storage.
+- After a phone restart during a snooze, the countdown notice does not return.
+- Store watch 1.0.7 still snoozes by itself when its screen times out during a ring with snooze on (3.1 s measured on GT 6 Pro). A longer default alarm snooze brings an untouched alarm back later. Timers avoid this unless the user turns on timer snooze, and timers already made in the editor keep their snooze.
+- Watch status warnings show only when the phone app is open. There is no background alert.
 
 ### Glance widget
 - 🟡 Renders next upcoming alarm as `Sat 07:00` + relative hint
@@ -258,6 +326,7 @@ Do not implement against memory of how an API used to work. APIs change.
 - 🟡 **Donate card**: `ActionCard` linking to `https://ko-fi.com/ryotsuke` via `Intent.ACTION_VIEW`. Address #90.
 - 🟡 **Device-unsupported card**: problem-first ordering, ABOVE the donate card. Links to `mailto:ryotsuke+gtalarm@gmail.com?subject=GT%20Alarm%20-%20Device%20support`. Address #91.
 - 🟡 **Credits footer**: clickable courtesy credit "Icons by Tabler" → `https://tabler.io/icons`. The full icon set was migrated (2026-05-18) to [Tabler Icons](https://tabler.io/icons) — MIT licensed, **no attribution required** — generated by the `tools/icongen` pipeline. The prior Flaticon **LEGAL GAP is CLOSED**: no Flaticon assets ship in `res/`. The credit is a courtesy, not a license obligation.
+- 🟡 **Versions card** at the bottom of Help (1.0.13): phone app and watch app versions as selectable text, so a user can copy them for support. The watch value is the version, `Older than 1.0.13`, or `Not known yet`.
 
 ### Permissions (manifest + runtime)
 **Permissions in manifest:**
@@ -410,7 +479,7 @@ silencing other people's medication reminders. **Do not revisit.**
 
 ### Internationalization (Android)
 - 🟡 All user-facing strings in `res/values/strings.xml` (English baseline). No hardcoded literals in Compose `Text(...)` — audit pass clean as of 2026-04-25 (Phase 3c).
-- ✅ Locale resource overlays — 6 dirs landed: `values-en-rUS`, `values-zh-rCN`, `values-ru-rRU`, `values-pl-rPL`, `values-uk-rUA`, `values-be-rBY`. Translations cribbed from watch app's HarmonyOS resources. Verified on AVD 2026-04-30 via `cmd locale set-app-locales com.kirkouski.gtwake.companion --locales pl-PL`: title "Alarms" → "Alarmy", days "Once" → "Raz", relative time "In 16 hr." → "Za 15 godz." on next launch. (Phase 3c, 2026-04-25.)
+- ✅ Locale resources: default `values` (English) plus 5 overlays: `values-zh-rCN`, `values-ru-rRU`, `values-pl-rPL`, `values-uk-rUA`, `values-be-rBY`. Translations cribbed from watch app's HarmonyOS resources. Verified on AVD 2026-04-30 via `cmd locale set-app-locales com.kirkouski.gtwake.companion --locales pl-PL`: title "Alarms" → "Alarmy", days "Once" → "Raz", relative time "In 16 hr." → "Za 15 godz." on next launch. (Phase 3c, 2026-04-25.)
 - ✅ `LocalConfiguration.current.locales` honored — `NextAlarmGlanceWidget.computeNext` reads `context.resources.configuration.locales[0]`; `TimeFormatter` delegates to `DateFormat` which itself respects the configuration locale. Zero `Locale.getDefault()` / `Locale.US` / `Locale.ENGLISH` / `Locale.ROOT` calls in production code (verified via Grep 2026-04-26). Verified end-to-end on AVD 2026-04-30 via per-app locale switch — list strings reflow on next process launch. Audit gap: code paths added in future may regress this — consider a custom Detekt rule when patterns stabilise.
 - ✅ Time format follows system 12h/24h — `util/TimeFormatter.kt` uses `DateFormat.is24HourFormat(context)` + `DateFormat.getTimeFormat(context)`. Used by AlarmListScreen, AlarmActivity, AlarmNotifications, NextAlarmGlanceWidget. Verified on AVD 2026-04-30: en-US locale renders "7:00 AM" while pl-PL renders "07:00" — Polish 24h system pref honored after locale switch. (Phase 3c, 2026-04-25.)
 - 🟡 Day-letter labels in chip row pulled from `strings.xml` — `util/DayLabels.kt:shortLabelResForDayBit(bit)` maps each `DaysOfWeek` bit to its `R.string.day_*_short`. 2-letter glyphs (`Mo`/`Tu`/...`Su`) used in base + 6 locale dirs. (Phase 3c, 2026-04-25.)
@@ -483,6 +552,18 @@ silencing other people's medication reminders. **Do not revisit.**
 - 🟡 `WearJsonCodec.parseIncoming` validates `sync_hash` payload against `^[0-9a-f]{8}$` — corrupt/spoofed hashes dropped.
 - 🟡 `HuaweiWearBridge.pendingHashRequest` is an `AtomicReference<CompletableDeferred<String>?>`; receiver claims via `getAndSet(null)` for atomic timeout/response races.
 - 🟡 Force-sync UI in-flight protection: `AlarmListViewModel.forceSyncMutex.tryLock` drops mashed taps; `forceSyncRunning` StateFlow disables the WatchSyncCard button while a sync is active.
+
+### Ring recovery (1.0.13)
+- 🟡 During a ring, the side button closes the watch app. When the user reopens it, it starts on the list and sends `ring_query`, with one repeat after 3 s on the Ticker. While the phone's ring is still open, the phone answers with a normal `alarm_fired`, and the ring screen comes back with Stop and Snooze. Design of record: `sync-architecture.md`, "Ring recovery".
+- 🟡 The phone is the only authority on "still ringing". The watch stores nothing about a ring, so it cannot show a false ring. No reply means not ringing.
+- 🟠 Not coded yet: restarting the buzz and crown on `onShow`. It waits for the device diagnostic, because no code keeps vibrating after `onHide` and the report that the watch keeps ringing after the side button is not explained yet.
+- Known limits: recovery needs a reachable phone with its ring screen alive. If the phone's ring screen never opened, or before the first unlock, the watch stays on the list. Both queries can be lost, and reopening the app tries again. Store watch 1.0.7 gets no recovery.
+
+### Watch app version (1.0.13)
+- 🟡 New watch apps send `appCode` in `alarm_ringing` and `ring_query`. The phone stores it in `watch_app_code`: absent means never heard from a watch, 0 means older than 1.0.13, above 0 is the exact code. The value is not tied to a watch identity: the next report overwrites it.
+- 🟡 `WatchVersionPolicy.REQUIRED_WATCH_CODE` is 0, so 1.0.13 shows no update prompt. An unknown version never prompts. Raise it only after AppGallery serves that build. The rule for breaking changes is in `sync-architecture.md`, "Watch app version".
+- 🟡 The alarm list shows one watch message at a time, update first, then low battery. Low battery means 10% or less, not charging, and at least one alarm enabled. A failed read shows nothing. Hide lasts until the app process ends.
+- 🟠 Without the SDK read, the phone learns the version only at the first ring, and sees 1.0.7 only as "older than 1.0.13". `getAppVersion` and the watch system version wait for the 5.0.2.306 trial. The ultra-long battery mode warning is added only if that trial shows the mode can be read and the watch does not ring in it.
 
 ### Known scope deltas vs the legacy NEXT app
 - **Watch no longer schedules.** No `reminderAgentManager` (doesn't exist on Lite). Phone is sole scheduler. Watch reacts to `alarm_fired` pings.
@@ -1005,6 +1086,19 @@ ring → dismiss/snooze flow; "creating" stays phone-only by design.
 
 Symbol legend: 🎯 high alignment (watch-first reliability or wrist-only UX) ·
 🤝 supports watch-first indirectly · 📞 phone-side ergonomic · 🧭 orthogonal.
+
+The Timer tab and the stopwatch are owner-requested phone features (2026-11-04). They do not change this anchor.
+
+### 1.0.14 backlog, ranked (2026-11-04)
+1. One-time alarm on a chosen date (needs Room and next-alarm changes).
+2. Timer seconds and pause (needs Room, wire and hash changes on both apps).
+3. Voice `SET_TIMER` handling (`EXTRA_LENGTH` is in seconds, 1 to 86400).
+4. Live Updates and Now Bar for stopwatch and timer (needs `POST_PROMOTED_NOTIFICATIONS`; Samsung may add its own criteria).
+5. Snooze plus and minus on the ring screen, per-alarm volume, alarm groups.
+6. Clean up old `phone_bg_*.png` crops. Cut from 1.0.13: the files are private and small, and a cleanup could delete a picture still in use.
+7. Watch notification fallback through `NotifyClient`, which the SDK we ship already has. When the watch app cannot ring, the phone sends a watch notification with Stop and Snooze buttons. It needs the `NOTIFY` user permission and a check of the AppGallery Connect permission scope. The watch buzzes only when worn with Do Not Disturb off, so it cannot replace the watch app.
+
+Do not copy from Samsung Clock: world clock, weather, Bedtime, Bixby, Spotify, and "Silence alarms when sound is off". They do nothing for reliable alarms, and the last one makes an alarm less likely to ring.
 
 ### Tier 1 — TODO (ship pre-1.0)
 The foundation under the watch-first promise. If either of these is missing

@@ -25,6 +25,8 @@ without any watch traffic. Explicit picture transfers retain their separate cons
 
 Existing JSON message names and alarm payloads are retained. Optional fields add
 confirmation and occurrence matching; no required protocol version or new IDs exist.
+1.0.13 adds one message, `ring_query`, and one optional field, `appCode`. Older apps
+ignore both.
 
 | Message | Optional fields and completion rule |
 | --- | --- |
@@ -36,6 +38,8 @@ confirmation and occurrence matching; no required protocol version or new IDs ex
 | `sync_check`, `sync_hash` | Echo `updatedAtEpoch` when supplied. `sync_hash.supportsCommitAck: true` announces persistence acknowledgements. |
 | `sync_replace`, `alarms_received` | Text and file replacement use the same acknowledgement, with persisted list hash and replacement timestamp. Failed persistence sends no successful acknowledgement. A released watch's own stamp is accepted when the hash matches. |
 | `sync_done` | Close after pending list writes finish, or at a bounded deadline. The phone sends it directly to the running peer without another wake. |
+| `ring_query` (watch to phone) | New in 1.0.13. The only message a watch starts on its own. Carries `alarmId: 0`, `updatedAtEpoch` and `appCode`. See "Ring recovery". |
+| `alarm_ringing` (watch to phone) | From 1.0.13 also carries `appCode`, the watch app's `version.code`. See "Watch app version". |
 
 Phone reply rule for an updated watch's dismiss/snooze, decided per ring service in
 memory (no persistent receipts):
@@ -98,6 +102,61 @@ action can have partial effects. Pre-unlock dismiss resets the snooze counter an
 drops older pending counter bumps in the same write. A pre-unlock snooze records its
 trigger and counter bump in one write before arming the trigger. Post-unlock
 reconciliation applies remaining bumps once.
+
+### Ring recovery (1.0.13)
+
+The side button closes the watch app, and no key event reaches JS. Reopening is a
+cold start on the list. The phone is the only authority on "still ringing": the watch
+stores nothing about a ring, so it cannot show a false ring. No reply means not
+ringing. A lost link gives the same silence, and in that case Stop could not reach
+the phone anyway.
+
+1. When the watch app starts on the list with consent given and no action pending, it
+   sends `ring_query`, then repeats it once after 3 s on the Ticker. A launch driven by
+   the phone also sends it, which is harmless. The repeat is this message's
+   application-level retry, a named exception to the ack rule in `AGENTS.md`.
+2. `IncomingMessageHandler` starts `AlarmRingService` with `ACTION_RING_QUERY` only when
+   `RingEndedSignal.current` is non-null. Otherwise it never starts a service.
+3. `handleRingQuery` replies only while the ring is open: hints are set (they are set
+   after the pre-arm and cleared in `stopCurrentRingResources`), `currentRing().isOpen`
+   is true, no action has started, and no local stop was requested. `current` alone is
+   not enough, because it stays set for 6 to 12 s after a commit.
+4. The reply is a normal `alarm_fired` from `buildAlarmFiredEnvelope`, sent through
+   `sendPeerReplyBounded` with no ping. `markFireSend` runs first, so a phone Stop after
+   the reply still sends the end message. On the watch, `enterRing` does the rest: ack,
+   buzz, crown, cap and buttons.
+
+Compatibility: watches 1.0.7 to 1.0.12 never send a query, so the phone path stays
+idle. Phones 1.0.10 to 1.0.12 drop it as an unknown type, and a new watch stays on the
+list. Release the phone first or together.
+
+### Watch app version (1.0.13)
+
+`APP_CODE` in `common/wearBridge.js` must equal `version.code` in `config.json`; a
+reliability test fails when they differ. It is a constant, not `app.getInfo()`, because
+a new system call in the ring path is an unproven risk on ACELite.
+
+The phone stores the code in `SettingsStore` key `watch_app_code`, on the bridge scope
+and only when it changes, so it cannot delay a ring reply. Absent means never heard
+from a watch, 0 means older than 1.0.13, and above 0 is the exact code. An
+`alarm_ringing` with no `appCode` stores 0.
+
+Rule for breaking changes:
+
+1. Ship a watch app that handles the old and the new format.
+2. After AppGallery serves it, ship a phone app with `REQUIRED_WATCH_CODE` raised.
+3. The phone uses the new format only when the stored code is high enough. Unknown or
+   0 uses the old format.
+4. The owner decides when old-format code goes. The app has no `INTERNET` permission,
+   so nothing reports how many old watches remain.
+
+### Default picture clear
+
+`watch_default_bg_cleared` counts transport 207 after the ping wake as success, because
+store watch 1.0.7 has no ack for this message and a lost clear only leaves an old
+picture until the next change. This is a named exception to the ack rule in
+`AGENTS.md`. The user starts it from Settings while the watch is connected, and the
+phone keeps the setting and the cached crop until the send succeeds.
 
 ---
 
@@ -202,7 +261,14 @@ JSON over P2P. Every message is a single line, single object, no nesting.
 // watch → phone: confirms the watch's ring page is up and vibrating.
 // Phone awaits this before starting its own audio so the two devices
 // ring in lock-step instead of phone-first / watch-late.
-{ "type": "alarm_ringing", "alarmId": <number>, "updatedAtEpoch": <number> }
+{ "type": "alarm_ringing", "alarmId": <number>, "updatedAtEpoch": <number>,
+  "appCode": <number?> }
+
+// watch → phone: is a ring still open? Sent when the watch app starts on
+// the list, see "Ring recovery". The reply is a normal alarm_fired; no
+// reply means not ringing.
+{ "type": "ring_query", "alarmId": 0, "updatedAtEpoch": <number>,
+  "appCode": <number> }
 
 // watch → phone: application-level ack that the watch's JS receiver
 // processed a phone-originated `alarm_dismissed` (or `alarm_snoozed`).
@@ -218,8 +284,8 @@ JSON over P2P. Every message is a single line, single object, no nesting.
 
 // phone → watch: ask the watch to report its physical screen so the phone
 // can size + shape the uploaded background image to the real panel. Carries
-// no alarmId (meta-protocol). ALL comms are phone-initiated — the watch
-// never pushes its screen unprompted.
+// no alarmId (meta-protocol). The phone starts all traffic except
+// ring_query — the watch never pushes its screen unprompted.
 { "type": "screen_request" }
 
 // watch → phone: reply to screen_request. `shape` = "circle" | "rect"
