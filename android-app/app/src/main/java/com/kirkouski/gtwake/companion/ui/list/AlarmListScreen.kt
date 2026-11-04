@@ -362,10 +362,14 @@ private fun HeroSection(
                 color = MaterialTheme.colorScheme.onBackground,
             )
             val is24h = TimeFormatter.resolveUses24HourFormat(ctx, settings.use24Hour)
-            val timeStr = TimeFormatter.formatHourMinute(
-                ctx, nextAlarm.hour, nextAlarm.minute, is24h,
-            )
+            // From the trigger, not hour/minute: a timer or snoozed alarm fires at another time.
             val cal = java.util.Calendar.getInstance().also { it.timeInMillis = nextTrigger }
+            val timeStr = TimeFormatter.formatHourMinute(
+                ctx,
+                cal.get(java.util.Calendar.HOUR_OF_DAY),
+                cal.get(java.util.Calendar.MINUTE),
+                is24h,
+            )
             val dayName = android.text.format.DateFormat.format("EEE", cal).toString()
             val dayNum = cal.get(java.util.Calendar.DAY_OF_MONTH)
             val monthName = android.text.format.DateFormat.format("MMM", cal).toString()
