@@ -8,6 +8,7 @@
 package com.kirkouski.gtwake.companion.ui.settings
 
 import android.widget.Toast
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -725,8 +726,8 @@ private fun UpcomingNoticeRow(value: Int, onChange: (Int) -> Unit) {
             Text(
                 text = stringResource(R.string.settings_upcoming_notice),
                 style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.weight(1f))
             Text(
                 text = if (value <= 0) {
                     stringResource(R.string.field_snooze_off_value)
@@ -735,13 +736,18 @@ private fun UpcomingNoticeRow(value: Int, onChange: (Int) -> Unit) {
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                softWrap = false,
             )
         }
         Text(
             text = stringResource(R.string.settings_upcoming_intro),
             style = MaterialTheme.typography.bodySmall,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+        ) {
             UPCOMING_LEAD_CHOICES.forEach { lead ->
                 OptionChip(
                     label = if (lead <= 0) stringResource(R.string.field_snooze_off_chip) else "$lead",

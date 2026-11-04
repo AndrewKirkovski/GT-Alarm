@@ -47,6 +47,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kirkouski.gtwake.companion.R
 import com.kirkouski.gtwake.companion.domain.Alarm
+import com.kirkouski.gtwake.companion.ui.components.FitText
 import com.kirkouski.gtwake.companion.ui.components.GtAccentButton
 import com.kirkouski.gtwake.companion.ui.components.GtFloatingButton
 import com.kirkouski.gtwake.companion.ui.components.bottomPillFade
@@ -139,11 +140,7 @@ private fun NewTimerCard(minutes: Int, onMinutesChange: (Int) -> Unit, onStart: 
                         modifier = Modifier.weight(1f),
                         contentPadding = PaddingValues(horizontal = 4.dp),
                     ) {
-                        Text(
-                            text = stringResource(R.string.field_snooze_minutes_value, preset),
-                            maxLines = 1,
-                            softWrap = false,
-                        )
+                        FitText(stringResource(R.string.field_snooze_minutes_value, preset))
                     }
                 }
             }

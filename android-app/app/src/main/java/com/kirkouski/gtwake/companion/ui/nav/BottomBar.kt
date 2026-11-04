@@ -151,28 +151,31 @@ private fun BottomTabItem(
     modifier: Modifier = Modifier,
 ) {
     val label = stringResource(tab.labelRes)
-    TooltipBox(
-        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-        tooltip = { PlainTooltip { Text(label) } },
-        state = rememberTooltipState(),
-        modifier = modifier.fillMaxHeight(),
-    ) {
-        // The whole cell is the tap target. The pill fills it, as on Samsung.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .selectable(selected = selected, role = Role.Tab, onClick = onClick)
-                .padding(horizontal = 4.dp, vertical = 8.dp)
-                .clip(CircleShape)
-                .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent),
-            contentAlignment = Alignment.Center,
+    // TooltipBox gives its modifier to an inner node, so a Row weight must sit on this wrapper.
+    Box(modifier = modifier.fillMaxHeight()) {
+        TooltipBox(
+            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+            tooltip = { PlainTooltip { Text(label) } },
+            state = rememberTooltipState(),
+            modifier = Modifier.fillMaxSize(),
         ) {
-            Icon(
-                painter = painterResource(tab.iconRes),
-                contentDescription = label,
-                tint = if (selected) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-                modifier = Modifier.size(24.dp),
-            )
+            // The whole cell is the tap target. The pill fills it, as on Samsung.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .selectable(selected = selected, role = Role.Tab, onClick = onClick)
+                    .padding(horizontal = 4.dp, vertical = 8.dp)
+                    .clip(CircleShape)
+                    .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painter = painterResource(tab.iconRes),
+                    contentDescription = label,
+                    tint = if (selected) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                    modifier = Modifier.size(24.dp),
+                )
+            }
         }
     }
 }

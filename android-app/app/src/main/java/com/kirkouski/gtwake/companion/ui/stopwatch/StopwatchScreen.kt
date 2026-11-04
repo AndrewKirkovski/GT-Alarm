@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -62,6 +63,7 @@ import com.kirkouski.gtwake.companion.stopwatch.StopwatchClock
 import com.kirkouski.gtwake.companion.stopwatch.StopwatchLap
 import com.kirkouski.gtwake.companion.stopwatch.formatStopwatch
 import com.kirkouski.gtwake.companion.stopwatch.lapsAsText
+import com.kirkouski.gtwake.companion.ui.components.FitText
 import com.kirkouski.gtwake.companion.ui.components.GtAccentButton
 import com.kirkouski.gtwake.companion.ui.components.GtFloatingButton
 import com.kirkouski.gtwake.companion.ui.components.GtSnackbarHost
@@ -156,8 +158,9 @@ private fun StopwatchCard(
                 GtAccentButton(
                     onClick = if (running) onPause else onStart,
                     modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 4.dp),
                 ) {
-                    Text(stringResource(mainActionRes(stopwatch.phase)), maxLines = 1, softWrap = false)
+                    FitText(stringResource(mainActionRes(stopwatch.phase)))
                 }
             }
         }
@@ -172,8 +175,12 @@ private fun mainActionRes(phase: Stopwatch.Phase): Int = when (phase) {
 
 @Composable
 private fun RowScope.SecondaryButton(labelRes: Int, onClick: () -> Unit) {
-    GtFloatingButton(onClick = onClick, modifier = Modifier.weight(1f)) {
-        Text(stringResource(labelRes), maxLines = 1, softWrap = false)
+    GtFloatingButton(
+        onClick = onClick,
+        modifier = Modifier.weight(1f),
+        contentPadding = PaddingValues(horizontal = 4.dp),
+    ) {
+        FitText(stringResource(labelRes))
     }
 }
 
@@ -248,9 +255,9 @@ private fun LapsCard(laps: List<StopwatchLap>) {
 private fun LapRow(lap: StopwatchLap) {
     val digits = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum")
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
-        Text(text = lap.number.toString(), style = digits, modifier = Modifier.weight(1f))
-        Text(text = formatStopwatch(lap.lapMs), style = digits, modifier = Modifier.weight(1f))
-        Text(
+        Text(text = lap.number.toString(), style = digits, modifier = Modifier.weight(0.4f))
+        FitText(text = formatStopwatch(lap.lapMs), style = digits, modifier = Modifier.weight(1f))
+        FitText(
             text = formatStopwatch(lap.totalMs),
             style = digits,
             textAlign = TextAlign.End,

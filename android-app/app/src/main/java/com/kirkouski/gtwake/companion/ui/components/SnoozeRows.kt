@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -43,8 +42,8 @@ fun SnoozeRow(value: Int, onChange: (Int) -> Unit) {
             Text(
                 text = stringResource(R.string.field_snooze_minutes),
                 style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.weight(1f))
             Text(
                 text = if (value <= Alarm.SNOOZE_DISABLED) {
                     stringResource(R.string.field_snooze_off_value)
@@ -53,9 +52,14 @@ fun SnoozeRow(value: Int, onChange: (Int) -> Unit) {
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                softWrap = false,
             )
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+        ) {
             SNOOZE_PRESETS.forEach { preset ->
                 SnoozeChip(
                     minutes = preset,
@@ -94,8 +98,8 @@ fun MaxSnoozeRow(value: Int, onChange: (Int) -> Unit) {
             Text(
                 text = stringResource(R.string.field_max_snooze),
                 style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.weight(1f))
             Text(
                 text = if (value <= Alarm.MAX_SNOOZE_COUNT_UNLIMITED) {
                     stringResource(R.string.field_max_snooze_unlimited)
@@ -104,6 +108,8 @@ fun MaxSnoozeRow(value: Int, onChange: (Int) -> Unit) {
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                softWrap = false,
             )
         }
         Row(
