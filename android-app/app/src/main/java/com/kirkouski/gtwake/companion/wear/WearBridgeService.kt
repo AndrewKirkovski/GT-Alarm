@@ -177,8 +177,11 @@ interface WearBridgeService {
      * Tell the watch to drop its cached default background bin. Sent when
      * the user clears the default in Settings so the watch deletes its
      * `bg_default.bin` and falls back to its bundled ring UI.
+     *
+     * @return true on transport 207 after the wake. That is the best signal
+     * this message has: the watch sends no ack, so it is not proof of the clear.
      */
-    fun sendDefaultWatchBackgroundCleared()
+    suspend fun sendDefaultWatchBackgroundCleared(): Boolean
 
     /**
      * Make sure the watch's screen size is known before the picture cropper

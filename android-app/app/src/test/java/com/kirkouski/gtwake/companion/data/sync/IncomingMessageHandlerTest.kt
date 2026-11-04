@@ -520,6 +520,8 @@ private class FakeAlarmDao : AlarmDao {
         }
     }
 
+    override suspend fun clearAudioCopies(uri: String, relative: Boolean): Int = 0
+
     override suspend fun setSnoozedUntil(id: Long, until: Long?) {
         rows.update { map ->
             map[id]?.let { map + (id to it.copy(snoozedUntilEpoch = until)) } ?: map

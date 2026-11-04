@@ -44,6 +44,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -56,6 +57,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -87,7 +89,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.anhaki.picktime.utils.PickTimeFocusIndicator
 import com.anhaki.picktime.utils.PickTimeTextStyle
 import com.anhaki.picktime.utils.TimeFormat
-import com.kirkouski.gtwake.companion.ui.components.GtAccentButton
+import com.kirkouski.gtwake.companion.ui.components.GtSnackbarHost
+import com.kirkouski.gtwake.companion.ui.components.MediaChoiceRow
+import com.kirkouski.gtwake.companion.ui.components.SoundPreviewButton
+import com.kirkouski.gtwake.companion.ui.components.alarmPictureChoice
+import com.kirkouski.gtwake.companion.ui.components.alarmSoundChoice
+import com.kirkouski.gtwake.companion.ui.components.pictureChoiceText
+import com.kirkouski.gtwake.companion.ui.components.removable
+import com.kirkouski.gtwake.companion.ui.components.showUndo
+import com.kirkouski.gtwake.companion.ui.components.soundChoiceText
 import com.kirkouski.gtwake.companion.ui.picktime.GtPickHourMinute
 import com.kirkouski.gtwake.companion.R
 import com.kirkouski.gtwake.companion.domain.Alarm
@@ -95,6 +105,7 @@ import com.kirkouski.gtwake.companion.domain.DaysOfWeek
 import com.kirkouski.gtwake.companion.util.TimeFormatter
 import com.kirkouski.gtwake.companion.util.rememberOrderedDayBits
 import com.kirkouski.gtwake.companion.util.shortLabelResForDayBit
+import kotlinx.coroutines.launch
 
 // reason: Compose top-level screen composables are inherently long because
 // they declare a tree of layout, state hoisting, and side-effects in one
@@ -118,6 +129,11 @@ fun AlarmEditScreen(
     var showDiscardConfirm by remember { mutableStateOf(false) }
     var showUnsavedConfirm by remember { mutableStateOf(false) }
     var showPhoneBackgroundPicker by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val soundRemovedText = stringResource(R.string.sound_removed)
+    val pictureRemovedText = stringResource(R.string.picture_removed)
+    val undoText = stringResource(R.string.action_undo)
 
     // Cancel path. Routing on dirty + alarm-source:
     //   new draft + dirty   → "Discard new alarm?" (row never existed)
@@ -197,6 +213,7 @@ fun AlarmEditScreen(
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = { GtSnackbarHost(snackbarHostState) },
         bottomBar = {
             CancelSaveBar(
                 onCancel = cancel,
@@ -301,27 +318,45 @@ fun AlarmEditScreen(
                     HorizontalDivider(thickness = 0.5.dp, color = divider)
                     if (!state.isVibrationOnly) {
                         val previewing by audioPreview.playing
-                        AudioRow(
-                            audioName = if (state.audioUri != null) {
-                                state.audioName ?: stringResource(R.string.field_audio_unknown)
-                            } else {
-                                (if (state.mode == AlarmMode.RELATIVE) {
-                                    settings.defaultRelativeRingtoneName
-                                } else {
-                                    settings.defaultAbsoluteRingtoneName
-                                }) ?: stringResource(R.string.field_audio_app_default)
-                            },
-                            previewing = previewing,
-                            onPreviewClick = {
-                                val previewUri = state.audioUri
-                                    ?: if (state.mode == AlarmMode.RELATIVE) {
-                                        settings.defaultRelativeRingtoneUri
-                                    } else {
-                                        settings.defaultAbsoluteRingtoneUri
+                        val isTimer = state.mode == AlarmMode.RELATIVE
+                        val defaultUri = if (isTimer) {
+                            settings.defaultRelativeRingtoneUri
+                        } else {
+                            settings.defaultAbsoluteRingtoneUri
+                        }
+                        val defaultName = if (isTimer) {
+                            settings.defaultRelativeRingtoneName
+                        } else {
+                            settings.defaultAbsoluteRingtoneName
+                        }
+                        val soundChoice = alarmSoundChoice(state.audioUri, state.audioName, defaultUri, defaultName)
+                        MediaChoiceRow(
+                            iconRes = R.drawable.ic_music_note,
+                            title = stringResource(if (isTimer) R.string.field_audio_timer else R.string.field_audio),
+                            value = soundChoiceText(soundChoice),
+                            removable = soundChoice.removable,
+                            onChoose = pickAudio,
+                            onRemove = {
+                                val uri = state.audioUri
+                                val name = state.audioName
+                                audioPreview.stop()
+                                vm.updateAudio(null, null)
+                                scope.launch {
+                                    snackbarHostState.showUndo(soundRemovedText, undoText) {
+                                        vm.updateAudio(uri, name)
                                     }
-                                if (previewing) audioPreview.stop() else audioPreview.play(previewUri)
+                                }
                             },
-                            onPick = pickAudio,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            trailing = {
+                                SoundPreviewButton(previewing) {
+                                    if (previewing) {
+                                        audioPreview.stop()
+                                    } else {
+                                        audioPreview.play(state.audioUri ?: defaultUri)
+                                    }
+                                }
+                            },
                         )
                         HorizontalDivider(thickness = 0.5.dp, color = divider)
                     }
@@ -338,7 +373,15 @@ fun AlarmEditScreen(
                         timeText = previewTimeText,
                         labelText = state.label.takeIf { it.isNotBlank() }.orEmpty(),
                         onPick = { showPhoneBackgroundPicker = true },
-                        onClear = { vm.updateBackgroundImage(null) },
+                        onClear = {
+                            val previous = state.backgroundImageUri
+                            vm.updateBackgroundImage(null)
+                            scope.launch {
+                                snackbarHostState.showUndo(pictureRemovedText, undoText) {
+                                    vm.updateBackgroundImage(previous)
+                                }
+                            }
+                        },
                     )
                     HorizontalDivider(thickness = 0.5.dp, color = divider)
 
@@ -697,58 +740,6 @@ private fun ToggleRow(
             checked = checked,
             onCheckedChange = { onToggle() },
         )
-    }
-}
-
-@Composable
-private fun AudioRow(
-    audioName: String,
-    previewing: Boolean,
-    onPreviewClick: () -> Unit,
-    onPick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            painter = painterResource(R.drawable.ic_music_note),
-            contentDescription = null,
-            tint = Color.Unspecified,
-            modifier = Modifier.padding(end = 12.dp).size(24.dp),
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = stringResource(R.string.field_audio),
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            Text(
-                text = audioName,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-        IconButton(onClick = onPreviewClick) {
-            Icon(
-                painter = painterResource(
-                    if (previewing) R.drawable.ic_stop else R.drawable.ic_play,
-                ),
-                contentDescription = stringResource(
-                    if (previewing) {
-                        R.string.action_stop_preview
-                    } else {
-                        R.string.action_play_preview
-                    },
-                ),
-                tint = Color.Unspecified,
-                modifier = Modifier.size(24.dp),
-            )
-        }
-        GtAccentButton(onClick = onPick) {
-            Text(stringResource(R.string.field_audio_pick))
-        }
     }
 }
 
@@ -1152,10 +1143,6 @@ private fun DayRow(mask: Int, firstDayOverride: Int?, onToggle: (Int) -> Unit) {
     }
 }
 
-// reason: Box wraps preview + clear overlay; column + row wraps label +
-// pick button. Both together push past 60 lines but splitting would require
-// passing the URI decode state across functions for no readability gain.
-@Suppress("LongMethod")
 @Composable
 private fun BackgroundImageRow(
     uri: String?,
@@ -1165,65 +1152,29 @@ private fun BackgroundImageRow(
     onPick: () -> Unit,
     onClear: () -> Unit,
 ) {
-    // Effective URI for the preview: per-alarm override → app default → null (gradient placeholder).
-    val previewUri = uri ?: appDefaultUri
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_image),
-                contentDescription = null,
-                tint = Color.Unspecified,
-                modifier = Modifier.padding(end = 12.dp).size(24.dp),
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.field_background_image),
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                if (uri == null) {
-                    Text(
-                        text = stringResource(R.string.field_background_image_default),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-            GtAccentButton(onClick = onPick) {
-                Text(stringResource(R.string.field_background_image_pick))
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        // Centre the phone-frame preview; overlay the × clear button at
-        // the top-right corner of the frame itself (inner Box sizes to preview).
-        Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Box {
+    val choice = alarmPictureChoice(uri, appDefaultUri)
+    MediaChoiceRow(
+        iconRes = R.drawable.ic_image,
+        title = stringResource(R.string.field_background_image),
+        value = pictureChoiceText(choice),
+        removable = choice.removable,
+        onChoose = onPick,
+        onRemove = onClear,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        preview = {
+            Box(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
                 RingScreenPreview(
-                    backgroundUri = previewUri,
+                    backgroundUri = uri ?: appDefaultUri,
                     timeText = timeText,
                     labelText = labelText,
+                    modifier = Modifier.clickable(onClick = onPick),
                     width = 140.dp,
                     height = 248.dp,
                 )
-                if (uri != null) {
-                    IconButton(
-                        onClick = onClear,
-                        modifier = Modifier.align(Alignment.TopEnd),
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_close),
-                            contentDescription = stringResource(R.string.field_background_image_clear),
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
-                }
             }
-        }
-    }
+        },
+    )
 }

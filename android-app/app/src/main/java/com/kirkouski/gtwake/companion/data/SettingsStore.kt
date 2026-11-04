@@ -67,6 +67,7 @@ class SettingsStore @Inject constructor(
             watchScreenModel = prefs[KEY_WATCH_SCREEN_MODEL] ?: "",
             watchListSync = prefs[KEY_WATCH_LIST_SYNC] ?: false,
             watchListSyncUnlocked = prefs[KEY_WATCH_LIST_SYNC_UNLOCKED] ?: false,
+            defaultSoundCopiesAdopted = prefs[KEY_DEFAULT_SOUND_COPIES_ADOPTED] ?: false,
         )
     }
 
@@ -208,6 +209,10 @@ class SettingsStore @Inject constructor(
         }
     }
 
+    suspend fun markDefaultSoundCopiesAdopted() {
+        dataStore.edit { prefs -> prefs[KEY_DEFAULT_SOUND_COPIES_ADOPTED] = true }
+    }
+
     companion object {
         // SUNDAY=1..SATURDAY=7 per java.util.Calendar.
         const val CALENDAR_DAY_MIN = 1
@@ -244,6 +249,7 @@ class SettingsStore @Inject constructor(
         // "Show alarm list on watch" — opt-in list sync (absent = off).
         private val KEY_WATCH_LIST_SYNC = booleanPreferencesKey("watch_list_sync")
         private val KEY_WATCH_LIST_SYNC_UNLOCKED = booleanPreferencesKey("watch_list_sync_unlocked")
+        private val KEY_DEFAULT_SOUND_COPIES_ADOPTED = booleanPreferencesKey("default_sound_copies_adopted")
 
         // Extension property generates a process-singleton DataStore<Preferences>
         // bound to the application Context. Hilt @Singleton on [SettingsStore]
@@ -279,6 +285,8 @@ data class SettingsState(
     // "Show alarm list on watch" (opt-in; see SettingsStore.setWatchListSync).
     val watchListSync: Boolean = false,
     val watchListSyncUnlocked: Boolean = false,
+    // One-time 1.0.13 clean-up has run (AlarmRepository.adoptDefaultSoundCopiesOnce).
+    val defaultSoundCopiesAdopted: Boolean = false,
 ) {
     val effectiveWatchListSync: Boolean
         get() = watchListSyncUnlocked && watchListSync

@@ -23,18 +23,15 @@
     <string name="screen_list_title">Alarms</string>
     <string name="screen_timer_title">Timer</string>
     <string name="field_label_placeholder">Alarm label</string>
-    <string name="field_audio">Audio</string>
-    <string name="field_audio_default">System default</string>
+    <string name="field_audio">Alarm sound</string>
+    <string name="field_audio_default">System alarm sound</string>
     <!-- shown in the per-alarm edit row when no custom audio is set; the alarm inherits the app default -->
-    <string name="field_audio_app_default" tools:ignore="MissingTranslation">App default</string>
+    <string name="field_audio_app_default" tools:ignore="MissingTranslation">Default sound</string>
     <string name="field_audio_pick">Choose…</string>
-    <string name="field_audio_unknown" tools:ignore="MissingTranslation">Unknown ringtone</string>
+    <string name="field_audio_unknown" tools:ignore="MissingTranslation">Unknown sound</string>
     <!-- reason: new for per-alarm phone background image. Translations
          land in a follow-up; tools:ignore silences the lint until then. -->
-    <string name="field_background_image" tools:ignore="MissingTranslation">Background image</string>
-    <string name="field_background_image_pick" tools:ignore="MissingTranslation">Choose…</string>
-    <string name="field_background_image_clear" tools:ignore="MissingTranslation">Clear background image</string>
-    <string name="field_background_image_default" tools:ignore="MissingTranslation">App default</string>
+    <string name="field_background_image" tools:ignore="MissingTranslation">Picture</string>
     <!-- reason: shared watch-background picker (Settings → Default watch
          background only — no per-alarm field). Translations land in a
          follow-up; tools:ignore silences the lint until then. -->
@@ -171,19 +168,14 @@
     <string tools:ignore="MissingTranslation" name="settings_first_day_label">First day of week</string>
     <string tools:ignore="MissingTranslation" name="settings_first_day_system">System (%1$s)</string>
     <string tools:ignore="MissingTranslation" name="settings_section_default_ringtones">Default ringtones</string>
-    <string tools:ignore="MissingTranslation" name="settings_default_ringtones_intro">Used when you create a new alarm without picking a sound. Existing alarms keep their own audio.</string>
+    <string tools:ignore="MissingTranslation" name="settings_default_ringtones_intro">Used by every alarm that has no sound of its own.</string>
     <string tools:ignore="MissingTranslation" name="settings_default_ringtone_absolute">For clock-time alarms</string>
     <string tools:ignore="MissingTranslation" name="settings_default_ringtone_relative">For \"in N min\" alarms</string>
-    <string tools:ignore="MissingTranslation" name="settings_default_ringtone_reset">Reset</string>
-    <string tools:ignore="MissingTranslation" name="settings_section_default_backgrounds">Default background images</string>
-    <string tools:ignore="MissingTranslation" name="settings_default_backgrounds_intro">Used when an alarm doesn\'t have its own image. The phone image renders behind the lockscreen alarm; the watch image is cropped to the watch face.</string>
-    <string tools:ignore="MissingTranslation" name="settings_default_phone_background">Phone alarm background</string>
-    <string tools:ignore="MissingTranslation" name="settings_default_watch_background">Watch background</string>
-    <string tools:ignore="MissingTranslation" name="field_watch_background_change">Change</string>
-    <string tools:ignore="MissingTranslation" name="settings_default_background_none">Not set</string>
-    <string tools:ignore="MissingTranslation" name="settings_default_background_set">Set</string>
-    <string tools:ignore="MissingTranslation" name="settings_default_background_clear">Clear default background</string>
-    <string tools:ignore="MissingTranslation" name="settings_watch_background_saved">Watch background saved. It will appear the next time the watch app opens.</string>
+    <string tools:ignore="MissingTranslation" name="settings_section_default_backgrounds">Pictures</string>
+    <string tools:ignore="MissingTranslation" name="settings_default_backgrounds_intro">Used when an alarm has no picture of its own. The phone picture shows behind the alarm screen. The watch picture is cropped to the watch face.</string>
+    <string tools:ignore="MissingTranslation" name="settings_default_phone_background">Phone picture</string>
+    <string tools:ignore="MissingTranslation" name="settings_default_watch_background">Watch picture</string>
+    <string tools:ignore="MissingTranslation" name="settings_watch_background_saved">Watch picture saved. It will appear the next time the watch app opens.</string>
     <string name="help_intro">Voice alarms use Android\'s standard set-alarm intent. If Android shows a chooser, pick GT Wake and tap Always. On phones without Google services, Google Assistant voice setup is not available.</string>
     <string name="help_status_default">GT Wake handles voice alarms on this device.</string>
     <string name="help_status_disambiguator">Multiple alarm apps can handle voice alarms. Next time Android asks, choose GT Wake and tap Always.</string>
@@ -322,11 +314,27 @@
     <string name="watch_picture_confirm_title">Change the watch picture?</string>
     <string name="watch_picture_clear_confirm_title">Remove the watch picture?</string>
     <string name="watch_picture_confirm_body">Your watch will wake and briefly open GT Wake to receive the picture.</string>
-    <string name="watch_picture_clear_confirm_body">Your watch will wake and briefly open GT Wake to remove the picture.</string>
+    <string name="watch_picture_clear_confirm_body">Your watch will wake and briefly open GT Wake to remove the picture. The watch then shows no picture.</string>
     <string name="watch_picture_confirm_ok">Continue</string>
     <string name="field_watch_vibration_hint">Do Not Disturb, Sleep mode, or Vibration set to None on the watch can silence it.</string>
     <string name="help_watch_sync_title">Alarm list sync</string>
     <string name="help_watch_sync_body">Huawei will not approve waking the watch to sync the alarm list, so alarm list sync is turned off. Alarms still ring on the watch. If you have questions, contact the developer.</string>
     <string name="help_watch_sync_url" translatable="false">mailto:andrew.kirkovski@gmail.com?subject=GT%20Wake%20-%20Alarm%20list%20sync</string>
     <string name="watch_list_sync_unlocked">Alarm list sync setting unlocked. You can enable it in Settings.</string>
+    <string name="field_audio_timer">Timer sound</string>
+    <string name="field_audio_default_named">Default: %1$s</string>
+    <string name="action_change">Change</string>
+    <string name="action_remove">Remove</string>
+    <string name="action_remove_named">Remove: %1$s</string>
+    <string name="action_undo">Undo</string>
+    <string name="sound_removed">Sound removed</string>
+    <string name="picture_own">Own picture</string>
+    <string name="picture_default">Default picture</string>
+    <string name="picture_none">No picture</string>
+    <string name="picture_set">Picture set</string>
+    <string name="picture_removed">Picture removed</string>
+    <string name="settings_watch_picture_offline">Connect your watch to change this picture.</string>
+    <string name="settings_watch_picture_remove_failed">Couldn\'t reach your watch. Try again.</string>
+    <string name="watch_picture_remove_confirm">Remove picture</string>
+    <string name="watch_picture_keep">Keep picture</string>
 </resources>

@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -994,9 +995,9 @@ class HuaweiWearBridge @Inject constructor(
         return acked
     }
 
-    override fun sendDefaultWatchBackgroundCleared() {
+    override suspend fun sendDefaultWatchBackgroundCleared(): Boolean {
         val now = System.currentTimeMillis()
-        if (!validateStamp("sendDefaultWatchBackgroundCleared", now)) return
+        if (!validateStamp("sendDefaultWatchBackgroundCleared", now)) return false
         val envelope = JSONObject().apply {
             put("type", "watch_default_bg_cleared")
             put("updatedAtEpoch", now)
@@ -1007,14 +1008,16 @@ class HuaweiWearBridge @Inject constructor(
         // watch closes right away instead of waiting out its fallback. With
         // list sync off there is no later forceSync to carry the clear, so
         // this send is the only delivery.
-        scope.launch {
-            if (performSend(envelope, retryOnError = true)) {
+        return scope.async {
+            val sent = performSend(envelope, retryOnError = true)
+            if (sent) {
                 sendWithoutWake(buildSyncDoneEnvelope())
+                // The watch no longer holds our image — allow a re-deliver if
+                // the user re-picks the same one.
+                deliveredBgHash = null
             }
-        }
-        // The watch no longer holds our image — allow a re-deliver if the user
-        // re-picks the same one.
-        deliveredBgHash = null
+            sent
+        }.await()
     }
 
     override fun markBgDelivered(hash: String) {

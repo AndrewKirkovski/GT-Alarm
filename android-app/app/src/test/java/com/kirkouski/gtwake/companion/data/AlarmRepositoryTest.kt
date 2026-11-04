@@ -90,6 +90,12 @@ class AlarmRepositoryTest {
         )
     }
 
+    private fun cacheFile(name: String): java.io.File {
+        val dir = java.nio.file.Files.createTempDirectory("gtwake-test").toFile()
+        every { appContext.cacheDir } returns dir
+        return java.io.File(dir, name).apply { writeText("crop") }
+    }
+
     // --- Opt-in watch list sync (2026-09-28) -------------------------------
 
     @Test
@@ -276,7 +282,7 @@ class AlarmRepositoryTest {
     }
 
     @Test
-    fun `save applies default-absolute ringtone from settings for new alarm with no URI`() = runTest {
+    fun `save keeps a new alarm following the live default`() = runTest {
         coEvery { settingsStore.snapshot() } returns SettingsState(
             defaultAbsoluteRingtoneUri = "content://abs-default",
             defaultAbsoluteRingtoneName = "Cabin",
@@ -285,13 +291,11 @@ class AlarmRepositoryTest {
 
         val newId = repo.save(draft)
 
-        val persisted = dao.getById(newId)
-        assertEquals("content://abs-default", persisted!!.audioUri)
-        assertEquals("Cabin", persisted.audioName)
+        assertNull(dao.getById(newId)!!.audioUri)
     }
 
     @Test
-    fun `save uses default-relative ringtone for new relative alarm`() = runTest {
+    fun `saveLocalOnly keeps a new timer following the live default`() = runTest {
         coEvery { settingsStore.snapshot() } returns SettingsState(
             defaultRelativeRingtoneUri = "content://rel-default",
             defaultRelativeRingtoneName = "Chime",
@@ -301,17 +305,13 @@ class AlarmRepositoryTest {
             relativeMinutes = 10,
         )
 
-        val newId = repo.save(draft)
+        val newId = repo.saveLocalOnly(draft)
 
-        val persisted = dao.getById(newId)
-        assertEquals("content://rel-default", persisted!!.audioUri)
+        assertNull(dao.getById(newId)!!.audioUri)
     }
 
     @Test
-    fun `save respects explicit audio URI over settings default`() = runTest {
-        coEvery { settingsStore.snapshot() } returns SettingsState(
-            defaultAbsoluteRingtoneUri = "content://settings-default",
-        )
+    fun `save respects explicit audio URI`() = runTest {
         val draft = Alarm(
             id = 0L, label = "Explicit", hour = 7, minute = 0, daysOfWeek = 0, enabled = true,
             audioUri = "content://user-chose-this",
@@ -323,21 +323,72 @@ class AlarmRepositoryTest {
     }
 
     @Test
-    fun `save on existing alarm does not pull settings default`() = runTest {
-        // Edit on an existing row keeps its own audio choice (including null = system default).
+    fun `adoptDefaultSoundCopiesOnce clears only matching rows of each kind and keeps the stamp`() = runTest {
         coEvery { settingsStore.snapshot() } returns SettingsState(
-            defaultAbsoluteRingtoneUri = "content://settings-default",
+            defaultAbsoluteRingtoneUri = "content://abs",
+            defaultRelativeRingtoneUri = "content://rel",
+        )
+        fun row(id: Long, audio: String?, relative: Int?) = AlarmEntity(
+            id = id, label = "", hour = 7, minute = 0, daysOfWeek = 0, enabled = true,
+            audioUri = audio, audioName = audio?.let { "name" }, isVibrationOnly = false,
+            updatedAtEpoch = 123L, relativeMinutes = relative,
+        )
+        dao.upsert(row(1L, "content://abs", null))
+        dao.upsert(row(2L, "content://rel", 10))
+        dao.upsert(row(3L, "content://own", null))
+        dao.upsert(row(4L, "content://abs", 10))
+
+        repo.adoptDefaultSoundCopiesOnce()
+
+        assertNull(dao.getById(1L)!!.audioUri)
+        assertNull(dao.getById(1L)!!.audioName)
+        assertNull(dao.getById(2L)!!.audioUri)
+        assertEquals("content://own", dao.getById(3L)!!.audioUri)
+        assertEquals("content://abs", dao.getById(4L)!!.audioUri)
+        assertEquals(123L, dao.getById(1L)!!.updatedAtEpoch)
+        coVerify(exactly = 1) { settingsStore.markDefaultSoundCopiesAdopted() }
+    }
+
+    @Test
+    fun `adoptDefaultSoundCopiesOnce does nothing after its first run`() = runTest {
+        coEvery { settingsStore.snapshot() } returns SettingsState(
+            defaultAbsoluteRingtoneUri = "content://abs",
+            defaultSoundCopiesAdopted = true,
         )
         dao.upsert(
             AlarmEntity(
-                id = 3L, label = "Old", hour = 7, minute = 0, daysOfWeek = 0, enabled = true,
-                audioUri = null, audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L,
+                id = 1L, label = "", hour = 7, minute = 0, daysOfWeek = 0, enabled = true,
+                audioUri = "content://abs", audioName = null, isVibrationOnly = false, updatedAtEpoch = 1L,
             ),
         )
 
-        repo.save(Alarm(id = 3L, label = "Renamed", hour = 7, minute = 0, daysOfWeek = 0, enabled = true))
+        repo.adoptDefaultSoundCopiesOnce()
 
-        assertNull(dao.getById(3L)!!.audioUri)
+        assertEquals("content://abs", dao.getById(1L)!!.audioUri)
+    }
+
+    @Test
+    fun `a failed watch picture clear keeps the crop and the upload hash`() = runTest {
+        val crop = cacheFile("watch_bg_-1.png")
+        coEvery { wearBridge.sendDefaultWatchBackgroundCleared() } returns false
+
+        val cleared = repo.clearDefaultWatchBackground()
+
+        assertEquals(false, cleared)
+        assertEquals(true, crop.exists())
+        coVerify(exactly = 0) { settingsStore.setLastUploadedWatchBgHash(any()) }
+    }
+
+    @Test
+    fun `a sent watch picture clear deletes the crop and the upload hash`() = runTest {
+        val crop = cacheFile("watch_bg_-1.png")
+        coEvery { wearBridge.sendDefaultWatchBackgroundCleared() } returns true
+
+        val cleared = repo.clearDefaultWatchBackground()
+
+        assertEquals(true, cleared)
+        assertEquals(false, crop.exists())
+        coVerify(exactly = 1) { settingsStore.setLastUploadedWatchBgHash(null) }
     }
 
     @Test
@@ -966,6 +1017,12 @@ private class FakeAlarmDao : AlarmDao {
         rows.update { map ->
             map[id]?.let { map + (id to it.copy(enabled = false, snoozedUntilEpoch = null, updatedAtEpoch = stamp)) } ?: map
         }
+    }
+
+    override suspend fun clearAudioCopies(uri: String, relative: Boolean): Int {
+        val matching = rows.value.values.filter { it.audioUri == uri && (it.relativeMinutes != null) == relative }
+        rows.update { map -> map + matching.associate { it.id to it.copy(audioUri = null, audioName = null) } }
+        return matching.size
     }
 
     override suspend fun setSnoozedUntil(id: Long, until: Long?) {

@@ -104,7 +104,12 @@ internal fun WatchPictureConsent(
         } else {
             R.string.watch_picture_clear_confirm_body
         },
-        confirmRes = R.string.watch_picture_confirm_ok,
+        confirmRes = if (action == WatchPictureAction.CHANGE) {
+            R.string.watch_picture_confirm_ok
+        } else {
+            R.string.watch_picture_remove_confirm
+        },
+        dismissRes = if (action == WatchPictureAction.CHANGE) R.string.cancel else R.string.watch_picture_keep,
         onConfirm = { onConfirm(action) },
         onDismiss = onDismiss,
     )
@@ -134,6 +139,7 @@ private fun WatchWakeConsentDialog(
     confirmRes: Int,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    dismissRes: Int = R.string.cancel,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -143,7 +149,7 @@ private fun WatchWakeConsentDialog(
             TextButton(onClick = onConfirm) { Text(stringResource(confirmRes)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+            TextButton(onClick = onDismiss) { Text(stringResource(dismissRes)) }
         },
     )
 }

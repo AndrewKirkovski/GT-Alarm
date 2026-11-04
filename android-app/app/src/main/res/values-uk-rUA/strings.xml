@@ -14,8 +14,8 @@
     <string name="screen_list_title">Будильники</string>
     <string name="screen_timer_title">Таймер</string>
     <string name="field_label_placeholder">Мітка будильника</string>
-    <string name="field_audio">Звук</string>
-    <string name="field_audio_default">Системний</string>
+    <string name="field_audio">Звук будильника</string>
+    <string name="field_audio_default">Системний звук будильника</string>
     <string name="field_audio_pick">Вибрати…</string>
     <string name="field_sound">Звук</string>
     <string name="field_phone_vibration">Вібрація телефону</string>
@@ -105,12 +105,9 @@
     <string name="missed_notification_text_unlabeled">Нагадування «через N хв» пропущено, поки пристрій був вимкнений.</string>
 
     <!-- Audio + background image fields. -->
-    <string name="field_audio_app_default">За замовчуванням</string>
-    <string name="field_audio_unknown">Невідома мелодія</string>
-    <string name="field_background_image">Фонове зображення</string>
-    <string name="field_background_image_pick">Вибрати…</string>
-    <string name="field_background_image_clear">Очистити фонове зображення</string>
-    <string name="field_background_image_default">За замовчуванням</string>
+    <string name="field_audio_app_default">Звук за замовчуванням</string>
+    <string name="field_audio_unknown">Невідомий звук</string>
+    <string name="field_background_image">Зображення</string>
 
     <!-- Background picker dialogs. -->
     <string name="watch_bg_picker_title">Обрізати фон годинника</string>
@@ -165,19 +162,14 @@
     <string name="settings_first_day_label">Перший день тижня</string>
     <string name="settings_first_day_system">Системний (%1$s)</string>
     <string name="settings_section_default_ringtones">Мелодії за замовчуванням</string>
-    <string name="settings_default_ringtones_intro">Використовуються, коли ви створюєте новий будильник без вибору звуку. Наявні будильники зберігають власний звук.</string>
+    <string name="settings_default_ringtones_intro">Використовується всіма будильниками без власного звуку.</string>
     <string name="settings_default_ringtone_absolute">Для будильників на конкретний час</string>
     <string name="settings_default_ringtone_relative">Для будильників «через N хв»</string>
-    <string name="settings_default_ringtone_reset">Скинути</string>
-    <string name="settings_section_default_backgrounds">Фонові зображення за замовчуванням</string>
-    <string name="settings_default_backgrounds_intro">Використовуються, коли будильник не має власного зображення. Зображення телефону показується за будильником на екрані блокування; зображення годинника обрізається під циферблат.</string>
-    <string name="settings_default_phone_background">Фон будильника на телефоні</string>
-    <string name="settings_default_watch_background">Фон годинника</string>
-    <string name="field_watch_background_change">Змінити</string>
-    <string name="settings_default_background_none">Не встановлено</string>
-    <string name="settings_default_background_set">Встановлено</string>
-    <string name="settings_default_background_clear">Очистити фон за замовчуванням</string>
-    <string name="settings_watch_background_saved">Фон годинника збережено. Він з\'явиться під час наступного відкриття застосунку на годиннику.</string>
+    <string name="settings_section_default_backgrounds">Зображення</string>
+    <string name="settings_default_backgrounds_intro">Використовуються, коли будильник не має власного зображення. Зображення телефону показується за екраном будильника. Зображення годинника обрізається під циферблат.</string>
+    <string name="settings_default_phone_background">Зображення на телефоні</string>
+    <string name="settings_default_watch_background">Зображення на годиннику</string>
+    <string name="settings_watch_background_saved">Зображення для годинника збережено. Воно з\'явиться під час наступного відкриття застосунку на годиннику.</string>
 
     <!-- Companion note. -->
     <string name="help_companion_note">Компаньйон для GT Wake на Huawei Watch GT 6 Pro. Сполучіть у Huawei Health; телефон дзвонить, а годинник дублює сигнал.</string>
@@ -252,10 +244,26 @@
     <string name="watch_picture_confirm_title">Змінити зображення на годиннику?</string>
     <string name="watch_picture_clear_confirm_title">Прибрати зображення з годинника?</string>
     <string name="watch_picture_confirm_body">Годинник прокинеться й ненадовго відкриє GT Wake, щоб отримати зображення.</string>
-    <string name="watch_picture_clear_confirm_body">Годинник прокинеться й ненадовго відкриє GT Wake, щоб прибрати зображення.</string>
+    <string name="watch_picture_clear_confirm_body">Годинник прокинеться й ненадовго відкриє GT Wake, щоб прибрати зображення. Після цього на годиннику не буде зображення.</string>
     <string name="watch_picture_confirm_ok">Продовжити</string>
     <string name="field_watch_vibration_hint">Режим «Не турбувати», режим сну або вібрація «Немає» на годиннику можуть її вимкнути.</string>
     <string name="help_watch_sync_title">Синхронізація списку будильників</string>
     <string name="help_watch_sync_body">Huawei не схвалює пробудження годинника для синхронізації списку будильників, тому синхронізацію списку будильників вимкнено. Будильники й надалі дзвонять на годиннику. Якщо у вас є запитання, зверніться до розробника.</string>
     <string name="watch_list_sync_unlocked">Налаштування синхронізації списку будильників розблоковано. Його можна ввімкнути в Налаштуваннях.</string>
+    <string name="field_audio_timer">Звук таймера</string>
+    <string name="field_audio_default_named">За замовчуванням: %1$s</string>
+    <string name="action_change">Змінити</string>
+    <string name="action_remove">Видалити</string>
+    <string name="action_remove_named">Видалити: %1$s</string>
+    <string name="action_undo">Скасувати</string>
+    <string name="sound_removed">Звук видалено</string>
+    <string name="picture_own">Власне зображення</string>
+    <string name="picture_default">Зображення за замовчуванням</string>
+    <string name="picture_none">Немає зображення</string>
+    <string name="picture_set">Зображення вибрано</string>
+    <string name="picture_removed">Зображення видалено</string>
+    <string name="settings_watch_picture_offline">Підключіть годинник, щоб змінити зображення.</string>
+    <string name="settings_watch_picture_remove_failed">Не вдалося зв\'язатися з годинником. Спробуйте ще раз.</string>
+    <string name="watch_picture_remove_confirm">Видалити зображення</string>
+    <string name="watch_picture_keep">Залишити зображення</string>
 </resources>

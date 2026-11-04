@@ -30,6 +30,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -157,12 +158,10 @@ class AlarmRepository @Inject constructor(
         val isNew = alarm.id == 0L
         // An edit invalidates any active snooze — the user is reconfiguring,
         // so the previously-deferred fire time no longer makes sense.
-        // Resolve default ringtone from Settings for new alarms with no URI.
-        val resolved = applyDefaultRingtoneIfNeeded(alarm, isNew)
         // Editing clears transient runtime state: snooze deferral, skip-
         // next mark, and the consecutive-snooze counter all belong to a
         // previous fire cycle that's no longer authoritative.
-        val stamped = resolved.copy(
+        val stamped = alarm.copy(
             updatedAtEpoch = now,
             snoozedUntilEpoch = null,
             skipNextEpoch = null,
@@ -203,11 +202,7 @@ class AlarmRepository @Inject constructor(
     suspend fun saveLocalOnly(alarm: Alarm): Long {
         val now = System.currentTimeMillis()
         val isNew = alarm.id == 0L
-        // Pre-apply settings-derived default ringtone for brand-new rows
-        // that haven't picked an audio URI yet. Existing alarms keep their
-        // own audio (including explicit null = system default).
-        val resolved = applyDefaultRingtoneIfNeeded(alarm, isNew)
-        val stamped = resolved.copy(
+        val stamped = alarm.copy(
             updatedAtEpoch = now,
             snoozedUntilEpoch = null,
             skipNextEpoch = null,
@@ -378,35 +373,31 @@ class AlarmRepository @Inject constructor(
     }
 
     /**
-     * Clear the shared watch default background. Driven directly off the
-     * null URI from Settings — NOT inferred from a missing cache file, which
-     * silently re-uploaded the stale crop (the clear-never-clears bug): the
-     * picker leaves `watch_bg_<id>.png` on disk after the user clears, so the
-     * file-presence check in [uploadDefaultWatchBackground] always re-sent it.
-     * Here we delete the cached crop and every derived artifact so nothing can
-     * resurrect it, then tell the watch to drop its copy.
+     * Clear the shared watch default background, from an explicit user action,
+     * NOT inferred from a missing cache file, which silently re-uploaded the
+     * stale crop (the clear-never-clears bug). Tells the watch first. Only then
+     * deletes the cached crop and every derived artifact, so nothing can
+     * resurrect it. On a failed send nothing changes and the user can try again.
      */
-    fun clearDefaultWatchBackground() {
-        appScope.launch {
-            val cache = appContext.cacheDir
-            val artifacts = listOf(
-                java.io.File(cache, "watch_bg_${DEFAULT_WATCH_BG_ID}.png"),
-                java.io.File(cache, "watch_bg_${DEFAULT_WATCH_BG_ID}.bin"),
-                com.kirkouski.gtwake.companion.wear.WatchBgTestEncoder.outputFile(cache),
-            )
-            val deleted = artifacts.count { it.exists() && it.delete() }
-            // Also drop every bgd_<hash>.* upload artifact so nothing can
-            // resurrect the image (the KDoc's "every derived artifact" promise).
-            val bgdDeleted = cache.listFiles { f -> f.name.startsWith("bgd_") }
-                ?.count { it.delete() } ?: 0
-            Log.i(
-                TAG,
-                "clearDefaultWatchBackground deleted=$deleted/${artifacts.size} bgd=$bgdDeleted, " +
-                    "sending cleared envelope",
-            )
-            wearBridge.sendDefaultWatchBackgroundCleared()
-            settingsStore.setLastUploadedWatchBgHash(null)
+    suspend fun clearDefaultWatchBackground(): Boolean = withContext(ioDispatcher) {
+        if (!wearBridge.sendDefaultWatchBackgroundCleared()) {
+            Log.w(TAG, "clearDefaultWatchBackground: watch not reached, keeping the picture")
+            return@withContext false
         }
+        val cache = appContext.cacheDir
+        val artifacts = listOf(
+            java.io.File(cache, "watch_bg_${DEFAULT_WATCH_BG_ID}.png"),
+            java.io.File(cache, "watch_bg_${DEFAULT_WATCH_BG_ID}.bin"),
+            com.kirkouski.gtwake.companion.wear.WatchBgTestEncoder.outputFile(cache),
+        )
+        val deleted = artifacts.count { it.exists() && it.delete() }
+        // Also drop every bgd_<hash>.* upload artifact so nothing can
+        // resurrect the image.
+        val bgdDeleted = cache.listFiles { f -> f.name.startsWith("bgd_") }
+            ?.count { it.delete() } ?: 0
+        Log.i(TAG, "clearDefaultWatchBackground deleted=$deleted/${artifacts.size} bgd=$bgdDeleted")
+        settingsStore.setLastUploadedWatchBgHash(null)
+        true
     }
 
     suspend fun setEnabled(id: Long, enabled: Boolean) {
@@ -823,25 +814,20 @@ class AlarmRepository @Inject constructor(
     private suspend fun refreshWidgets() = widgetRefresher.refresh()
 
     /**
-     * For a brand-new alarm (`isNew && audioUri == null`) consult
-     * [SettingsStore] for the user's chosen default ringtone — the relative-
-     * vs-absolute distinction picks the right slot. If neither slot has a
-     * user-set default, the alarm keeps its null URI which downstream
-     * (AlarmAudioPlayer) treats as RingtoneManager.TYPE_ALARM.
-     *
-     * Edits to an existing alarm (`!isNew`) and explicit user choices on a
-     * new alarm (`audioUri != null`) flow through unchanged — we never
-     * silently overwrite a deliberate selection.
+     * Before 1.0.13 a new alarm copied the default sound into its own row, so
+     * changing or removing the default never reached it. Runs once: rows that
+     * still equal the current default go back to following it. Only the audio
+     * columns change. `updatedAtEpoch` stays, because a timer counts from it.
      */
-    private suspend fun applyDefaultRingtoneIfNeeded(alarm: Alarm, isNew: Boolean): Alarm {
-        if (!isNew || alarm.audioUri != null) return alarm
-        val s = settingsStore.snapshot()
-        val (uri, name) = if (alarm.isRelative) {
-            s.defaultRelativeRingtoneUri to s.defaultRelativeRingtoneName
-        } else {
-            s.defaultAbsoluteRingtoneUri to s.defaultAbsoluteRingtoneName
-        }
-        return if (uri == null) alarm else alarm.copy(audioUri = uri, audioName = name)
+    suspend fun adoptDefaultSoundCopiesOnce() {
+        val settings = settingsStore.snapshot()
+        if (settings.defaultSoundCopiesAdopted) return
+        var changed = 0
+        settings.defaultAbsoluteRingtoneUri?.let { changed += dao.clearAudioCopies(it, relative = false) }
+        settings.defaultRelativeRingtoneUri?.let { changed += dao.clearAudioCopies(it, relative = true) }
+        settingsStore.markDefaultSoundCopiesAdopted()
+        Log.i(TAG, "adoptDefaultSoundCopiesOnce changed=$changed")
+        if (changed > 0) scheduleWatchSync()
     }
 
     private companion object {

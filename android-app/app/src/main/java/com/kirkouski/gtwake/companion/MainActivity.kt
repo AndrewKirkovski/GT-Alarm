@@ -206,6 +206,10 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         // Idempotent — covers the pre-unlock-deferred wire from GtAlarmApp.
         wearBridge.setIncomingHandler(incomingHandler)
+        lifecycleScope.launch {
+            runCatching { alarmRepository.adoptDefaultSoundCopiesOnce() }
+                .onFailure { Log.w(TAG, "adoptDefaultSoundCopiesOnce failed: ${it.message}") }
+        }
         // Foreground-driven phone→watch reconcile (watch can't wake the phone).
         alarmRepository.scheduleWatchSync()
         // Seed watch-connection status (one-shot local query) + start the

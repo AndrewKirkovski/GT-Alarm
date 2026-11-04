@@ -29,6 +29,13 @@ interface AlarmDao {
     @Query("UPDATE alarms SET enabled = 0, snoozedUntilEpoch = NULL, updatedAtEpoch = :stamp WHERE id = :id")
     suspend fun disableStamped(id: Long, stamp: Long)
 
+    // No updatedAtEpoch here: a timer's countdown anchors on it.
+    @Query(
+        "UPDATE alarms SET audioUri = NULL, audioName = NULL " +
+            "WHERE audioUri = :uri AND (relativeMinutes IS NOT NULL) = :relative",
+    )
+    suspend fun clearAudioCopies(uri: String, relative: Boolean): Int
+
     @Query("UPDATE alarms SET snoozedUntilEpoch = :until WHERE id = :id")
     suspend fun setSnoozedUntil(id: Long, until: Long?)
 

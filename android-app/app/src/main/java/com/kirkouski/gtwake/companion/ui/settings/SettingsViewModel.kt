@@ -9,13 +9,17 @@ import com.kirkouski.gtwake.companion.wear.ForceSyncResult
 import com.kirkouski.gtwake.companion.wear.WatchSyncStatus
 import com.kirkouski.gtwake.companion.wear.WearBridgeService
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -37,6 +41,13 @@ class SettingsViewModel @Inject constructor(
         MutableSharedFlow<Pair<Boolean, ForceSyncResult>>(extraBufferCapacity = 1)
     val watchListSyncResults: SharedFlow<Pair<Boolean, ForceSyncResult>> =
         _watchListSyncResults.asSharedFlow()
+
+    private val _watchPictureRemoving = MutableStateFlow(false)
+    val watchPictureRemoving: StateFlow<Boolean> = _watchPictureRemoving.asStateFlow()
+
+    // One-shot outcome of removing the watch picture, for the snackbar.
+    private val _watchPictureRemoveResults = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
+    val watchPictureRemoveResults: SharedFlow<Boolean> = _watchPictureRemoveResults.asSharedFlow()
 
     private val _watchSyncUnlocked = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val watchSyncUnlocked: SharedFlow<Unit> = _watchSyncUnlocked.asSharedFlow()
@@ -105,18 +116,24 @@ class SettingsViewModel @Inject constructor(
         store.setDefaultPhoneBackgroundUri(uri)
     }
 
-    fun setDefaultWatchBackground(uri: String?) = viewModelScope.launch {
-        val action = if (uri == null) "clear" else "upload"
-        android.util.Log.i("SettingsVM", "setDefaultWatchBackground uri=$uri -> $action")
-        store.setDefaultWatchBackgroundUri(uri)
+    fun setDefaultWatchBackground(uri: String) = viewModelScope.launch {
         // Settings owns the single shared watch bg (no per-alarm field).
-        // Clear is an explicit branch — it deletes the cached crop + derived
-        // artifacts and sends the clearance envelope. Inferring "cleared" from
-        // a missing cache file silently re-uploaded the stale crop instead.
-        if (uri == null) {
-            alarmRepository.clearDefaultWatchBackground()
-        } else {
-            alarmRepository.uploadDefaultWatchBackground()
+        store.setDefaultWatchBackgroundUri(uri)
+        alarmRepository.uploadDefaultWatchBackground()
+    }
+
+    /** The setting clears only after the watch was reached, so a failure changes nothing. */
+    fun removeDefaultWatchBackground() {
+        if (_watchPictureRemoving.value) return
+        _watchPictureRemoving.value = true
+        viewModelScope.launch {
+            val removed = withContext(NonCancellable) {
+                val ok = alarmRepository.clearDefaultWatchBackground()
+                if (ok) store.setDefaultWatchBackgroundUri(null)
+                ok
+            }
+            _watchPictureRemoving.value = false
+            _watchPictureRemoveResults.emit(removed)
         }
     }
 

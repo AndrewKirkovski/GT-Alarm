@@ -11,7 +11,6 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -35,9 +34,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,16 +61,23 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kirkouski.gtwake.companion.R
 import com.kirkouski.gtwake.companion.data.SettingsState
 import com.kirkouski.gtwake.companion.ui.components.GtFloatingButton
-import com.kirkouski.gtwake.companion.ui.components.GtAccentButton
 import com.kirkouski.gtwake.companion.ui.components.GtSegmentOption
 import com.kirkouski.gtwake.companion.ui.components.GtSegmentedControl
+import com.kirkouski.gtwake.companion.ui.components.GtSnackbarHost
+import com.kirkouski.gtwake.companion.ui.components.MediaChoiceRow
+import com.kirkouski.gtwake.companion.ui.components.SoundPreviewButton
+import com.kirkouski.gtwake.companion.ui.components.defaultPictureChoice
+import com.kirkouski.gtwake.companion.ui.components.defaultSoundChoice
+import com.kirkouski.gtwake.companion.ui.components.pictureChoiceText
+import com.kirkouski.gtwake.companion.ui.components.removable
+import com.kirkouski.gtwake.companion.ui.components.showUndo
+import com.kirkouski.gtwake.companion.ui.components.soundChoiceText
 import com.kirkouski.gtwake.companion.ui.edit.PhoneBackgroundPickerDialog
 import com.kirkouski.gtwake.companion.ui.edit.RingScreenPreview
 import com.kirkouski.gtwake.companion.ui.edit.WatchBackgroundPickerDialog
@@ -84,7 +91,10 @@ import com.kirkouski.gtwake.companion.ui.edit.rememberAudioPreview
 import com.kirkouski.gtwake.companion.ui.edit.rememberBackgroundBitmap
 import com.kirkouski.gtwake.companion.util.firstCalendarDayWithOverride
 import com.kirkouski.gtwake.companion.util.longDayName
+import kotlinx.coroutines.launch
 import java.util.Calendar
+
+private typealias UndoSnackbar = (message: String, undo: () -> Unit) -> Unit
 
 // reason: Scaffold + Box fade wrapper + three card sections = inherently long
 // for a settings screen; splitting adds indirection with no reuse benefit.
@@ -110,9 +120,24 @@ fun SettingsScreen(
             Toast.makeText(context, watchListSyncToast(context, enabled, result), Toast.LENGTH_LONG).show()
         }
     }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val undoText = stringResource(R.string.action_undo)
+    val showUndo: UndoSnackbar = { message, undo ->
+        scope.launch { snackbarHostState.showUndo(message, undoText, undo) }
+    }
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = {
+            // Lifted above the bottom pill, which floats over this screen.
+            GtSnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.padding(
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 76.dp,
+                ),
+            )
+        },
     ) { padding ->
         val navBarPaddingDp = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val density = LocalDensity.current
@@ -178,7 +203,7 @@ fun SettingsScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        RingtoneSection(state = state, vm = vm)
+                        RingtoneSection(state = state, vm = vm, showUndo = showUndo)
                     }
                 }
             }
@@ -189,7 +214,13 @@ fun SettingsScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        BackgroundSection(state = state, vm = vm, watchConnected = watchConnected)
+                        BackgroundSection(
+                            state = state,
+                            vm = vm,
+                            watchConnected = watchConnected,
+                            showUndo = showUndo,
+                            showMessage = { message -> scope.launch { snackbarHostState.showSnackbar(message) } },
+                        )
                     }
                 }
             }
@@ -213,19 +244,18 @@ private fun SettingsSectionHeader(title: String) {
 }
 
 @Composable
-private fun BackgroundSection(state: SettingsState, vm: SettingsViewModel, watchConnected: Boolean) {
-    // The picker dialog + its open-state live HERE, OUTSIDE the conditional
-    // watch-bg block below. CRITICAL: if the dialog lived inside `if
-    // (watchConnected)` and the status flickered during the multi-second crop
-    // encode, the block (and the cropper's coroutine scope) would be removed
-    // from composition and the save would be CANCELLED after writing the crop
-    // files but before onSaved fired — so the upload never ran. Keeping the
-    // dialog here means an open crop survives any status change.
-    var showWatchPicker by remember { mutableStateOf(false) }
+private fun BackgroundSection(
+    state: SettingsState,
+    vm: SettingsViewModel,
+    watchConnected: Boolean,
+    showUndo: UndoSnackbar,
+    showMessage: (String) -> Unit,
+) {
     var pendingPictureAction by remember { mutableStateOf<WatchPictureAction?>(null) }
     var watchReloadToken by remember { mutableIntStateOf(0) }
-    val context = LocalContext.current
+    val removing by vm.watchPictureRemoving.collectAsStateWithLifecycle()
     val savedMessage = stringResource(R.string.settings_watch_background_saved)
+    WatchPictureRemovalMessages(vm, showMessage)
     val watchProfile = WatchScreenProfiles.resolve(
         state.watchScreenWidth,
         state.watchScreenHeight,
@@ -236,61 +266,106 @@ private fun BackgroundSection(state: SettingsState, vm: SettingsViewModel, watch
             text = stringResource(R.string.settings_default_backgrounds_intro),
             style = MaterialTheme.typography.bodySmall,
         )
-        BackgroundRow(
-            titleRes = R.string.settings_default_phone_background,
+        PhonePictureRow(
             currentUri = state.defaultPhoneBackgroundUri,
-            onPicked = { uri -> vm.setDefaultPhoneBackground(uri) },
-            onClear = { vm.setDefaultPhoneBackground(null) },
+            vm = vm,
+            showUndo = showUndo,
         )
-        // Conditional: the preview + controls show only when a watch is
-        // connected. The status is read from the global monitor-maintained
-        // StateFlow (instant, current) so it no longer flickers hidden→shown.
-        if (watchConnected) {
+        // Shown while a watch is connected, and also while a picture is set,
+        // so a set picture never looks gone. The status is read from the global
+        // monitor-maintained StateFlow, so it no longer flickers hidden→shown.
+        if (watchConnected || state.defaultWatchBackgroundUri != null) {
             WatchBackgroundRow(
                 currentUri = state.defaultWatchBackgroundUri,
+                watchConnected = watchConnected,
+                enabled = watchConnected && !removing,
                 onChange = { pendingPictureAction = WatchPictureAction.CHANGE },
                 onClear = { pendingPictureAction = WatchPictureAction.CLEAR },
-                watchProfile = watchProfile,
-                reloadToken = watchReloadToken,
-            )
+            ) {
+                WatchFacePreview(
+                    backgroundUri = state.defaultWatchBackgroundUri,
+                    profile = watchProfile,
+                    reloadKey = watchReloadToken,
+                    onPickEmpty = {
+                        if (watchConnected && !removing) pendingPictureAction = WatchPictureAction.CHANGE
+                    },
+                )
+            }
         }
     }
-    WatchPictureConsent(
+    WatchPictureDialogs(
+        currentUri = state.defaultWatchBackgroundUri,
+        vm = vm,
         pending = pendingPictureAction,
+        onPendingDone = { pendingPictureAction = null },
+        watchProfile = watchProfile,
+        onSaved = {
+            watchReloadToken++
+            showMessage(savedMessage)
+        },
+    )
+}
+
+// The picker's open-state lives HERE, OUTSIDE the conditional watch-bg row.
+// CRITICAL: if the dialog lived inside the conditional and the status flickered
+// during the multi-second crop encode, the row (and the cropper's coroutine
+// scope) would be removed from composition and the save would be CANCELLED
+// after writing the crop files but before onSaved fired, so the upload never
+// ran. Keeping it here means an open crop survives any status change.
+@Composable
+private fun WatchPictureDialogs(
+    currentUri: String?,
+    vm: SettingsViewModel,
+    pending: WatchPictureAction?,
+    onPendingDone: () -> Unit,
+    watchProfile: WatchCropProfile,
+    onSaved: () -> Unit,
+) {
+    var showWatchPicker by remember { mutableStateOf(false) }
+    WatchPictureConsent(
+        pending = pending,
         onConfirm = { action ->
-            pendingPictureAction = null
+            onPendingDone()
             if (action == WatchPictureAction.CHANGE) {
                 vm.prepareWatchPicturePicker { showWatchPicker = true }
             } else {
-                vm.setDefaultWatchBackground(null)
+                vm.removeDefaultWatchBackground()
             }
         },
-        onDismiss = { pendingPictureAction = null },
+        onDismiss = onPendingDone,
     )
-    // Dialog is OUTSIDE the conditional — an open crop is never yanked mid-save.
     if (showWatchPicker) {
         WatchBackgroundPickerDialog(
             alarmId = DEFAULT_WATCH_BG_ID,
-            initialUri = state.defaultWatchBackgroundUri,
+            initialUri = currentUri,
             onDismiss = { showWatchPicker = false },
             onSaved = { uri ->
                 showWatchPicker = false
-                watchReloadToken++
                 vm.setDefaultWatchBackground(uri)
-                Toast.makeText(context, savedMessage, Toast.LENGTH_LONG).show()
+                onSaved()
             },
             profile = watchProfile,
         )
     }
 }
 
+@Composable
+private fun WatchPictureRemovalMessages(vm: SettingsViewModel, showMessage: (String) -> Unit) {
+    val removedMessage = stringResource(R.string.picture_removed)
+    val failedMessage = stringResource(R.string.settings_watch_picture_remove_failed)
+    LaunchedEffect(Unit) {
+        vm.watchPictureRemoveResults.collect { removed ->
+            showMessage(if (removed) removedMessage else failedMessage)
+        }
+    }
+}
+
 /**
- * Watch-default variant of [BackgroundRow]. Opens [WatchBackgroundPickerDialog],
- * shaped to the connected watch ([WatchScreenProfiles.resolve] off the reported
- * screen — circle for round GT, rounded-rect for FIT), so the user gets a
- * shape-accurate preview, not just a plain SAF picker. The picker keys its
- * cached PNG/.bin by alarm id; we pass [DEFAULT_WATCH_BG_ID] (a sentinel below
- * Room's positive id range) so the default's cache file (`watch_bg_-1.png`)
+ * Preview for the watch-default picture, shaped to the connected watch
+ * ([WatchScreenProfiles.resolve] off the reported screen — circle for round GT,
+ * rounded-rect for FIT), so the user gets a shape-accurate preview. The picker
+ * keys its cached PNG/.bin by alarm id; we pass [DEFAULT_WATCH_BG_ID] (a sentinel
+ * below Room's positive id range) so the default's cache file (`watch_bg_-1.png`)
  * can't collide with a real alarm's crop.
  */
 @Composable
@@ -368,98 +443,46 @@ private fun WatchFacePreview(
 @Composable
 private fun WatchBackgroundRow(
     currentUri: String?,
+    watchConnected: Boolean,
+    enabled: Boolean,
     onChange: () -> Unit,
     onClear: () -> Unit,
-    watchProfile: WatchCropProfile,
-    reloadToken: Int,
+    preview: @Composable () -> Unit,
 ) {
     // NOTE: the picker dialog + open-state are owned by the CALLER
     // (BackgroundSection), OUTSIDE the conditional block, so an in-progress crop
     // save survives a connection-status flicker. This row only renders the
-    // header + preview and reports taps via onChange.
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        WatchBackgroundRowHeader(
-            currentUri = currentUri,
-            onClear = onClear,
-            onChange = onChange,
-        )
-        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            WatchFacePreview(
-                backgroundUri = currentUri,
-                profile = watchProfile,
-                reloadKey = reloadToken,
-                onPickEmpty = onChange,
-            )
-        }
-    }
-}
-
-// Title + current-state caption + clear/change controls for WatchBackgroundRow.
-// Extracted so WatchBackgroundRow stays under the detekt LongMethod ceiling
-// after the F4(c) connected-preview branch was added.
-@Composable
-private fun WatchBackgroundRowHeader(
-    currentUri: String?,
-    onClear: () -> Unit,
-    onChange: () -> Unit,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = stringResource(R.string.settings_default_watch_background),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = stringResource(
-                    if (currentUri == null) R.string.settings_default_background_none
-                    else R.string.settings_default_background_set,
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = if (currentUri != null) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (currentUri != null) {
-            IconButton(onClick = onClear) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_close),
-                    contentDescription = stringResource(R.string.settings_default_background_clear),
-                    tint = Color.Unspecified,
-                    modifier = Modifier.size(24.dp),
+    // controls + preview and reports taps.
+    val choice = defaultPictureChoice(currentUri)
+    MediaChoiceRow(
+        iconRes = R.drawable.ic_image,
+        title = stringResource(R.string.settings_default_watch_background),
+        value = pictureChoiceText(choice),
+        removable = choice.removable,
+        onChoose = onChange,
+        onRemove = onClear,
+        enabled = enabled,
+        preview = {
+            if (!watchConnected) {
+                Text(
+                    text = stringResource(R.string.settings_watch_picture_offline),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        }
-        GtAccentButton(onClick = onChange) {
-            Icon(
-                painter = painterResource(R.drawable.ic_image),
-                contentDescription = null,
-                // onPrimary so the glyph reads as crisp white next to the white
-                // label — the ic_image asset is a muted purple-grey, which on the
-                // filled accent button (Color.Unspecified) looks like a dim smudge.
-                tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.size(8.dp))
-            // Single-line: icon + label must stay on ONE line (the whole point of
-            // the "Change" relabel was to stop the old "Choose…" 2-line wrap).
-            Text(
-                text = stringResource(R.string.field_watch_background_change),
-                maxLines = 1,
-                softWrap = false,
-            )
-        }
-    }
+            Box(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                preview()
+            }
+        },
+    )
 }
 
-
 @Composable
-private fun BackgroundRow(
-    titleRes: Int,
-    currentUri: String?,
-    onPicked: (String) -> Unit,
-    onClear: () -> Unit,
-) {
+private fun PhonePictureRow(currentUri: String?, vm: SettingsViewModel, showUndo: UndoSnackbar) {
+    val removedMessage = stringResource(R.string.picture_removed)
     var showPicker by remember { mutableStateOf(false) }
     if (showPicker) {
         PhoneBackgroundPickerDialog(
@@ -470,117 +493,37 @@ private fun BackgroundRow(
             onDismiss = { showPicker = false },
             onSaved = { uri ->
                 showPicker = false
-                onPicked(uri)
+                vm.setDefaultPhoneBackground(uri)
             },
         )
     }
-    BackgroundRowLayout(
-        titleRes = titleRes,
-        currentUri = currentUri,
-        onPick = { showPicker = true },
-        onClear = onClear,
-        showRingPreview = true,
-    )
-}
-
-// reason: column-then-row layout with optional ring-screen preview adds
-// branches (thumbnail / icon / ring-preview) that push past 62 lines.
-// Splitting the preview out would add a callsite routing layer used once.
-@Suppress("LongMethod")
-@Composable
-private fun BackgroundRowLayout(
-    titleRes: Int,
-    currentUri: String?,
-    onPick: () -> Unit,
-    onClear: () -> Unit,
-    reloadKey: Any? = null,
-    showRingPreview: Boolean = false,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (!showRingPreview) {
-                if (currentUri != null) {
-                    val bitmapState = rememberBackgroundBitmap(currentUri, reloadKey)
-                    val bm = bitmapState.value
-                    if (bm != null) {
-                        Image(
-                            bitmap = bm,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clip(RoundedCornerShape(8.dp)),
-                        )
-                    } else {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_image),
-                            contentDescription = null,
-                            modifier = Modifier.size(56.dp).padding(8.dp),
-                            tint = Color.Unspecified,
-                        )
-                    }
-                } else {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_image),
-                        contentDescription = null,
-                        modifier = Modifier.size(56.dp).padding(8.dp),
-                        tint = Color.Unspecified,
-                    )
-                }
-            }
-            Column(
-                modifier = Modifier
-                    .padding(start = if (showRingPreview) 0.dp else 12.dp)
-                    .weight(1f),
-            ) {
-                Text(
-                    text = stringResource(titleRes),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = stringResource(
-                        if (currentUri == null) R.string.settings_default_background_none
-                        else R.string.settings_default_background_set,
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (currentUri != null) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (currentUri != null) {
-                IconButton(onClick = onClear) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_close),
-                        contentDescription = stringResource(R.string.settings_default_background_clear),
-                        tint = Color.Unspecified,
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-            }
-            GtAccentButton(onClick = onPick) {
-                Text(
-                    text = stringResource(R.string.field_background_image_pick),
-                    maxLines = 1,
-                    softWrap = false,
-                )
-            }
-        }
-        if (showRingPreview) {
+    val choice = defaultPictureChoice(currentUri)
+    MediaChoiceRow(
+        iconRes = R.drawable.ic_image,
+        title = stringResource(R.string.settings_default_phone_background),
+        value = pictureChoiceText(choice),
+        removable = choice.removable,
+        onChoose = { showPicker = true },
+        onRemove = {
+            vm.setDefaultPhoneBackground(null)
+            showUndo(removedMessage) { vm.setDefaultPhoneBackground(currentUri) }
+        },
+        preview = {
             Box(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 RingScreenPreview(
                     backgroundUri = currentUri,
                     timeText = "--:--",
                     labelText = "",
+                    modifier = Modifier.clickable { showPicker = true },
                     width = 140.dp,
                     height = 248.dp,
                 )
             }
-        }
-    }
+        },
+    )
 }
 
 @Composable
@@ -688,119 +631,74 @@ private fun FirstDayDropdown(
 }
 
 @Composable
-private fun RingtoneSection(state: SettingsState, vm: SettingsViewModel) {
+private fun RingtoneSection(state: SettingsState, vm: SettingsViewModel, showUndo: UndoSnackbar) {
+    val removedText = stringResource(R.string.sound_removed)
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
             text = stringResource(R.string.settings_default_ringtones_intro),
             style = MaterialTheme.typography.bodySmall,
         )
-        RingtoneRow(
+        DefaultSoundRow(
             iconRes = R.drawable.ic_music_note,
-            titleRes = R.string.settings_default_ringtone_absolute,
+            title = stringResource(R.string.settings_default_ringtone_absolute),
             currentName = state.defaultAbsoluteRingtoneName,
             currentUri = state.defaultAbsoluteRingtoneUri,
             onPicked = { uri, name -> vm.setDefaultAbsoluteRingtone(uri, name) },
-            onClear = { vm.setDefaultAbsoluteRingtone(null, null) },
+            onRemove = {
+                val uri = state.defaultAbsoluteRingtoneUri
+                val name = state.defaultAbsoluteRingtoneName
+                vm.setDefaultAbsoluteRingtone(null, null)
+                showUndo(removedText) { vm.setDefaultAbsoluteRingtone(uri, name) }
+            },
         )
-        RingtoneRow(
+        DefaultSoundRow(
             iconRes = R.drawable.ic_timer,
-            titleRes = R.string.settings_default_ringtone_relative,
+            title = stringResource(R.string.settings_default_ringtone_relative),
             currentName = state.defaultRelativeRingtoneName,
             currentUri = state.defaultRelativeRingtoneUri,
             onPicked = { uri, name -> vm.setDefaultRelativeRingtone(uri, name) },
-            onClear = { vm.setDefaultRelativeRingtone(null, null) },
+            onRemove = {
+                val uri = state.defaultRelativeRingtoneUri
+                val name = state.defaultRelativeRingtoneName
+                vm.setDefaultRelativeRingtone(null, null)
+                showUndo(removedText) { vm.setDefaultRelativeRingtone(uri, name) }
+            },
         )
     }
 }
 
-// reason: the row factors out the three controls (label + Play/Stop +
-// Choose + Reset) into a column-then-row layout; complexity rose to 9
-// because the audio-preview state machine has play/stop branching and
-// the row exposes a Reset button only when the user has overridden the
-// system default. Below the detekt threshold of 10. LongMethod (65 of 60)
-// trips because each control is a labelled Composable callsite — extracting
-// would just push state-routing across more files for no readability gain.
-@Suppress("LongMethod")
 @Composable
-private fun RingtoneRow(
+private fun DefaultSoundRow(
     iconRes: Int,
-    titleRes: Int,
+    title: String,
     currentName: String?,
     currentUri: String?,
     onPicked: (uri: String, name: String?) -> Unit,
-    onClear: () -> Unit,
+    onRemove: () -> Unit,
 ) {
     val audioPreview = rememberAudioPreview()
     val pickAudio = rememberAudioPicker { picked ->
         audioPreview.stop()
         onPicked(picked.uri, picked.name)
     }
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                painter = painterResource(iconRes),
-                contentDescription = null,
-                tint = Color.Unspecified,
-                modifier = Modifier
-                    .padding(end = 12.dp)
-                    .size(20.dp),
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(titleRes),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = currentName ?: stringResource(R.string.field_audio_default),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+    val choice = defaultSoundChoice(currentUri, currentName)
+    val previewing by audioPreview.playing
+    MediaChoiceRow(
+        iconRes = iconRes,
+        title = title,
+        value = soundChoiceText(choice),
+        removable = choice.removable,
+        onChoose = pickAudio,
+        onRemove = {
+            audioPreview.stop()
+            onRemove()
+        },
+        trailing = {
+            SoundPreviewButton(previewing) {
+                if (previewing) audioPreview.stop() else audioPreview.play(currentUri)
             }
-            val previewing by audioPreview.playing
-            IconButton(
-                onClick = {
-                    if (previewing) audioPreview.stop() else audioPreview.play(currentUri)
-                },
-            ) {
-                Icon(
-                    painter = painterResource(
-                        if (previewing) R.drawable.ic_stop else R.drawable.ic_play,
-                    ),
-                    contentDescription = stringResource(
-                        if (previewing) R.string.action_stop_preview else R.string.action_play_preview,
-                    ),
-                    tint = Color.Unspecified,
-                    modifier = Modifier.size(24.dp),
-                )
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            GtAccentButton(
-                onClick = pickAudio,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text(stringResource(R.string.field_audio_pick))
-            }
-            if (currentUri != null) {
-                GtAccentButton(
-                    onClick = {
-                        audioPreview.stop()
-                        onClear()
-                    },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text(
-                        text = stringResource(R.string.settings_default_ringtone_reset),
-                        textAlign = TextAlign.Center,
-                    )
-                }
-            }
-        }
-    }
+        },
+    )
 }
 
 // Sentinel alarm id for the Settings default watch-bg crop. Negative so it
