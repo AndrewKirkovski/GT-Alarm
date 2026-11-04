@@ -11,6 +11,7 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -73,6 +74,7 @@ import com.kirkouski.gtwake.companion.ui.components.GtSegmentedControl
 import com.kirkouski.gtwake.companion.ui.components.GtSnackbarHost
 import com.kirkouski.gtwake.companion.ui.components.MaxSnoozeRow
 import com.kirkouski.gtwake.companion.ui.components.MediaChoiceRow
+import com.kirkouski.gtwake.companion.ui.components.OptionChip
 import com.kirkouski.gtwake.companion.ui.components.SnoozeRow
 import com.kirkouski.gtwake.companion.ui.components.SoundPreviewButton
 import com.kirkouski.gtwake.companion.ui.components.defaultPictureChoice
@@ -107,6 +109,7 @@ fun SettingsScreen(
     vm: SettingsViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val upcomingLead by vm.upcomingLead.collectAsStateWithLifecycle()
     // Global, monitor-maintained status read instantly from the bridge StateFlow
     // (no per-screen request, no NOT_CONNECTED-initial flicker). Treat a watch as
     // "present" unless it's definitively NOT_CONNECTED — the transient CONNECTING
@@ -235,6 +238,17 @@ fun SettingsScreen(
                             showUndo = showUndo,
                             showMessage = { message -> scope.launch { snackbarHostState.showSnackbar(message) } },
                         )
+                    }
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SettingsSectionHeader(stringResource(R.string.settings_section_notifications))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        UpcomingNoticeRow(value = upcomingLead, onChange = vm::setUpcomingLead)
                     }
                 }
             }
@@ -699,6 +713,43 @@ private fun TimerDefaultsSection(state: SettingsState, vm: SettingsViewModel, sh
             maxCount = state.defaultTimerMaxSnoozeCount,
             onChange = { minutes, maxCount -> vm.setDefaultSnooze(timer = true, minutes, maxCount) },
         )
+    }
+}
+
+private val UPCOMING_LEAD_CHOICES = listOf(0, 10, 30, 60)
+
+@Composable
+private fun UpcomingNoticeRow(value: Int, onChange: (Int) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = stringResource(R.string.settings_upcoming_notice),
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = if (value <= 0) {
+                    stringResource(R.string.field_snooze_off_value)
+                } else {
+                    stringResource(R.string.field_snooze_minutes_value, value)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            text = stringResource(R.string.settings_upcoming_intro),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            UPCOMING_LEAD_CHOICES.forEach { lead ->
+                OptionChip(
+                    label = if (lead <= 0) stringResource(R.string.field_snooze_off_chip) else "$lead",
+                    selected = lead == value,
+                    onClick = { onChange(lead) },
+                )
+            }
+        }
     }
 }
 

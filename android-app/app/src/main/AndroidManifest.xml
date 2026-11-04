@@ -131,6 +131,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".scheduler.UpcomingAlarmReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".scheduler.BootReceiver"
             android:directBootAware="true"
             android:exported="true">

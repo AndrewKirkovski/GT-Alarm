@@ -11,6 +11,7 @@ import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkStatic
 import io.mockk.verify
+import io.mockk.verifyOrder
 import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -34,6 +35,7 @@ class AlarmSchedulerImplJvmTest {
 
     private lateinit var context: Context
     private lateinit var alarmManager: AlarmManager
+    private lateinit var statusNotifier: AlarmStatusNotifier
     private lateinit var scheduler: AlarmSchedulerImpl
 
     @Before
@@ -57,7 +59,8 @@ class AlarmSchedulerImplJvmTest {
             PendingIntent.getActivity(any(), any(), any(), any())
         } returns mockk(relaxed = true)
 
-        scheduler = AlarmSchedulerImpl(context)
+        statusNotifier = mockk(relaxed = true)
+        scheduler = AlarmSchedulerImpl(context, statusNotifier)
     }
 
     @After
@@ -163,6 +166,79 @@ class AlarmSchedulerImplJvmTest {
         scheduler.rescheduleAll(alarms)
 
         verify(exactly = 3) { alarmManager.setAlarmClock(any(), any()) }
+    }
+
+    @Test
+    fun `the fire intent is armed before any notice work`() {
+        val alarm = Alarm(id = 5L, hour = 7, minute = 0, daysOfWeek = DaysOfWeek.MON, enabled = true)
+
+        scheduler.schedule(alarm)
+
+        verifyOrder {
+            alarmManager.setAlarmClock(any(), any())
+            statusNotifier.clearUpcoming(5L)
+            statusNotifier.armUpcoming(alarm, any())
+        }
+    }
+
+    @Test
+    fun `notice work leaves the fire intent armed`() {
+        val alarm = Alarm(id = 5L, hour = 7, minute = 0, daysOfWeek = DaysOfWeek.MON, enabled = true)
+
+        scheduler.schedule(alarm)
+
+        verify(exactly = 0) { alarmManager.cancel(any<PendingIntent>()) }
+    }
+
+    @Test
+    fun `a failing notice arm happens after the alarm is armed`() {
+        val alarm = Alarm(id = 5L, hour = 7, minute = 0, daysOfWeek = DaysOfWeek.MON, enabled = true)
+        every { statusNotifier.armUpcoming(any(), any()) } throws IllegalStateException("too many alarms")
+
+        runCatching { scheduler.schedule(alarm) }
+
+        verify(exactly = 1) { alarmManager.setAlarmClock(any(), any()) }
+    }
+
+    @Test
+    fun `a saved alarm drops its countdown notice`() {
+        val alarm = Alarm(id = 5L, hour = 7, minute = 0, daysOfWeek = DaysOfWeek.MON, enabled = true)
+
+        scheduler.schedule(alarm)
+
+        verify(exactly = 1) { statusNotifier.clearSnooze(5L) }
+    }
+
+    @Test
+    fun `a bulk re-arm keeps the countdown of a snoozed alarm`() {
+        val alarm = Alarm(
+            id = 5L, hour = 7, minute = 0, daysOfWeek = DaysOfWeek.MON, enabled = true,
+            snoozedUntilEpoch = System.currentTimeMillis() + 60_000L,
+        )
+
+        scheduler.schedule(alarm)
+
+        verify(exactly = 0) { statusNotifier.clearSnooze(any()) }
+    }
+
+    @Test
+    fun `a snooze re-arm disarms the upcoming notice and arms none`() {
+        val alarm = Alarm(id = 5L, hour = 7, minute = 0, daysOfWeek = DaysOfWeek.MON, enabled = true)
+
+        scheduler.scheduleAtChecked(alarm, System.currentTimeMillis() + 60_000L)
+
+        verify(exactly = 1) { statusNotifier.clearUpcoming(5L) }
+        verify(exactly = 0) { statusNotifier.armUpcoming(any(), any()) }
+    }
+
+    @Test
+    fun `cancel clears both notices even when no fire intent exists`() {
+        every { PendingIntent.getBroadcast(any(), any(), any(), any()) } returns null
+
+        scheduler.cancel(5L)
+
+        verify(exactly = 1) { statusNotifier.clearUpcoming(5L) }
+        verify(exactly = 1) { statusNotifier.clearSnooze(5L) }
     }
 
     @Test

@@ -14,6 +14,7 @@ import javax.inject.Singleton
 @Singleton
 class AlarmSchedulerImpl @Inject constructor(
     @param:ApplicationContext private val context: Context,
+    private val statusNotifier: AlarmStatusNotifier,
 ) : AlarmScheduler {
 
     private val alarmManager: AlarmManager =
@@ -26,6 +27,9 @@ class AlarmSchedulerImpl @Inject constructor(
         }
         val trigger = NextTriggerCalculator.nextTriggerEpochMillis(alarm)
         scheduleAt(alarm, trigger)
+        // An edit or a skip ended any snooze. A bulk re-arm of a snoozed alarm did not.
+        if (alarm.snoozedUntilEpoch == null) statusNotifier.clearSnooze(alarm.id)
+        statusNotifier.armUpcoming(alarm, trigger)
     }
 
     override fun scheduleAt(alarm: Alarm, triggerAtMillis: Long) {
@@ -39,7 +43,7 @@ class AlarmSchedulerImpl @Inject constructor(
         val firePi = checkNotNull(firePendingIntent(alarm.id))
         val showPi = showPendingIntent(alarm.id)
         val info = AlarmManager.AlarmClockInfo(triggerAtMillis, showPi)
-        return try {
+        val armed = try {
             alarmManager.setAlarmClock(info, firePi)
             Log.d(TAG, "scheduled alarm id=${alarm.id} trigger=$triggerAtMillis")
             true
@@ -47,6 +51,9 @@ class AlarmSchedulerImpl @Inject constructor(
             Log.w(TAG, "SecurityException scheduling alarm id=${alarm.id}: ${se.message}")
             false
         }
+        // After the fire intent, so no notice problem can stop an alarm arming.
+        statusNotifier.clearUpcoming(alarm.id)
+        return armed
     }
 
     override fun cancel(alarmId: Long) {
@@ -56,6 +63,8 @@ class AlarmSchedulerImpl @Inject constructor(
             pi.cancel()
             Log.d(TAG, "cancelled alarm id=$alarmId")
         }
+        statusNotifier.clearUpcoming(alarmId)
+        statusNotifier.clearSnooze(alarmId)
     }
 
     override fun rescheduleAll(alarms: List<Alarm>) {

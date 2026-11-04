@@ -308,4 +308,11 @@
     <string name="help_version_watch">Приложение на часах</string>
     <string name="help_version_watch_older">Старее 1.0.13</string>
     <string name="help_version_unknown">Пока неизвестно</string>
+    <string name="upcoming_notice_title">Будильник в %1$s</string>
+    <string name="action_skip">Пропустить</string>
+    <string name="snooze_notice_stop">Стоп</string>
+    <string name="notification_channel_status">Предстоящие и отложенные будильники</string>
+    <string name="settings_section_notifications">Уведомления</string>
+    <string name="settings_upcoming_notice">Предстоящий будильник</string>
+    <string name="settings_upcoming_intro">Тихое уведомление перед каждым будильником.</string>
 </resources>

@@ -10,6 +10,7 @@ import com.kirkouski.gtwake.companion.domain.DaysOfWeek
 import com.kirkouski.gtwake.companion.ring.AlarmRingService.Companion.dismissAction
 import com.kirkouski.gtwake.companion.ring.AlarmRingService.DismissAction
 import com.kirkouski.gtwake.companion.scheduler.AlarmScheduler
+import com.kirkouski.gtwake.companion.scheduler.AlarmStatusNotifier
 import com.kirkouski.gtwake.companion.wear.AlarmRingHints
 import com.kirkouski.gtwake.companion.wear.PairedDeviceInfo
 import com.kirkouski.gtwake.companion.wear.WearBridgeService
@@ -227,6 +228,63 @@ class AlarmRingServiceTest {
             env.repository.snoozeAt(1L, any(), any())
         }
         verify(exactly = 1) { env.scheduler.schedule(any()) }
+    }
+
+    // ---- Status notices --------------------------------------------------
+
+    @Test
+    fun `a committed snooze posts the countdown notice`() = runTest {
+        val env = newEnv()
+        coEvery { env.repository.getById(1L) } returns recurring
+        coEvery { env.repository.snoozeAt(1L, any(), any()) } returns 123L
+        env.ring(1L)
+        advanceUntilIdle()
+
+        env.action(snoozed, RingActionRequest(1L, fromPeer = false, firedAtEpoch = env.firedAt()))
+        advanceUntilIdle()
+
+        verify(exactly = 1) { env.statusNotifier.showSnooze(recurring, any(), canStop = true) }
+    }
+
+    @Test
+    fun `a failing countdown notice leaves the snooze committed`() = runTest {
+        val env = newEnv()
+        coEvery { env.repository.getById(1L) } returns recurring
+        coEvery { env.repository.snoozeAt(1L, any(), any()) } returns 123L
+        every { env.statusNotifier.showSnooze(any(), any(), any()) } throws IllegalStateException("no channel")
+        env.ring(1L)
+        advanceUntilIdle()
+
+        env.action(snoozed, RingActionRequest(1L, fromPeer = false, firedAtEpoch = env.firedAt()))
+        advanceUntilIdle()
+
+        assertEquals(RingOutcome.SNOOZED, env.peerState().outcomeOf(OccurrenceKey(1L, env.firedAt())))
+    }
+
+    @Test
+    fun `before unlock the countdown notice has no Stop action`() = runTest {
+        val env = newEnv(unlocked = false)
+        every { env.bfuCache.getAll() } returns listOf(recurring)
+        coEvery { env.bfuCache.recordPreUnlockSnooze(1L, any()) } returns true
+        env.ring(1L)
+        advanceUntilIdle()
+
+        env.action(snoozed, RingActionRequest(1L, fromPeer = false, firedAtEpoch = env.firedAt()))
+        advanceUntilIdle()
+
+        verify(exactly = 1) { env.statusNotifier.showSnooze(any(), any(), canStop = false) }
+    }
+
+    @Test
+    fun `ring start removes posted notices and keeps the armed one`() = runTest {
+        val env = newEnv()
+        coEvery { env.repository.getById(1L) } returns recurring
+
+        env.ring(1L)
+        advanceUntilIdle()
+
+        verify(exactly = 1) { env.statusNotifier.clearPosted(1L) }
+        verify(exactly = 0) { env.statusNotifier.clearUpcoming(any()) }
     }
 
     // ---- R2 / R3 takeover ------------------------------------------------
@@ -1424,6 +1482,7 @@ class AlarmRingServiceTest {
         val repository = mockk<AlarmRepository>(relaxed = true)
         val settingsStore = mockk<SettingsStore>(relaxed = true)
         val scheduler = mockk<AlarmScheduler>(relaxed = true)
+        val statusNotifier = mockk<AlarmStatusNotifier>(relaxed = true)
         val wearBridge = mockk<WearBridgeService>(relaxed = true)
         val bfuCache = mockk<BfuAlarmCache>(relaxed = true)
         private val handler = mockk<Handler>(relaxed = true)
@@ -1467,6 +1526,7 @@ class AlarmRingServiceTest {
             write("repository", repository)
             write("settingsStore", settingsStore)
             write("scheduler", scheduler)
+            write("statusNotifier", statusNotifier)
             write("wearBridge", wearBridge)
             write("bfuCache", bfuCache)
             write("ioDispatcher", StandardTestDispatcher(testScope.testScheduler))

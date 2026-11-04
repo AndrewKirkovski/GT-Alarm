@@ -288,4 +288,11 @@
     <string name="help_version_watch">Aplikacja na zegarku</string>
     <string name="help_version_watch_older">Starsza niż 1.0.13</string>
     <string name="help_version_unknown">Jeszcze nieznana</string>
+    <string name="upcoming_notice_title">Alarm o %1$s</string>
+    <string name="action_skip">Pomiń</string>
+    <string name="snooze_notice_stop">Stop</string>
+    <string name="notification_channel_status">Nadchodzące i odłożone alarmy</string>
+    <string name="settings_section_notifications">Powiadomienia</string>
+    <string name="settings_upcoming_notice">Nadchodzący alarm</string>
+    <string name="settings_upcoming_intro">Ciche powiadomienie przed każdym alarmem.</string>
 </resources>

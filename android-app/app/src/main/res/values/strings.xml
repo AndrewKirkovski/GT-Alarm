@@ -370,4 +370,11 @@
     <string name="help_version_watch">Watch app</string>
     <string name="help_version_watch_older">Older than 1.0.13</string>
     <string name="help_version_unknown">Not known yet</string>
+    <string name="upcoming_notice_title">Alarm at %1$s</string>
+    <string name="action_skip">Skip</string>
+    <string name="snooze_notice_stop">Stop</string>
+    <string name="notification_channel_status">Upcoming and snoozed alarms</string>
+    <string name="settings_section_notifications">Notifications</string>
+    <string name="settings_upcoming_notice">Upcoming alarm</string>
+    <string name="settings_upcoming_intro">A silent notice before each alarm.</string>
 </resources>

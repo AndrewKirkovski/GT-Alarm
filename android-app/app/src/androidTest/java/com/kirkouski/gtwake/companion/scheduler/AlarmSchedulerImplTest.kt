@@ -17,7 +17,7 @@ import org.junit.runner.RunWith
 class AlarmSchedulerImplTest {
 
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
-    private val scheduler = AlarmSchedulerImpl(context)
+    private val scheduler = AlarmSchedulerImpl(context, AlarmStatusNotifier(context))
     private val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
     @Test

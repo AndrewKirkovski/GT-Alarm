@@ -288,4 +288,11 @@
     <string name="help_version_watch">Праграма на гадзінніку</string>
     <string name="help_version_watch_older">Старэйшая за 1.0.13</string>
     <string name="help_version_unknown">Пакуль невядома</string>
+    <string name="upcoming_notice_title">Будзільнік у %1$s</string>
+    <string name="action_skip">Прапусціць</string>
+    <string name="snooze_notice_stop">Стоп</string>
+    <string name="notification_channel_status">Будзільнікі, што набліжаюцца і адкладзеныя</string>
+    <string name="settings_section_notifications">Апавяшчэнні</string>
+    <string name="settings_upcoming_notice">Будзільнік, што набліжаецца</string>
+    <string name="settings_upcoming_intro">Ціхае апавяшчэнне перад кожным будзільнікам.</string>
 </resources>

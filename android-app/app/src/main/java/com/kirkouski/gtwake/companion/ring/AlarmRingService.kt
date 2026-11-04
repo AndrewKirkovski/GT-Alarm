@@ -19,6 +19,7 @@ import com.kirkouski.gtwake.companion.data.bfu.BfuAlarmCache
 import com.kirkouski.gtwake.companion.di.IoDispatcher
 import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.scheduler.AlarmScheduler
+import com.kirkouski.gtwake.companion.scheduler.AlarmStatusNotifier
 import com.kirkouski.gtwake.companion.wear.AlarmRingHints
 import com.kirkouski.gtwake.companion.wear.WearBridgeService
 import dagger.hilt.android.AndroidEntryPoint
@@ -101,6 +102,7 @@ class AlarmRingService : Service() {
     @Inject lateinit var repository: AlarmRepository
     @Inject lateinit var settingsStore: SettingsStore
     @Inject lateinit var scheduler: AlarmScheduler
+    @Inject lateinit var statusNotifier: AlarmStatusNotifier
     @Inject lateinit var wearBridge: WearBridgeService
     @Inject lateinit var bfuCache: BfuAlarmCache
     @Inject @IoDispatcher lateinit var ioDispatcher: CoroutineDispatcher
@@ -468,6 +470,7 @@ class AlarmRingService : Service() {
             return null
         }
         consumeFireState(active, firedAtEpoch)
+        bestEffort("clear status notices id=$alarmId") { statusNotifier.clearPosted(alarmId) }
         return if (isCurrent(alarmId, firedAtEpoch)) active else null
     }
 
@@ -1432,6 +1435,9 @@ class AlarmRingService : Service() {
         } else {
             commitPreUnlockSnooze(alarm, trigger)
         }
+        // The snooze is committed: a failed notice must not turn it into ok:false.
+        runCatching { statusNotifier.showSnooze(alarm, trigger, canStop = isUserUnlocked) }
+            .onFailure { Log.w(TAG, "snooze notice failed id=$alarmId", it) }
         return ActionResult.Committed(RingOutcome.SNOOZED, trigger)
     }
 

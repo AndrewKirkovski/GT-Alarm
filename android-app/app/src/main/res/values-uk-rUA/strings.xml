@@ -299,4 +299,11 @@
     <string name="help_version_watch">Застосунок на годиннику</string>
     <string name="help_version_watch_older">Старіша за 1.0.13</string>
     <string name="help_version_unknown">Поки невідомо</string>
+    <string name="upcoming_notice_title">Будильник о %1$s</string>
+    <string name="action_skip">Пропустити</string>
+    <string name="snooze_notice_stop">Стоп</string>
+    <string name="notification_channel_status">Майбутні й відкладені будильники</string>
+    <string name="settings_section_notifications">Сповіщення</string>
+    <string name="settings_upcoming_notice">Майбутній будильник</string>
+    <string name="settings_upcoming_intro">Тихе сповіщення перед кожним будильником.</string>
 </resources>

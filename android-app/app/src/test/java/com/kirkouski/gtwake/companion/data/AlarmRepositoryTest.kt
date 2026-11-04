@@ -556,6 +556,56 @@ class AlarmRepositoryTest {
         assertEquals(2, dao.getById(1L)?.consecutiveSnoozeCount)
     }
 
+    @Test
+    fun `stopSnooze does nothing when the alarm is not snoozed`() = runTest {
+        dao.upsert(recurringRow().copy(consecutiveSnoozeCount = 2))
+
+        repo.stopSnooze(1L)
+
+        assertEquals(2, dao.getById(1L)?.consecutiveSnoozeCount)
+        verify(exactly = 0) { scheduler.schedule(any()) }
+    }
+
+    @Test
+    fun `stopSnooze ends the chain and re-arms the next repeat`() = runTest {
+        dao.upsert(recurringRow().copy(snoozedUntilEpoch = 1_800_000_000_000L, consecutiveSnoozeCount = 2))
+
+        repo.stopSnooze(1L)
+
+        assertEquals(null, dao.getById(1L)?.snoozedUntilEpoch)
+        assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
+        verify(exactly = 1) { scheduler.schedule(match { it.id == 1L && it.snoozedUntilEpoch == null }) }
+    }
+
+    @Test
+    fun `stopSnooze on a one-time alarm turns it off`() = runTest {
+        dao.upsert(recurringRow().copy(daysOfWeek = 0, snoozedUntilEpoch = 1_800_000_000_000L))
+
+        repo.stopSnooze(1L)
+
+        assertEquals(false, dao.getById(1L)?.enabled)
+        verify { scheduler.cancel(1L) }
+    }
+
+    @Test
+    fun `skipUpcoming skips one ring of a repeating alarm`() = runTest {
+        dao.upsert(recurringRow())
+
+        repo.skipUpcoming(1L)
+
+        assertEquals(true, dao.getById(1L)?.enabled)
+        assertEquals(true, dao.getById(1L)?.skipNextEpoch != null)
+    }
+
+    @Test
+    fun `skipUpcoming on a one-time alarm turns it off`() = runTest {
+        dao.upsert(recurringRow().copy(daysOfWeek = 0))
+
+        repo.skipUpcoming(1L)
+
+        assertEquals(false, dao.getById(1L)?.enabled)
+    }
+
     // Fails before the change: scheduleAt ran first, so it is called even though the UPDATE throws.
     @Test
     fun `snoozeAt with a failing UPDATE arms nothing and changes nothing`() = runTest {

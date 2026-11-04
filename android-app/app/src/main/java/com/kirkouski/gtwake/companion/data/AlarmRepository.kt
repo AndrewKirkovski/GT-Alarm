@@ -491,6 +491,34 @@ class AlarmRepository @Inject constructor(
         return skipped
     }
 
+    /** Skip on the upcoming notice. A one-time alarm has no later repeat to move
+     *  to, so it takes its normal dismiss outcome. */
+    suspend fun skipUpcoming(id: Long) {
+        val alarm = dao.getById(id)?.toDomain() ?: return
+        if (alarm.daysOfWeek != 0) skipNext(id) else applyDismissOutcome(alarm)
+    }
+
+    /** Stop on the snooze notice: ends the chain like a dismiss. The ring clears
+     *  the snooze, so a late tap finds nothing to stop. */
+    suspend fun stopSnooze(id: Long) {
+        val alarm = dao.getById(id)?.toDomain() ?: return
+        if (alarm.snoozedUntilEpoch != null) applyDismissOutcome(alarm)
+    }
+
+    private suspend fun applyDismissOutcome(alarm: Alarm) {
+        when (com.kirkouski.gtwake.companion.ring.AlarmRingService.dismissAction(alarm)) {
+            com.kirkouski.gtwake.companion.ring.AlarmRingService.DismissAction.DELETE -> delete(alarm.id)
+            com.kirkouski.gtwake.companion.ring.AlarmRingService.DismissAction.DISABLE -> {
+                setEnabled(alarm.id, false)
+                resetSnoozeCounter(alarm.id)
+            }
+            com.kirkouski.gtwake.companion.ring.AlarmRingService.DismissAction.KEEP -> {
+                resetSnoozeCounter(alarm.id)
+                rescheduleAlarm(alarm.id)
+            }
+        }
+    }
+
     /**
      * Toggle the right-to-left recurring-row gesture: mark the next
      * occurrence skipped, or clear a future skip if one is already active.

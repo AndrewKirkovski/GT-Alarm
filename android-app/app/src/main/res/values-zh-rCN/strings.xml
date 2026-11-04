@@ -291,4 +291,11 @@
     <string name="help_version_watch">手表应用</string>
     <string name="help_version_watch_older">低于 1.0.13</string>
     <string name="help_version_unknown">暂未知</string>
+    <string name="upcoming_notice_title">闹钟将于 %1$s 响起</string>
+    <string name="action_skip">跳过</string>
+    <string name="snooze_notice_stop">停止</string>
+    <string name="notification_channel_status">即将响起和稍后提醒的闹钟</string>
+    <string name="settings_section_notifications">通知</string>
+    <string name="settings_upcoming_notice">即将响起的闹钟</string>
+    <string name="settings_upcoming_intro">每个闹钟响起前的静音通知。</string>
 </resources>

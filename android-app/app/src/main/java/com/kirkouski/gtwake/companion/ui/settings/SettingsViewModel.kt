@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.kirkouski.gtwake.companion.data.AlarmRepository
 import com.kirkouski.gtwake.companion.data.SettingsState
 import com.kirkouski.gtwake.companion.data.SettingsStore
+import com.kirkouski.gtwake.companion.scheduler.AlarmStatusNotifier
 import com.kirkouski.gtwake.companion.wear.ForceSyncResult
 import com.kirkouski.gtwake.companion.wear.WatchSyncStatus
 import com.kirkouski.gtwake.companion.wear.WearBridgeService
@@ -33,6 +34,7 @@ class SettingsViewModel @Inject constructor(
     private val store: SettingsStore,
     private val alarmRepository: AlarmRepository,
     private val wearBridge: WearBridgeService,
+    private val statusNotifier: AlarmStatusNotifier,
 ) : ViewModel() {
 
     // One-shot results of a list-sync switch change, for a toast. The Boolean
@@ -48,6 +50,15 @@ class SettingsViewModel @Inject constructor(
     // One-shot outcome of removing the watch picture, for the snackbar.
     private val _watchPictureRemoveResults = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
     val watchPictureRemoveResults: SharedFlow<Boolean> = _watchPictureRemoveResults.asSharedFlow()
+
+    private val _upcomingLead = MutableStateFlow(statusNotifier.upcomingLeadMinutes)
+    val upcomingLead: StateFlow<Int> = _upcomingLead.asStateFlow()
+
+    fun setUpcomingLead(minutes: Int) = viewModelScope.launch {
+        _upcomingLead.value = minutes
+        statusNotifier.upcomingLeadMinutes = minutes
+        alarmRepository.rescheduleAll()
+    }
 
     private val _watchSyncUnlocked = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val watchSyncUnlocked: SharedFlow<Unit> = _watchSyncUnlocked.asSharedFlow()
