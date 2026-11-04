@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.kirkouski.gtwake.companion.data.AlarmRepository
 import com.kirkouski.gtwake.companion.data.SettingsState
 import com.kirkouski.gtwake.companion.data.SettingsStore
+import com.kirkouski.gtwake.companion.data.SnoozeDefaults
 import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.domain.DaysOfWeek
 import com.kirkouski.gtwake.companion.domain.VibrationPattern
@@ -55,6 +56,8 @@ data class AlarmEditUiState(
         com.kirkouski.gtwake.companion.domain.VibrationPattern.DEFAULT,
     val volumeRampSeconds: Int = 0,
     val maxSnoozeCount: Int = Alarm.MAX_SNOOZE_COUNT_UNLIMITED,
+    // The user changed a snooze row in this draft, so a mode switch keeps it.
+    val snoozeTouched: Boolean = false,
     val isExistingAlarm: Boolean = false,
     val loaded: Boolean = false,
     val dirty: Boolean = false,
@@ -91,11 +94,15 @@ data class AlarmEditUiState(
 @HiltViewModel
 class AlarmEditViewModel @Inject constructor(
     private val repository: AlarmRepository,
-    settingsStore: SettingsStore,
+    private val settingsStore: SettingsStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AlarmEditUiState())
     val state: StateFlow<AlarmEditUiState> = _state.asStateFlow()
+
+    // Read once at load: a new draft's mode switch needs them synchronously.
+    private var alarmSnooze = SnoozeDefaults.ALARM
+    private var timerSnooze = SnoozeDefaults.TIMER
 
     val settings: StateFlow<SettingsState> = settingsStore.state.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(STATE_TIMEOUT_MS), SettingsState(),
@@ -106,7 +113,16 @@ class AlarmEditViewModel @Inject constructor(
         viewModelScope.launch {
             val alarm = id?.let { repository.getById(it) }
             if (alarm == null) {
-                _state.value = AlarmEditUiState(loaded = true, isExistingAlarm = false, mode = initialMode)
+                alarmSnooze = settingsStore.newAlarmSnooze()
+                timerSnooze = settingsStore.newTimerSnooze()
+                val snooze = snoozeFor(initialMode)
+                _state.value = AlarmEditUiState(
+                    loaded = true,
+                    isExistingAlarm = false,
+                    mode = initialMode,
+                    snoozeMinutes = snooze.minutes,
+                    maxSnoozeCount = snooze.maxCount,
+                )
             } else {
                 _state.value = stateFromAlarm(alarm).copy(loaded = true)
                 // Mark this alarm as "being edited" so AlarmRingService bails
@@ -177,18 +193,29 @@ class AlarmEditViewModel @Inject constructor(
         } else {
             minutes.coerceIn(Alarm.MIN_SNOOZE_MINUTES, Alarm.MAX_SNOOZE_MINUTES)
         }
-        it.copy(snoozeMinutes = clamped)
+        it.copy(snoozeMinutes = clamped, snoozeTouched = true)
     }
 
     // Switching tabs only changes the mode (and drops days for a timer, which
     // is one-shot by definition). It deliberately does NOT touch either
     // self-destruct draft — each mode owns its own value and its own default.
+    // A new draft takes the new mode's default snooze unless the user set one.
     fun updateMode(mode: AlarmMode) = mutate {
+        val snooze = if (it.isExistingAlarm || it.snoozeTouched) {
+            SnoozeDefaults(it.snoozeMinutes, it.maxSnoozeCount)
+        } else {
+            snoozeFor(mode)
+        }
         it.copy(
             mode = mode,
             daysOfWeek = if (mode == AlarmMode.RELATIVE) 0 else it.daysOfWeek,
+            snoozeMinutes = snooze.minutes,
+            maxSnoozeCount = snooze.maxCount,
         )
     }
+
+    private fun snoozeFor(mode: AlarmMode): SnoozeDefaults =
+        if (mode == AlarmMode.RELATIVE) timerSnooze else alarmSnooze
 
     fun updateRelativeMinutes(minutes: Int) = mutate {
         it.copy(
@@ -222,7 +249,7 @@ class AlarmEditViewModel @Inject constructor(
             count <= Alarm.MAX_SNOOZE_COUNT_UNLIMITED -> Alarm.MAX_SNOOZE_COUNT_UNLIMITED
             else -> count.coerceAtMost(Alarm.MAX_SNOOZE_COUNT_CAP)
         }
-        it.copy(maxSnoozeCount = clamped)
+        it.copy(maxSnoozeCount = clamped, snoozeTouched = true)
     }
 
     /**

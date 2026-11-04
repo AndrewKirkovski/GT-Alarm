@@ -9,6 +9,7 @@ import androidx.lifecycle.lifecycleScope
 import com.kirkouski.gtwake.companion.MainActivity
 import com.kirkouski.gtwake.companion.R
 import com.kirkouski.gtwake.companion.data.AlarmRepository
+import com.kirkouski.gtwake.companion.data.SettingsStore
 import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.util.TimeFormatter
 import dagger.hilt.android.AndroidEntryPoint
@@ -25,6 +26,7 @@ import javax.inject.Inject
 class AddAlarmShimActivity : ComponentActivity() {
 
     @Inject lateinit var alarmRepository: AlarmRepository
+    @Inject lateinit var settingsStore: SettingsStore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,7 +79,8 @@ class AddAlarmShimActivity : ComponentActivity() {
             if (!match.enabled) alarmRepository.setEnabled(match.id, true)
             match.id
         } else {
-            alarmRepository.save(alarm)
+            val snooze = settingsStore.newAlarmSnooze()
+            alarmRepository.save(alarm.copy(snoozeMinutes = snooze.minutes, maxSnoozeCount = snooze.maxCount))
         }
     }
 

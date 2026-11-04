@@ -164,10 +164,6 @@
     <string name="settings_time_format_24h">24 ч</string>
     <string name="settings_first_day_label">Первый день недели</string>
     <string name="settings_first_day_system">Системный (%1$s)</string>
-    <string name="settings_section_default_ringtones">Мелодии по умолчанию</string>
-    <string name="settings_default_ringtones_intro">Используется всеми будильниками без своего звука.</string>
-    <string name="settings_default_ringtone_absolute">Для будильников по времени</string>
-    <string name="settings_default_ringtone_relative">Для будильников «через N мин»</string>
     <string name="settings_section_default_backgrounds">Картинки</string>
     <string name="settings_default_backgrounds_intro">Используются, когда у будильника нет своей картинки. Картинка телефона показывается за экраном будильника. Картинка часов обрезается под циферблат.</string>
     <string name="settings_default_phone_background">Картинка на телефоне</string>
@@ -275,4 +271,8 @@
     <string name="settings_watch_picture_remove_failed">Не удалось связаться с часами. Попробуйте ещё раз.</string>
     <string name="watch_picture_remove_confirm">Удалить картинку</string>
     <string name="watch_picture_keep">Оставить картинку</string>
+    <string name="settings_section_alarms">Будильники</string>
+    <string name="settings_section_timers">Таймеры</string>
+    <string name="settings_alarm_defaults_intro">Звук используется всеми будильниками без своего звука. Настройки откладывания копируются в новые будильники.</string>
+    <string name="settings_timer_defaults_intro">Звук используется всеми таймерами без своего звука. Настройки откладывания копируются в новые таймеры.</string>
 </resources>

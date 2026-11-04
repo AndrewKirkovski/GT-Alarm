@@ -156,10 +156,6 @@
     <string name="settings_time_format_24h">24 小时制</string>
     <string name="settings_first_day_label">每周起始日</string>
     <string name="settings_first_day_system">跟随系统（%1$s）</string>
-    <string name="settings_section_default_ringtones">默认铃声</string>
-    <string name="settings_default_ringtones_intro">用于所有未单独设置声音的闹钟。</string>
-    <string name="settings_default_ringtone_absolute">用于定时闹钟</string>
-    <string name="settings_default_ringtone_relative">用于「N 分钟后」闹钟</string>
     <string name="settings_section_default_backgrounds">图片</string>
     <string name="settings_default_backgrounds_intro">在闹钟未设置自己的图片时使用。手机图片显示在闹钟屏幕背后。手表图片会裁剪至表盘大小。</string>
     <string name="settings_default_phone_background">手机图片</string>
@@ -258,4 +254,8 @@
     <string name="settings_watch_picture_remove_failed">无法连接手表。请重试。</string>
     <string name="watch_picture_remove_confirm">移除图片</string>
     <string name="watch_picture_keep">保留图片</string>
+    <string name="settings_section_alarms">闹钟</string>
+    <string name="settings_section_timers">计时器</string>
+    <string name="settings_alarm_defaults_intro">声音用于所有未单独设置声音的闹钟。稍后提醒设置会复制到新闹钟。</string>
+    <string name="settings_timer_defaults_intro">声音用于所有未单独设置声音的计时器。稍后提醒设置会复制到新计时器。</string>
 </resources>

@@ -112,6 +112,10 @@ class SettingsViewModel @Inject constructor(
         store.setDefaultRelativeRingtone(uri, name)
     }
 
+    fun setDefaultSnooze(timer: Boolean, minutes: Int, maxCount: Int) = viewModelScope.launch {
+        store.setDefaultSnooze(timer, minutes, maxCount)
+    }
+
     fun setDefaultPhoneBackground(uri: String?) = viewModelScope.launch {
         store.setDefaultPhoneBackgroundUri(uri)
     }

@@ -1,6 +1,7 @@
 package com.kirkouski.gtwake.companion.data
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.core.DataMigration
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -9,10 +10,12 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.kirkouski.gtwake.companion.domain.Alarm
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -68,6 +71,10 @@ class SettingsStore @Inject constructor(
             watchListSync = prefs[KEY_WATCH_LIST_SYNC] ?: false,
             watchListSyncUnlocked = prefs[KEY_WATCH_LIST_SYNC_UNLOCKED] ?: false,
             defaultSoundCopiesAdopted = prefs[KEY_DEFAULT_SOUND_COPIES_ADOPTED] ?: false,
+            defaultSnoozeMinutes = prefs[KEY_DEFAULT_SNOOZE_MINUTES] ?: SnoozeDefaults.ALARM.minutes,
+            defaultMaxSnoozeCount = prefs[KEY_DEFAULT_MAX_SNOOZE_COUNT] ?: SnoozeDefaults.ALARM.maxCount,
+            defaultTimerSnoozeMinutes = prefs[KEY_DEFAULT_TIMER_SNOOZE_MINUTES] ?: SnoozeDefaults.TIMER.minutes,
+            defaultTimerMaxSnoozeCount = prefs[KEY_DEFAULT_TIMER_MAX_SNOOZE_COUNT] ?: SnoozeDefaults.TIMER.maxCount,
         )
     }
 
@@ -209,6 +216,23 @@ class SettingsStore @Inject constructor(
         }
     }
 
+    suspend fun setDefaultSnooze(timer: Boolean, minutes: Int, maxCount: Int) {
+        dataStore.edit { prefs ->
+            prefs[if (timer) KEY_DEFAULT_TIMER_SNOOZE_MINUTES else KEY_DEFAULT_SNOOZE_MINUTES] = minutes
+            prefs[if (timer) KEY_DEFAULT_TIMER_MAX_SNOOZE_COUNT else KEY_DEFAULT_MAX_SNOOZE_COUNT] = maxCount
+        }
+    }
+
+    suspend fun newAlarmSnooze(): SnoozeDefaults = snoozeDefaultsOr(SnoozeDefaults.ALARM) {
+        val s = snapshot()
+        SnoozeDefaults(s.defaultSnoozeMinutes, s.defaultMaxSnoozeCount)
+    }
+
+    suspend fun newTimerSnooze(): SnoozeDefaults = snoozeDefaultsOr(SnoozeDefaults.TIMER) {
+        val s = snapshot()
+        SnoozeDefaults(s.defaultTimerSnoozeMinutes, s.defaultTimerMaxSnoozeCount)
+    }
+
     suspend fun markDefaultSoundCopiesAdopted() {
         dataStore.edit { prefs -> prefs[KEY_DEFAULT_SOUND_COPIES_ADOPTED] = true }
     }
@@ -250,6 +274,10 @@ class SettingsStore @Inject constructor(
         private val KEY_WATCH_LIST_SYNC = booleanPreferencesKey("watch_list_sync")
         private val KEY_WATCH_LIST_SYNC_UNLOCKED = booleanPreferencesKey("watch_list_sync_unlocked")
         private val KEY_DEFAULT_SOUND_COPIES_ADOPTED = booleanPreferencesKey("default_sound_copies_adopted")
+        private val KEY_DEFAULT_SNOOZE_MINUTES = intPreferencesKey("default_snooze_minutes")
+        private val KEY_DEFAULT_MAX_SNOOZE_COUNT = intPreferencesKey("default_max_snooze_count")
+        private val KEY_DEFAULT_TIMER_SNOOZE_MINUTES = intPreferencesKey("default_timer_snooze_minutes")
+        private val KEY_DEFAULT_TIMER_MAX_SNOOZE_COUNT = intPreferencesKey("default_timer_max_snooze_count")
 
         // Extension property generates a process-singleton DataStore<Preferences>
         // bound to the application Context. Hilt @Singleton on [SettingsStore]
@@ -287,9 +315,33 @@ data class SettingsState(
     val watchListSyncUnlocked: Boolean = false,
     // One-time 1.0.13 clean-up has run (AlarmRepository.adoptDefaultSoundCopiesOnce).
     val defaultSoundCopiesAdopted: Boolean = false,
+    // Copied into a new alarm or timer. Existing rows keep their own values.
+    val defaultSnoozeMinutes: Int = SnoozeDefaults.ALARM.minutes,
+    val defaultMaxSnoozeCount: Int = SnoozeDefaults.ALARM.maxCount,
+    val defaultTimerSnoozeMinutes: Int = SnoozeDefaults.TIMER.minutes,
+    val defaultTimerMaxSnoozeCount: Int = SnoozeDefaults.TIMER.maxCount,
 ) {
     val effectiveWatchListSync: Boolean
         get() = watchListSyncUnlocked && watchListSync
+}
+
+/** Snooze values a new alarm or timer starts with. */
+data class SnoozeDefaults(val minutes: Int, val maxCount: Int) {
+    companion object {
+        val ALARM = SnoozeDefaults(Alarm.DEFAULT_SNOOZE_MINUTES, Alarm.MAX_SNOOZE_COUNT_UNLIMITED)
+        val TIMER = SnoozeDefaults(Alarm.SNOOZE_DISABLED, Alarm.MAX_SNOOZE_COUNT_UNLIMITED)
+    }
+}
+
+/** A failed settings read gives [builtIn], so creating an alarm never fails. */
+internal suspend fun snoozeDefaultsOr(
+    builtIn: SnoozeDefaults,
+    read: suspend () -> SnoozeDefaults,
+): SnoozeDefaults = try {
+    read()
+} catch (e: IOException) {
+    Log.w("SettingsStore", "snooze defaults read failed, using built-ins: ${e.message}")
+    builtIn
 }
 
 /** Runs once before preferences are exposed; upgrading must not wake the watch. */

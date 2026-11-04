@@ -65,12 +65,15 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kirkouski.gtwake.companion.R
+import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.data.SettingsState
 import com.kirkouski.gtwake.companion.ui.components.GtFloatingButton
 import com.kirkouski.gtwake.companion.ui.components.GtSegmentOption
 import com.kirkouski.gtwake.companion.ui.components.GtSegmentedControl
 import com.kirkouski.gtwake.companion.ui.components.GtSnackbarHost
+import com.kirkouski.gtwake.companion.ui.components.MaxSnoozeRow
 import com.kirkouski.gtwake.companion.ui.components.MediaChoiceRow
+import com.kirkouski.gtwake.companion.ui.components.SnoozeRow
 import com.kirkouski.gtwake.companion.ui.components.SoundPreviewButton
 import com.kirkouski.gtwake.companion.ui.components.defaultPictureChoice
 import com.kirkouski.gtwake.companion.ui.components.defaultSoundChoice
@@ -197,13 +200,24 @@ fun SettingsScreen(
                 }
             }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingsSectionHeader(stringResource(R.string.settings_section_default_ringtones))
+                SettingsSectionHeader(stringResource(R.string.settings_section_alarms))
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        RingtoneSection(state = state, vm = vm, showUndo = showUndo)
+                        AlarmDefaultsSection(state = state, vm = vm, showUndo = showUndo)
+                    }
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SettingsSectionHeader(stringResource(R.string.settings_section_timers))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        TimerDefaultsSection(state = state, vm = vm, showUndo = showUndo)
                     }
                 }
             }
@@ -631,16 +645,16 @@ private fun FirstDayDropdown(
 }
 
 @Composable
-private fun RingtoneSection(state: SettingsState, vm: SettingsViewModel, showUndo: UndoSnackbar) {
+private fun AlarmDefaultsSection(state: SettingsState, vm: SettingsViewModel, showUndo: UndoSnackbar) {
     val removedText = stringResource(R.string.sound_removed)
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
-            text = stringResource(R.string.settings_default_ringtones_intro),
+            text = stringResource(R.string.settings_alarm_defaults_intro),
             style = MaterialTheme.typography.bodySmall,
         )
         DefaultSoundRow(
             iconRes = R.drawable.ic_music_note,
-            title = stringResource(R.string.settings_default_ringtone_absolute),
+            title = stringResource(R.string.field_sound),
             currentName = state.defaultAbsoluteRingtoneName,
             currentUri = state.defaultAbsoluteRingtoneUri,
             onPicked = { uri, name -> vm.setDefaultAbsoluteRingtone(uri, name) },
@@ -651,9 +665,25 @@ private fun RingtoneSection(state: SettingsState, vm: SettingsViewModel, showUnd
                 showUndo(removedText) { vm.setDefaultAbsoluteRingtone(uri, name) }
             },
         )
+        DefaultSnoozeRows(
+            minutes = state.defaultSnoozeMinutes,
+            maxCount = state.defaultMaxSnoozeCount,
+            onChange = { minutes, maxCount -> vm.setDefaultSnooze(timer = false, minutes, maxCount) },
+        )
+    }
+}
+
+@Composable
+private fun TimerDefaultsSection(state: SettingsState, vm: SettingsViewModel, showUndo: UndoSnackbar) {
+    val removedText = stringResource(R.string.sound_removed)
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text(
+            text = stringResource(R.string.settings_timer_defaults_intro),
+            style = MaterialTheme.typography.bodySmall,
+        )
         DefaultSoundRow(
             iconRes = R.drawable.ic_timer,
-            title = stringResource(R.string.settings_default_ringtone_relative),
+            title = stringResource(R.string.field_sound),
             currentName = state.defaultRelativeRingtoneName,
             currentUri = state.defaultRelativeRingtoneUri,
             onPicked = { uri, name -> vm.setDefaultRelativeRingtone(uri, name) },
@@ -664,6 +694,19 @@ private fun RingtoneSection(state: SettingsState, vm: SettingsViewModel, showUnd
                 showUndo(removedText) { vm.setDefaultRelativeRingtone(uri, name) }
             },
         )
+        DefaultSnoozeRows(
+            minutes = state.defaultTimerSnoozeMinutes,
+            maxCount = state.defaultTimerMaxSnoozeCount,
+            onChange = { minutes, maxCount -> vm.setDefaultSnooze(timer = true, minutes, maxCount) },
+        )
+    }
+}
+
+@Composable
+private fun DefaultSnoozeRows(minutes: Int, maxCount: Int, onChange: (minutes: Int, maxCount: Int) -> Unit) {
+    SnoozeRow(value = minutes, onChange = { onChange(it, maxCount) })
+    if (minutes > Alarm.SNOOZE_DISABLED) {
+        MaxSnoozeRow(value = maxCount, onChange = { onChange(minutes, it) })
     }
 }
 

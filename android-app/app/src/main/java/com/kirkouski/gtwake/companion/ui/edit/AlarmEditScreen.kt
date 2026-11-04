@@ -9,8 +9,8 @@
 package com.kirkouski.gtwake.companion.ui.edit
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,7 +31,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -64,8 +62,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -90,7 +88,10 @@ import com.anhaki.picktime.utils.PickTimeFocusIndicator
 import com.anhaki.picktime.utils.PickTimeTextStyle
 import com.anhaki.picktime.utils.TimeFormat
 import com.kirkouski.gtwake.companion.ui.components.GtSnackbarHost
+import com.kirkouski.gtwake.companion.ui.components.MaxSnoozeRow
 import com.kirkouski.gtwake.companion.ui.components.MediaChoiceRow
+import com.kirkouski.gtwake.companion.ui.components.OptionChip
+import com.kirkouski.gtwake.companion.ui.components.SnoozeRow
 import com.kirkouski.gtwake.companion.ui.components.SoundPreviewButton
 import com.kirkouski.gtwake.companion.ui.components.alarmPictureChoice
 import com.kirkouski.gtwake.companion.ui.components.alarmSoundChoice
@@ -822,115 +823,6 @@ private fun SelfDestructRow(
 }
 
 @Composable
-private fun SnoozeRow(value: Int, onChange: (Int) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                painter = painterResource(R.drawable.ic_snooze),
-                contentDescription = null,
-                tint = Color.Unspecified,
-                modifier = Modifier.padding(end = 8.dp).size(24.dp),
-            )
-            Text(
-                text = stringResource(R.string.field_snooze_minutes),
-                style = MaterialTheme.typography.labelLarge,
-            )
-            Spacer(Modifier.weight(1f))
-            Text(
-                text = if (value <= Alarm.SNOOZE_DISABLED) {
-                    stringResource(R.string.field_snooze_off_value)
-                } else {
-                    stringResource(R.string.field_snooze_minutes_value, value)
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SNOOZE_PRESETS.forEach { preset ->
-                SnoozeChip(
-                    minutes = preset,
-                    selected = preset == value,
-                    onClick = { onChange(preset) },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SnoozeChip(minutes: Int, selected: Boolean, onClick: () -> Unit) {
-    val label = if (minutes <= Alarm.SNOOZE_DISABLED) stringResource(R.string.field_snooze_off_chip) else "$minutes"
-    OptionChip(label = label, selected = selected, onClick = onClick)
-}
-
-private val SNOOZE_PRESETS = listOf(
-    Alarm.SNOOZE_DISABLED,
-    Alarm.MIN_SNOOZE_MINUTES,
-    5,
-    Alarm.DEFAULT_SNOOZE_MINUTES,
-    30,
-)
-
-@Composable
-private fun MaxSnoozeRow(value: Int, onChange: (Int) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                painter = painterResource(R.drawable.ic_snooze),
-                contentDescription = null,
-                tint = Color.Unspecified,
-                modifier = Modifier.padding(end = 8.dp).size(24.dp),
-            )
-            Text(
-                text = stringResource(R.string.field_max_snooze),
-                style = MaterialTheme.typography.labelLarge,
-            )
-            Spacer(Modifier.weight(1f))
-            Text(
-                text = if (value <= Alarm.MAX_SNOOZE_COUNT_UNLIMITED) {
-                    stringResource(R.string.field_max_snooze_unlimited)
-                } else {
-                    stringResource(R.string.field_max_snooze_value, value)
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-        ) {
-            MAX_SNOOZE_PRESETS.forEach { preset ->
-                MaxSnoozeChip(
-                    count = preset,
-                    selected = preset == value,
-                    onClick = { onChange(preset) },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun MaxSnoozeChip(count: Int, selected: Boolean, onClick: () -> Unit) {
-    val label = if (count <= Alarm.MAX_SNOOZE_COUNT_UNLIMITED) {
-        stringResource(R.string.field_max_snooze_unlimited)
-    } else {
-        "$count"
-    }
-    OptionChip(label = label, selected = selected, onClick = onClick)
-}
-
-private val MAX_SNOOZE_PRESETS = listOf(
-    Alarm.MAX_SNOOZE_COUNT_UNLIMITED,
-    1,
-    3,
-    5,
-    10,
-)
-
-@Composable
 private fun VibrationPatternRow(
     value: com.kirkouski.gtwake.companion.domain.VibrationPattern,
     onChange: (com.kirkouski.gtwake.companion.domain.VibrationPattern) -> Unit,
@@ -1028,24 +920,6 @@ private fun VolumeRampRow(value: Int, onChange: (Int) -> Unit) {
 private fun RampChip(seconds: Int, selected: Boolean, onClick: () -> Unit) {
     val label = if (seconds <= 0) stringResource(R.string.field_volume_ramp_off) else "${seconds}s"
     OptionChip(label = label, selected = selected, onClick = onClick)
-}
-
-@Composable
-private fun OptionChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    val bg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-    val fg = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-    Box(
-        modifier = Modifier
-            .height(36.dp)
-            .defaultMinSize(minWidth = 36.dp)
-            .clip(CircleShape)
-            .background(bg)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text = label, color = fg, style = MaterialTheme.typography.labelMedium)
-    }
 }
 
 private val VOLUME_RAMP_PRESETS = listOf(0, 5, 15, 30, 60)

@@ -153,10 +153,6 @@
     <string name="settings_time_format_24h">24 г</string>
     <string name="settings_first_day_label">Першы дзень тыдня</string>
     <string name="settings_first_day_system">Сістэмны (%1$s)</string>
-    <string name="settings_section_default_ringtones">Рынгтоны па змаўчанні</string>
-    <string name="settings_default_ringtones_intro">Выкарыстоўваецца ўсімі будзільнікамі без уласнага гуку.</string>
-    <string name="settings_default_ringtone_absolute">Для будзільнікаў па часе</string>
-    <string name="settings_default_ringtone_relative">Для будзільнікаў «праз N хв»</string>
     <string name="settings_section_default_backgrounds">Выявы</string>
     <string name="settings_default_backgrounds_intro">Выкарыстоўваюцца, калі ў будзільніка няма ўласнай выявы. Выява тэлефона паказваецца за экранам будзільніка. Выява гадзінніка абразаецца пад цыферблат.</string>
     <string name="settings_default_phone_background">Выява на тэлефоне</string>
@@ -255,4 +251,8 @@
     <string name="settings_watch_picture_remove_failed">Не ўдалося звязацца з гадзіннікам. Паспрабуйце яшчэ раз.</string>
     <string name="watch_picture_remove_confirm">Выдаліць выяву</string>
     <string name="watch_picture_keep">Пакінуць выяву</string>
+    <string name="settings_section_alarms">Будзільнікі</string>
+    <string name="settings_section_timers">Таймеры</string>
+    <string name="settings_alarm_defaults_intro">Гук выкарыстоўваецца ўсімі будзільнікамі без уласнага гуку. Налады адкладвання капіруюцца ў новыя будзільнікі.</string>
+    <string name="settings_timer_defaults_intro">Гук выкарыстоўваецца ўсімі таймерамі без уласнага гуку. Налады адкладвання капіруюцца ў новыя таймеры.</string>
 </resources>

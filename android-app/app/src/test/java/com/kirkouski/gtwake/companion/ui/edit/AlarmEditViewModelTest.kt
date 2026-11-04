@@ -3,6 +3,7 @@ package com.kirkouski.gtwake.companion.ui.edit
 import com.kirkouski.gtwake.companion.data.AlarmRepository
 import com.kirkouski.gtwake.companion.data.SettingsState
 import com.kirkouski.gtwake.companion.data.SettingsStore
+import com.kirkouski.gtwake.companion.data.SnoozeDefaults
 import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.domain.DaysOfWeek
 import io.mockk.coEvery
@@ -48,6 +49,8 @@ class AlarmEditViewModelTest {
         repository = mockk(relaxed = true)
         settingsStore = mockk(relaxed = true)
         every { settingsStore.state } returns MutableStateFlow(SettingsState())
+        coEvery { settingsStore.newAlarmSnooze() } returns SnoozeDefaults(5, 3)
+        coEvery { settingsStore.newTimerSnooze() } returns SnoozeDefaults(Alarm.SNOOZE_DISABLED, 0)
     }
 
     @After
@@ -222,5 +225,55 @@ class AlarmEditViewModelTest {
 
         assertEquals(DaysOfWeek.NONE, vm.state.value.daysOfWeek)
         assertTrue(savedAlarm(vm).selfDestruct)
+    }
+
+    @Test
+    fun `a new alarm starts with the alarm snooze default`() = runTest {
+        val vm = viewModel()
+        vm.load(id = null, initialMode = AlarmMode.ABSOLUTE)
+
+        assertEquals(5, vm.state.value.snoozeMinutes)
+        assertEquals(3, vm.state.value.maxSnoozeCount)
+    }
+
+    @Test
+    fun `a new timer starts with the timer snooze default`() = runTest {
+        val vm = viewModel()
+        vm.load(id = null, initialMode = AlarmMode.RELATIVE)
+
+        assertEquals(Alarm.SNOOZE_DISABLED, vm.state.value.snoozeMinutes)
+    }
+
+    @Test
+    fun `switching a new draft to timer takes the timer default`() = runTest {
+        val vm = viewModel()
+        vm.load(id = null, initialMode = AlarmMode.ABSOLUTE)
+
+        vm.updateMode(AlarmMode.RELATIVE)
+
+        assertEquals(Alarm.SNOOZE_DISABLED, vm.state.value.snoozeMinutes)
+        assertEquals(0, vm.state.value.maxSnoozeCount)
+    }
+
+    @Test
+    fun `a snooze the user set survives a mode switch`() = runTest {
+        val vm = viewModel()
+        vm.load(id = null, initialMode = AlarmMode.ABSOLUTE)
+        vm.updateSnoozeMinutes(30)
+
+        vm.updateMode(AlarmMode.RELATIVE)
+
+        assertEquals(30, vm.state.value.snoozeMinutes)
+    }
+
+    @Test
+    fun `switching an existing alarm keeps its snooze`() = runTest {
+        coEvery { repository.getById(4L) } returns Alarm(id = 4L, snoozeMinutes = 30)
+        val vm = viewModel()
+        vm.load(id = 4L)
+
+        vm.updateMode(AlarmMode.RELATIVE)
+
+        assertEquals(30, vm.state.value.snoozeMinutes)
     }
 }
