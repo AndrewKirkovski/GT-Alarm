@@ -203,6 +203,7 @@ test('the drain timer stops waiting for pending writes after the absolute deadli
 const ACTION_KEY = 'gt_pending_action'
 
 function ringFixture({ transportOk = true, setMode = 'now', deleteMode = 'now', getMode = 'now' } = {}) {
+  const queries = []
   let now = 5000
   let terminated = 0
   const timers = new Map()
@@ -257,7 +258,7 @@ function ringFixture({ transportOk = true, setMode = 'now', deleteMode = 'now', 
     Date: Clock, Logger: { ...logger, flushNow() {} }, Ticker: ticker, storage,
     app: { terminate() { terminated++ } }, file: {}, vibrator: { vibrate() {} },
     brightness: { setKeepScreenOn(o) { holds.push(o.keepScreenOn); o.success() } },
-    WearBridge: { sendRinging(...args) { ringing.push(args) },
+    WearBridge: { sendRinging(...args) { ringing.push(args) }, sendRingQuery() { queries.push(now) },
       setPageTag() {}, setFileHandler() {}, setIncomingHandler() {},
       notifyDismissed: send('alarm_dismissed'), notifySnoozed: send('alarm_snoozed') },
     AlarmStore: { getAll(done) { done([]) }, replaceAll(items, done) { done?.(true) },
@@ -271,6 +272,7 @@ function ringFixture({ transportOk = true, setMode = 'now', deleteMode = 'now', 
   })
   Object.assign(page, page.data, { $t: key => key })
   return { page, timers, delays, counts, values, sets, deferred, sent, holds, ringing, lives, deletes, gets, timeouts,
+    queries,
     terminated: () => terminated,
     setNow(value) { now = value },
     tick(name) { const fn = timers.get(name); assert.ok(fn, name); timers.delete(name); now += 1000; fn() },
@@ -1219,4 +1221,60 @@ test('retained vendor SDK preserves text envelopes, registration, and delivery c
   client.unregisterReceiver({ onSuccess() { registered-- } })
   assert.equal(registered, 0)
   assert.equal(unsubscribed, 2)
+})
+
+test('opening the app asks the phone about a ring and tries once more', () => {
+  const f = ringFixture()
+  f.page.screen = 'list'
+  f.page.queryRing()
+  assert.equal(f.queries.length, 1)
+  assert.equal(f.delays.get('ringQuery'), 3000)
+  f.tick('ringQuery')
+  assert.equal(f.queries.length, 2)
+  assert.equal(f.timers.has('ringQuery'), false, 'one retry only')
+})
+
+test('no ring query from a ring, sync or privacy screen', () => {
+  for (const screen of ['ring', 'sync', 'privacy']) {
+    const f = ringFixture()
+    f.page.screen = screen
+    f.page.queryRing()
+    f.tick('ringQuery')
+    assert.equal(f.queries.length, 0, screen)
+  }
+})
+
+test('the retry stays silent once the phone answered with a ring', () => {
+  const f = ringFixture()
+  f.page.screen = 'list'
+  f.page.queryRing()
+  f.ring()
+  f.tick('ringQuery')
+  assert.equal(f.queries.length, 1)
+  assert.equal(f.page.screen, 'ring')
+})
+
+test('no ring query while an action waits for its reply', () => {
+  const f = ringFixture()
+  f.ring()
+  f.page.onDismiss()
+  f.page.screen = 'list'
+  f.page.queryRing()
+  assert.equal(f.queries.length, 0)
+})
+
+test('a ring query reply rings with a confirmation, buzz and cap', () => {
+  const f = ringFixture()
+  f.page.screen = 'list'
+  f.ring(1, 1000)
+  assert.equal(f.page.screen, 'ring')
+  assert.equal(f.ringing.length, 1)
+  assert.ok(f.timers.has('vibrate') || f.counts.get('vibrate') > 0)
+  assert.ok(f.timers.has('ringCap'))
+})
+
+test('the reported app code matches the version code in config.json', () => {
+  const source = fs.readFileSync(new URL('wearBridge.js', common), 'utf8')
+  const config = JSON.parse(fs.readFileSync(new URL('../../../config.json', common), 'utf8'))
+  assert.equal(Number(source.match(/var APP_CODE = (\d+);/)[1]), config.app.version.code)
 })

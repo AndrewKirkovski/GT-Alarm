@@ -1,7 +1,7 @@
 // Wear Engine bridge — phone-side peer talks to us via P2P. We register
 // a receiver in app.onCreate so any inbound JSON is routed through
-// IncomingHandler. Sends from watch→phone are reserved for the user's
-// dismiss/snooze acks; watch never originates schedule changes.
+// IncomingHandler. Sends from watch→phone are the user's dismiss/snooze
+// acks and ring_query; watch never originates schedule changes.
 //
 // Per Huawei official wearengine.js wrapper (Apache 2.0,
 // Explore-In-HMOS-Wearable/wear-engine-lite-wearable-to-mobile), both
@@ -28,6 +28,10 @@ import Ticker from './ticker.js';
 // under active investigation (HMS-Core public demo doesn't show the
 // exact format used). Treat this as best-guess until verified.
 var PHONE_PKG_NAME = 'com.kirkouski.gtwake.companion';
+
+// This app's version code, reported so the phone can ask for an update and gate
+// breaking changes. Must equal version.code in config.json; a test checks it.
+var APP_CODE = 1000012;
 var PHONE_CERT_SHA256 =
     '95F6001E2B44692CCE6FE6663A98AA2BDDB6AE557DB77DBBA346D03DBC33BE5C';
 
@@ -353,6 +357,12 @@ export default {
         }, 3, 1);
     },
 
+    // Asks whether a ring is live. The one message the watch starts by itself.
+    // Silence means no ring, so the page's retry is this message's only retry.
+    sendRingQuery: function () {
+        sendJson({ type: 'ring_query', alarmId: 0, updatedAtEpoch: Date.now(), appCode: APP_CODE });
+    },
+
     // Confirms to the phone that the watch's ring page is up and
     // vibrating. Phone awaits this before starting its own audio so the
     // two devices ring in lock-step instead of phone-first / watch-late.
@@ -363,6 +373,7 @@ export default {
             type: 'alarm_ringing',
             alarmId: alarmId,
             updatedAtEpoch: requestStamp,
+            appCode: APP_CODE,
         };
         if (typeof firedAt === 'number' && firedAt > 0) envelope.firedAt = firedAt;
         sendJsonWithRetry(envelope, 3, 1);

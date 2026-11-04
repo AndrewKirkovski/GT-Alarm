@@ -8,6 +8,7 @@ import com.kirkouski.gtwake.companion.data.db.AlarmEntity
 import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.domain.DaysOfWeek
 import com.kirkouski.gtwake.companion.ring.AlarmRingService
+import com.kirkouski.gtwake.companion.ring.RingEndedSignal
 import com.kirkouski.gtwake.companion.scheduler.AlarmScheduler
 import com.kirkouski.gtwake.companion.widget.WidgetRefresher
 import io.mockk.coVerify
@@ -483,6 +484,33 @@ class IncomingMessageHandlerTest {
         assertNotNull(row)
         assertNull(row!!.relativeMinutes)
         assertEquals(false, row.selfDestruct)
+    }
+
+    @Test
+    fun `ring query starts no service when no ring is live`() = runTest {
+        handler.handle(IncomingMessage.RingQuery(0L, 5L))
+
+        verify(exactly = 0) { context.startService(any()) }
+    }
+
+    @Test
+    fun `ring query reaches the ring service while a ring is live`() = runTest {
+        mockkConstructor(Intent::class)
+        RingEndedSignal.setCurrent(1L, 1_000L)
+        try {
+            val contextMatcher = OfTypeMatcher<Context>(Context::class)
+            val serviceMatcher = EqMatcher(AlarmRingService::class.java)
+            every {
+                constructedWith<Intent>(contextMatcher, serviceMatcher).setAction(any())
+            } answers { self as Intent }
+
+            handler.handle(IncomingMessage.RingQuery(0L, 5L))
+
+            verify(exactly = 1) { context.startService(any()) }
+        } finally {
+            RingEndedSignal.clearCurrent(1L, 1_000L)
+            unmockkConstructor(Intent::class)
+        }
     }
 }
 

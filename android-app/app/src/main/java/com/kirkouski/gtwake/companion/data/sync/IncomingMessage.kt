@@ -77,6 +77,17 @@ sealed class IncomingMessage {
         override val alarmId: Long,
         override val updatedAtEpoch: Long,
         val firedAtEpoch: Long? = null,
+        // Watch app version code. Absent on watch apps older than 1.0.13.
+        val appCode: Int? = null,
+    ) : IncomingMessage()
+
+    // The watch app was opened and asks whether a ring is live: the side
+    // button closes it, and a reopen is a cold start with no ring state.
+    // The reply is a normal alarm_fired. Silence means no ring.
+    data class RingQuery(
+        override val alarmId: Long,
+        override val updatedAtEpoch: Long,
+        val appCode: Int? = null,
     ) : IncomingMessage()
 
     // Watch's reply to a phone-originated `alarm_dismissed`. Sent from

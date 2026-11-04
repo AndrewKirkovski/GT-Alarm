@@ -751,4 +751,24 @@ class WearJsonCodecTest {
         assertNull((parse("alarm_dismissed") as IncomingMessage.AlarmDismissed).firedAtEpoch)
         assertNull((parse("alarm_snoozed") as IncomingMessage.AlarmSnoozed).firedAtEpoch)
     }
+
+    @Test
+    fun `ring query parses with and without the app code`() {
+        val json = JSONObject().put("type", "ring_query").put("alarmId", 0).put("updatedAtEpoch", 5L)
+
+        assertEquals(IncomingMessage.RingQuery(0L, 5L, null), WearJsonCodec.parseIncoming(json))
+        assertEquals(
+            IncomingMessage.RingQuery(0L, 5L, 1000013),
+            WearJsonCodec.parseIncoming(json.put("appCode", 1000013)),
+        )
+    }
+
+    @Test
+    fun `alarm ringing carries the app code only when the watch sends it`() {
+        val json = JSONObject().put("type", "alarm_ringing").put("alarmId", 3).put("updatedAtEpoch", 5L)
+
+        assertEquals(null, (WearJsonCodec.parseIncoming(json) as IncomingMessage.AlarmRinging).appCode)
+        val coded = WearJsonCodec.parseIncoming(json.put("appCode", 1000013)) as IncomingMessage.AlarmRinging
+        assertEquals(1000013, coded.appCode)
+    }
 }

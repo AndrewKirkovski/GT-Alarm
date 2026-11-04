@@ -304,6 +304,68 @@ class AlarmRingServiceTest {
         verify(exactly = 0) { env.wearBridge.sendPeerEnded(any(), any(), any()) }
     }
 
+    @Test
+    fun `ring query answers an open ring`() = runTest {
+        val env = newEnv()
+        env.setRing(1L, 1_000L)
+        env.write("ringQueryHints", AlarmRingHints.from(baseAlarm, null))
+
+        env.invoke("handleRingQuery")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { env.wearBridge.sendRingQueryReply(1L, any()) }
+    }
+
+    @Test
+    fun `ring query stays silent during pre-arm`() = runTest {
+        val env = newEnv()
+        env.setRing(1L, 1_000L)
+
+        env.invoke("handleRingQuery")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { env.wearBridge.sendRingQueryReply(any(), any()) }
+    }
+
+    @Test
+    fun `ring query stays silent once an action started`() = runTest {
+        val env = newEnv()
+        env.setRing(1L, 1_000L)
+        env.write("ringQueryHints", AlarmRingHints.from(baseAlarm, null))
+        env.write("ringActionStarted", true)
+
+        env.invoke("handleRingQuery")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { env.wearBridge.sendRingQueryReply(any(), any()) }
+    }
+
+    @Test
+    fun `ring query stays silent after a local stop`() = runTest {
+        val env = newEnv()
+        env.setRing(1L, 1_000L)
+        env.write("ringQueryHints", AlarmRingHints.from(baseAlarm, null))
+        env.write("localStopRequested", true)
+
+        env.invoke("handleRingQuery")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { env.wearBridge.sendRingQueryReply(any(), any()) }
+    }
+
+    @Test
+    fun `ring query stays silent in the grace after a commit`() = runTest {
+        val env = newEnv()
+        env.setRing(1L, 1_000L)
+        env.write("ringQueryHints", AlarmRingHints.from(baseAlarm, null))
+        env.write("ringEnded", true)
+
+        env.invoke("handleRingQuery")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { env.wearBridge.sendRingQueryReply(any(), any()) }
+    }
+
     /*
      * Fails before: no grace window existed (immediate stopForegroundAndSelf),
      * so there was no 6 s runnable to find and the ring was torn down at commit.

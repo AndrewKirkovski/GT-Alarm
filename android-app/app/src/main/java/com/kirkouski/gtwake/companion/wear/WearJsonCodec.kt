@@ -53,7 +53,10 @@ internal object WearJsonCodec {
             IncomingMessage.AlarmDismissed(id, ts, optionalPositiveLong(j, "firedAt"))
         },
         "alarm_snoozed" to { id, ts, j -> IncomingMessage.AlarmSnoozed(id, ts, optionalPositiveLong(j, "firedAt")) },
-        "alarm_ringing" to { id, ts, j -> IncomingMessage.AlarmRinging(id, ts, optionalPositiveLong(j, "firedAt")) },
+        "alarm_ringing" to { id, ts, j ->
+            IncomingMessage.AlarmRinging(id, ts, optionalPositiveLong(j, "firedAt"), optionalAppCode(j))
+        },
+        "ring_query" to { id, ts, j -> IncomingMessage.RingQuery(id, ts, optionalAppCode(j)) },
         "alarm_dismissed_ack" to { id, ts, j ->
             IncomingMessage.AlarmDismissedAck(id, ts, optionalPositiveLong(j, "firedAt"), optionalBoolean(j, "ok"))
         },
@@ -108,6 +111,8 @@ internal object WearJsonCodec {
 
     private fun optionalPositiveLong(json: JSONObject, key: String): Long? =
         if (!json.has(key) || json.isNull(key)) null else json.optLong(key, -1L).takeIf { it > 0L }
+
+    private fun optionalAppCode(json: JSONObject): Int? = optionalPositiveLong(json, "appCode")?.toInt()
 
     private fun optionalBoolean(json: JSONObject, key: String): Boolean? =
         if (!json.has(key) || json.isNull(key)) null else json.optBoolean(key)

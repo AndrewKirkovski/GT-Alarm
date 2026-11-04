@@ -174,6 +174,12 @@ interface WearBridgeService {
     suspend fun uploadDefaultWatchBackground(bgFile: java.io.File): Boolean
 
     /**
+     * Answers a watch `ring_query` with a normal `alarm_fired`. No ping: the
+     * watch just asked, so it is awake.
+     */
+    suspend fun sendRingQueryReply(alarmId: Long, hints: AlarmRingHints) = Unit
+
+    /**
      * Tell the watch to drop its cached default background bin. Sent when
      * the user clears the default in Settings so the watch deletes its
      * `bg_default.bin` and falls back to its bundled ring UI.

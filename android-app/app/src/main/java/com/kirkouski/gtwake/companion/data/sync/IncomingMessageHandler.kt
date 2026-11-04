@@ -9,6 +9,7 @@ import com.kirkouski.gtwake.companion.data.db.toDomain
 import com.kirkouski.gtwake.companion.data.db.toEntity
 import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.ring.AlarmRingService
+import com.kirkouski.gtwake.companion.ring.RingEndedSignal
 import com.kirkouski.gtwake.companion.scheduler.AlarmScheduler
 import com.kirkouski.gtwake.companion.widget.WidgetRefresher
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -109,6 +110,7 @@ class IncomingMessageHandler @Inject constructor(
                 }
             }
             is IncomingMessage.SyncHash -> Unit // handled above; exhaustiveness only
+            is IncomingMessage.RingQuery -> dispatchRingQuery()
             is IncomingMessage.AlarmRinging -> Unit // handled above; exhaustiveness only
             is IncomingMessage.AlarmDismissedAck -> Unit // handled above; exhaustiveness only
             is IncomingMessage.AlarmSnoozedAck -> Unit // handled above; exhaustiveness only
@@ -187,6 +189,16 @@ class IncomingMessageHandler @Inject constructor(
         val trigger = System.currentTimeMillis() + local.snoozeMinutes * 60_000L
         Log.d(TAG, "peer snooze id=$alarmId +${local.snoozeMinutes}min trigger=$trigger stamp=$incomingEpoch")
         dispatchSnoozeFromPeer(alarmId, trigger)
+    }
+
+    // Only a live ring service can answer. With no ring, starting one just to
+    // say nothing would be waste, and silence already means no ring.
+    private fun dispatchRingQuery() {
+        if (RingEndedSignal.current.value == null) return
+        dispatchToRingService(
+            Intent(context, AlarmRingService::class.java).setAction(AlarmRingService.ACTION_RING_QUERY),
+            "ring query",
+        )
     }
 
     private fun dispatchDismissFromPeer(alarmId: Long, firedAtEpoch: Long? = null, requestStamp: Long? = null) {

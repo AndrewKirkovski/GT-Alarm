@@ -45,6 +45,8 @@ import javax.inject.Singleton
  * Migrations: [WatchListSyncRestrictionMigration] turns off a list sync that an
  * earlier version enabled (see `produceMigrations` on the DataStore).
  */
+// reason: TooManyFunctions — one setter per preference over the same DataStore.
+@Suppress("TooManyFunctions")
 @Singleton
 class SettingsStore @Inject constructor(
     @param:ApplicationContext private val context: Context,
@@ -71,6 +73,7 @@ class SettingsStore @Inject constructor(
             watchListSync = prefs[KEY_WATCH_LIST_SYNC] ?: false,
             watchListSyncUnlocked = prefs[KEY_WATCH_LIST_SYNC_UNLOCKED] ?: false,
             defaultSoundCopiesAdopted = prefs[KEY_DEFAULT_SOUND_COPIES_ADOPTED] ?: false,
+            watchAppCode = prefs[KEY_WATCH_APP_CODE],
             defaultSnoozeMinutes = prefs[KEY_DEFAULT_SNOOZE_MINUTES] ?: SnoozeDefaults.ALARM.minutes,
             defaultMaxSnoozeCount = prefs[KEY_DEFAULT_MAX_SNOOZE_COUNT] ?: SnoozeDefaults.ALARM.maxCount,
             defaultTimerSnoozeMinutes = prefs[KEY_DEFAULT_TIMER_SNOOZE_MINUTES] ?: SnoozeDefaults.TIMER.minutes,
@@ -233,6 +236,10 @@ class SettingsStore @Inject constructor(
         SnoozeDefaults(s.defaultTimerSnoozeMinutes, s.defaultTimerMaxSnoozeCount)
     }
 
+    suspend fun setWatchAppCode(code: Int) {
+        dataStore.edit { prefs -> prefs[KEY_WATCH_APP_CODE] = code }
+    }
+
     suspend fun markDefaultSoundCopiesAdopted() {
         dataStore.edit { prefs -> prefs[KEY_DEFAULT_SOUND_COPIES_ADOPTED] = true }
     }
@@ -274,6 +281,7 @@ class SettingsStore @Inject constructor(
         private val KEY_WATCH_LIST_SYNC = booleanPreferencesKey("watch_list_sync")
         private val KEY_WATCH_LIST_SYNC_UNLOCKED = booleanPreferencesKey("watch_list_sync_unlocked")
         private val KEY_DEFAULT_SOUND_COPIES_ADOPTED = booleanPreferencesKey("default_sound_copies_adopted")
+        private val KEY_WATCH_APP_CODE = intPreferencesKey("watch_app_code")
         private val KEY_DEFAULT_SNOOZE_MINUTES = intPreferencesKey("default_snooze_minutes")
         private val KEY_DEFAULT_MAX_SNOOZE_COUNT = intPreferencesKey("default_max_snooze_count")
         private val KEY_DEFAULT_TIMER_SNOOZE_MINUTES = intPreferencesKey("default_timer_snooze_minutes")
@@ -315,6 +323,9 @@ data class SettingsState(
     val watchListSyncUnlocked: Boolean = false,
     // One-time 1.0.13 clean-up has run (AlarmRepository.adoptDefaultSoundCopiesOnce).
     val defaultSoundCopiesAdopted: Boolean = false,
+    // Last reported watch app version. Null = never heard from a watch.
+    // See wear/WatchVersionPolicy.kt for the other special values.
+    val watchAppCode: Int? = null,
     // Copied into a new alarm or timer. Existing rows keep their own values.
     val defaultSnoozeMinutes: Int = SnoozeDefaults.ALARM.minutes,
     val defaultMaxSnoozeCount: Int = SnoozeDefaults.ALARM.maxCount,

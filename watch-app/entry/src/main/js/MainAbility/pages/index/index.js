@@ -202,11 +202,12 @@ var CROWN_SETTLE_MS = 150;
 // the UI — terminate after this fallback. A real forceSync round-trip ends in
 // sync_done well under this.
 var SYNC_FALLBACK_MS = 8000;
+var RING_QUERY_RETRY_MS = 3000;
 // The fallback waits for pending store writes, but never past this absolute
 // deadline: a write callback that never fires must not keep the app open.
 var SYNC_MAX_MS = 20000;
 
-function fireTerminate(tag) {
+function fireTerminate() {
     try {
         app.terminate();
     } catch (e) {
@@ -218,7 +219,7 @@ function armSyncFallback(page, until) {
     Ticker.set('syncFallback', SYNC_FALLBACK_MS, function () {
         if (page.screen !== 'sync') return;
         if (IncomingHandler.hasPendingWrites() && Date.now() < until) armSyncFallback(page, until);
-        else fireTerminate('sync_fallback');
+        else fireTerminate();
     });
 }
 
@@ -233,29 +234,29 @@ function ackRing(alarmId, firedAt, requestStamp) {
     }
 }
 
-function scheduleTerminate(reason, capMs) {
+function scheduleTerminate(capMs) {
     if (_terminateScheduled) return;
     _terminateScheduled = true;
     Ticker.set('terminate', capMs || TERMINATE_HARD_CAP_MS, function () {
-        fireTerminate('cap:' + reason);
+        fireTerminate();
     });
 }
 
 // Woken only by a stray message (a late copy or reply for a ring that is
 // over): close again rather than sit open. Only in the app's first seconds.
 function closeIfCold() {
-    if (Date.now() - _onInitMs < STALE_FIRE_COLD_MS) scheduleTerminate('stale');
+    if (Date.now() - _onInitMs < STALE_FIRE_COLD_MS) scheduleTerminate();
 }
 
-function expediteTerminate(tag) {
+function expediteTerminate() {
     if (!_terminateScheduled || !Ticker.has('terminate')) return;
     Ticker.set('terminate', TERMINATE_AFTER_ACK_MS, function () {
-        fireTerminate('ack:' + tag);
+        fireTerminate();
     });
 }
 
 function armRingCap(ms) {
-    Ticker.set('ringCap', ms, function () { fireTerminate('ring'); });
+    Ticker.set('ringCap', ms, function () { fireTerminate(); });
 }
 
 function cancelTerminate() {
@@ -341,25 +342,10 @@ function pad2(n) {
 // (older phone build / unexpected name) — '' tells the phone "I hold a bg but
 // don't know its marker", which it treats as a mismatch and re-uploads.
 // Module-level (snapshot-safe), plain ES5 string ops only.
-function parseBgHash(path) {
+function parseFileHash(path, prefix) {
     if (typeof path !== 'string' || path.length === 0) return '';
     var slash = path.lastIndexOf('/');
     var name = (slash >= 0) ? path.substring(slash + 1) : path;
-    var prefix = 'bgd_';
-    if (name.substring(0, prefix.length) !== prefix) return '';
-    var rest = name.substring(prefix.length);
-    var dot = rest.indexOf('.');
-    var hash = (dot >= 0) ? rest.substring(0, dot) : rest;
-    return hash;
-}
-
-// Hash echoed back to the phone as the alarms_received ack — parsed from a
-// file-delivered full replace named `alarms_<hash>.json`. Mirrors parseBgHash.
-function parseAlarmsHash(path) {
-    if (typeof path !== 'string' || path.length === 0) return '';
-    var slash = path.lastIndexOf('/');
-    var name = (slash >= 0) ? path.substring(slash + 1) : path;
-    var prefix = 'alarms_';
     if (name.substring(0, prefix.length) !== prefix) return '';
     var rest = name.substring(prefix.length);
     var dot = rest.indexOf('.');
@@ -782,7 +768,7 @@ export default {
             // background — terminating here would yank the app out from
             // under the user, and mid-ring it ends the alarm (onHide ->
             // implicit snooze). Keep the app where the user left it.
-            if (self.screen === 'sync') fireTerminate('sync_done');
+            if (self.screen === 'sync') fireTerminate();
         });
         // Settings load in refresh(), which onShow calls right after onInit.
     },
@@ -836,9 +822,7 @@ export default {
         // Rebuild any already-rendered rows so they pick up the new per-row
         // geometry immediately (getInfo is async; rows may have first rendered
         // with the 466 defaults before this ran). No-op cost on the GT6.
-        if (typeof this.refresh === 'function') {
-            this.refresh();
-        }
+        this.refresh();
         // SIZE known — the critical gate. Now the splash (bg + centred
         // hourglass) can paint, correctly sized on every resolution. If an
         // event already chose ring/sync, leave showSplash false so that screen
@@ -940,12 +924,27 @@ export default {
             _needsConsent = !agreed;
             _privacyDone = true;
             self.maybeReveal();
+            if (agreed) self.queryRing();
         });
         // Settings + alarms for the list rows.
         this.refresh();
         // i18n LAST — chunked $t load (yields between batches so the splash
         // stays painted); the async gets above resolve alongside it.
         this.loadStrings();
+    },
+
+    // The side button closes the app with no event, so a reopen during a ring is
+    // a cold start on the list. Ask the phone: it alone knows if a ring is live,
+    // and its answer is a normal alarm_fired. Silence means no ring, so nothing
+    // is stored here and a false ring can't appear. One retry, on the Ticker: a
+    // message this early can be lost, and a one-shot timer can be dropped.
+    queryRing: function () {
+        var self = this;
+        function ask() {
+            if (self.screen === 'list' && !_pendingAction) WearBridge.sendRingQuery();
+        }
+        ask();
+        Ticker.set('ringQuery', RING_QUERY_RETRY_MS, ask);
     },
 
     onShow: function () {
@@ -972,12 +971,12 @@ export default {
             // (parseAlarmsHash returns '' unless the file is named alarms_<hash>.*)
             // so a bg path that merely contains "alarms_" can't misroute. Parse +
             // apply via the sync_replace path, then ack so the phone stops retrying.
-            if (parseAlarmsHash(p) !== '') {
+            if (parseFileHash(p, 'alarms_') !== '') {
                 self.applyAlarmsFile(p);
                 return;
             }
             _bgSrc = p;
-            var hash = parseBgHash(p);
+            var hash = parseFileHash(p, 'bgd_');
             // CHAIN the two persistent writes, then ACK only AFTER they commit.
             // @system.storage.set is async; the thin client often terminates
             // (sync_done) right after, so firing the ack/terminate before the
@@ -1140,7 +1139,7 @@ export default {
     // transient file. Mirrors the bg ack-after-persist ordering.
     applyAlarmsFile: function (path) {
         var p = '' + path;
-        var hash = parseAlarmsHash(p);
+        var hash = parseFileHash(p, 'alarms_');
         var filePending = true;
         var finishFileRead = function () {
             if (!filePending) return;
@@ -1576,7 +1575,7 @@ export default {
         _pendingActionAttempts = 0;
         // A fresh cap for this request: an earlier one may be nearly spent.
         cancelTerminate();
-        scheduleTerminate(type, TERMINATE_RETRY_CAP_MS);
+        scheduleTerminate(TERMINATE_RETRY_CAP_MS);
         this._sendPendingAction();
         if (action.v === 1) saveRecord(action);
     },
@@ -1682,7 +1681,7 @@ export default {
         this.stopVibrate();
         this._disarmCrownGesture(true);
         cancelTerminate();
-        scheduleTerminate('resume', TERMINATE_RETRY_CAP_MS);
+        scheduleTerminate(TERMINATE_RETRY_CAP_MS);
     },
     _completeRingAction: function (action) {
         if (_pendingAction && _pendingAction !== action) return;
@@ -1712,12 +1711,12 @@ export default {
             });
         }
         // A replayed request has no cap of its own: make sure the app closes.
-        scheduleTerminate('ack', PEER_FLASH_MS + TERMINATE_AFTER_ACK_MS);
+        scheduleTerminate(PEER_FLASH_MS + TERMINATE_AFTER_ACK_MS);
         Ticker.set('peerFlash', PEER_FLASH_MS, function () {
             self.screen = 'list';
             self.updateScrim();
             self.refresh();
-            expediteTerminate(action.t === 'd' ? 'dismiss' : 'snooze');
+            expediteTerminate();
         });
     },
 
@@ -1758,7 +1757,7 @@ export default {
             self.screen = 'list';
             self.updateScrim();
             self.refresh();
-            scheduleTerminate('peer-ended');
+            scheduleTerminate();
         });
         return true;
     },

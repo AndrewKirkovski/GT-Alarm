@@ -345,8 +345,8 @@ export default {
             return;
         }
         // screen_request: phone asks for our panel size/shape so it can crop +
-        // size the uploaded background to this watch. ALL comms are phone-
-        // initiated — we only reply, never push proactively. Meta envelope
+        // size the uploaded background to this watch. The phone starts this
+        // and we only reply; ring_query is the one watch-started message. Meta envelope
         // (no alarmId), so it bypasses rejectMalformed.
         if (msg && msg.type === 'screen_request') {
             noteIncomingEnvelope();

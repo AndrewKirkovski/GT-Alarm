@@ -299,6 +299,8 @@ class HuaweiWearBridge @Inject constructor(
     // must go to the watch: if no fire ever reached the watch for this ring,
     // sending one would only launch the watch app for nothing (a visible
     // wake right after the alarm, which review flagged).
+    @Volatile private var lastWatchAppCode: Int? = null
+
     private val alarmFiredDeliveredAt =
         java.util.concurrent.ConcurrentHashMap<Long, Long>()
 
@@ -438,6 +440,14 @@ class HuaweiWearBridge @Inject constructor(
         Log.d(TAG, "alarm_ringing id=${msg.alarmId} mismatched pending (got ${pending.alarmId}) — dropping")
     }
 
+    // On the bridge scope, so a settings write can't delay or fail a ring reply.
+    // The next report overwrites it, and nothing identifying a watch is stored.
+    private fun recordWatchAppCode(code: Int) {
+        if (lastWatchAppCode == code) return
+        lastWatchAppCode = code
+        scope.launch { settingsStore.setWatchAppCode(code) }
+    }
+
     /**
      * Expand a watch-side `watch_log_batch` envelope to one logcat line
      * per entry under the `WatchLog` tag. Each line keeps the watch's own
@@ -537,9 +547,11 @@ class HuaweiWearBridge @Inject constructor(
             // compareAndSet ensures we don't clobber a concurrent timeout-
             // finally's clear.
             if (parsed is IncomingMessage.AlarmRinging) {
+                recordWatchAppCode(parsed.appCode ?: WATCH_CODE_OLDER)
                 handleAlarmRinging(parsed)
                 return@launch
             }
+            if (parsed is IncomingMessage.RingQuery) recordWatchAppCode(parsed.appCode ?: WATCH_CODE_OLDER)
             // AlarmDismissedAck / AlarmSnoozedAck: watch confirms it
             // processed the dismiss/snooze envelope (closed its ring
             // page or accepted the action). Application-level ack —
@@ -824,6 +836,13 @@ class HuaweiWearBridge @Inject constructor(
             pendingSnoozeAckMutex,
             timeoutMs,
         )
+    }
+
+    override suspend fun sendRingQueryReply(alarmId: Long, hints: AlarmRingHints) {
+        val envelope = buildAlarmFiredEnvelope(alarmId, System.currentTimeMillis(), hints)
+        if (sendPeerReplyBounded(envelope)) {
+            alarmFiredDeliveredAt[alarmId] = android.os.SystemClock.elapsedRealtime()
+        }
     }
 
     override fun sendPeerActionAck(

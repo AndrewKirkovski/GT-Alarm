@@ -200,6 +200,9 @@ class AlarmRingService : Service() {
     // running must not start it afterwards.
     private var localStopRequested: Boolean = false
 
+    // The hints of the open ring, kept for ring_query. Null until pre-arm ends.
+    private var ringQueryHints: AlarmRingHints? = null
+
     // In-flight actions, request results and occurrence outcomes. In memory
     // for this service instance only (decided: no persistent receipts).
     private val peerState = PeerActionState()
@@ -280,6 +283,7 @@ class AlarmRingService : Service() {
             ACTION_RING -> handleRing(alarmId)
             ACTION_DISMISS -> handleAction(RingActionKind.DISMISS, request)
             ACTION_SNOOZE -> handleAction(RingActionKind.SNOOZE, request)
+            ACTION_RING_QUERY -> handleRingQuery()
             else -> {
                 Log.w(TAG, "unknown action: $action")
                 stopWhenIdle()
@@ -578,6 +582,7 @@ class AlarmRingService : Service() {
                     it.confirmed = watchReady
                     it.settled.complete(Unit)
                 }
+                if (!ringEnded) ringQueryHints = ringHints
             }
             if (!watchReady) startWatchCatchUp(alarmId, firedAtEpoch, ringHints)
         }
@@ -1004,6 +1009,27 @@ class AlarmRingService : Service() {
         mainHandler.postDelayed(r, GRACE_MS)
     }
 
+    // The watch app reopened during a ring. The phone is the only authority on
+    // "still ringing": the watch stores nothing, so it can never show a false
+    // ring. A reply only for a ring that is truly open. RingEndedSignal.current
+    // alone is not enough: it stays set through the grace after a commit.
+    private fun handleRingQuery() {
+        val hints = ringQueryHints
+        val occurrence = OccurrenceKey(currentAlarmId, currentFiredAtEpoch)
+        val open = currentRing().isOpen(occurrence) && !ringActionStarted && !localStopRequested
+        if (hints == null || !open) {
+            Log.d(TAG, "ring query: nothing to answer")
+            stopWhenIdle()
+            return
+        }
+        // So a phone Stop after this reply still tells the watch.
+        markFireSend(occurrence)
+        val answer = hints.copy(supportsActionAck = isUserUnlocked && wearBridge.isReceiveReady)
+        launchDetached("ring query id=${occurrence.alarmId}") {
+            wearBridge.sendRingQueryReply(occurrence.alarmId, answer)
+        }
+    }
+
     // An idle service (no ring) that only answered a request has nothing left
     // to do. The short delay lets the bridge's bounded reply leave the process.
     private fun stopWhenIdle() {
@@ -1106,6 +1132,7 @@ class AlarmRingService : Service() {
 
     private fun stopCurrentRingResources() {
         ringEnded = true
+        ringQueryHints = null
         cancelRingTimers()
         graceRunnable?.let { mainHandler.removeCallbacks(it) }
         graceRunnable = null
@@ -1671,6 +1698,7 @@ class AlarmRingService : Service() {
         const val ACTION_RING = "com.kirkouski.gtwake.companion.ACTION_RING"
         const val ACTION_DISMISS = "com.kirkouski.gtwake.companion.ACTION_DISMISS"
         const val ACTION_SNOOZE = "com.kirkouski.gtwake.companion.ACTION_SNOOZE"
+        const val ACTION_RING_QUERY = "com.kirkouski.gtwake.companion.ACTION_RING_QUERY"
         const val EXTRA_ALARM_ID = "alarm_id"
         const val EXTRA_FROM_PEER = "from_peer"
         const val EXTRA_RESCHEDULE_EPOCH = "reschedule_epoch"
