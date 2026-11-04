@@ -838,6 +838,20 @@ class HuaweiWearBridge @Inject constructor(
         )
     }
 
+    override suspend fun watchStatus(): WatchStatus? {
+        val device = pairedDevice?.takeIf { it.isConnected } ?: return null
+        val battery = readStatus(device, MonitorItem.MONITOR_POWER_STATUS)
+        val charge = readStatus(device, MonitorItem.MONITOR_CHARGE_STATUS)
+        return if (battery != null && charge != null) {
+            WatchStatus(battery, charge != CHARGE_STATE_NOT_CHARGING)
+        } else {
+            null
+        }
+    }
+
+    private suspend fun readStatus(device: Device, item: MonitorItem): Int? =
+        awaitTask("query(${item.name})") { monitorClient.query(device, item) }?.asInt()
+
     override suspend fun sendRingQueryReply(alarmId: Long, hints: AlarmRingHints) {
         val envelope = buildAlarmFiredEnvelope(alarmId, System.currentTimeMillis(), hints)
         if (sendPeerReplyBounded(envelope)) {
@@ -2453,6 +2467,8 @@ class HuaweiWearBridge @Inject constructor(
 
         // Replies to a watch request (sendPeerActionAck / sendPeerEnded): no
         // wake, a few quick retries, never longer than the total below.
+        // Huawei's charge status: 1 charging, 2 not charging, 3 full.
+        private const val CHARGE_STATE_NOT_CHARGING = 2
         private const val PEER_REPLY_TOTAL_MS = 4_000L
         private const val PEER_REPLY_SEND_TIMEOUT_MS = 1_500L
         private const val PEER_REPLY_RETRY_DELAY_MS = 300L

@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -106,6 +107,7 @@ import com.kirkouski.gtwake.companion.util.shortLabelResForDayBit
 import com.kirkouski.gtwake.companion.wear.ForceSyncResult
 import androidx.core.net.toUri
 import com.kirkouski.gtwake.companion.wear.WatchSupport
+import com.kirkouski.gtwake.companion.wear.WatchNotice
 import com.kirkouski.gtwake.companion.wear.WatchSupportState
 import com.kirkouski.gtwake.companion.wear.WearPermissionOutcome
 import com.kirkouski.gtwake.companion.wear.PairedDeviceInfo
@@ -138,6 +140,9 @@ fun AlarmListScreen(
     val showBatteryOptCard by vm.showBatteryOptCard.collectAsStateWithLifecycle()
     val watchStatus by vm.watchStatus.collectAsStateWithLifecycle()
     val pairedDevice by vm.pairedDeviceInfo.collectAsStateWithLifecycle()
+    val watchNotice by vm.watchNotice.collectAsStateWithLifecycle()
+    val uriHandler = LocalUriHandler.current
+    val watchInstallUrl = stringResource(R.string.watch_install_url)
     val forceSyncRunning by vm.forceSyncRunning.collectAsStateWithLifecycle()
     val needsWatchAuth by vm.needsWatchAuthorization.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
@@ -275,6 +280,13 @@ fun AlarmListScreen(
                         )
                     } else {
                         WatchUnsupportedCard(state = watchSupport)
+                    }
+                    watchNotice?.let { notice ->
+                        WatchNoticeCard(
+                            notice = notice,
+                            onHide = vm::hideWatchNotice,
+                            onOpenHelp = { uriHandler.openUri(watchInstallUrl) },
+                        )
                     }
                 }
             }
@@ -744,6 +756,47 @@ private fun SetupNeededBanner(onOpenSetup: () -> Unit) {
             }
             GtAccentButton(onClick = onOpenSetup) {
                 Text(stringResource(R.string.setup_banner_action))
+            }
+        }
+    }
+}
+
+@Composable
+private fun WatchNoticeCard(notice: WatchNotice, onHide: () -> Unit, onOpenHelp: () -> Unit) {
+    val title: String
+    val body: String
+    when (notice) {
+        WatchNotice.UpdateApp -> {
+            title = stringResource(R.string.watch_notice_update_title)
+            body = stringResource(R.string.watch_notice_update_body)
+        }
+        is WatchNotice.LowBattery -> {
+            title = stringResource(R.string.watch_notice_battery_title)
+            body = stringResource(R.string.watch_notice_battery_body, notice.percent)
+        }
+    }
+    Card(
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = title, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text(text = body, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = onHide) {
+                    Text(stringResource(R.string.action_hide))
+                }
+                if (notice == WatchNotice.UpdateApp) {
+                    GtAccentButton(onClick = onOpenHelp, modifier = Modifier.padding(start = 8.dp)) {
+                        Text(stringResource(R.string.watch_notice_update_action))
+                    }
+                }
             }
         }
     }

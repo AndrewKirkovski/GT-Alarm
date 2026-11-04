@@ -296,4 +296,16 @@
     <string name="stopwatch_copied">Круги скопированы</string>
     <string name="stopwatch_reset_done">Секундомер сброшен</string>
     <string name="stopwatch_lap_number">Круг %1$d</string>
+    <string name="watch_notice_update_title">Обновите GT Wake на часах</string>
+    <string name="watch_notice_update_body">Этому приложению нужна более новая версия на часах. Будильники по-прежнему звонят на телефоне.</string>
+    <string name="watch_notice_update_action">Как обновить</string>
+    <string name="watch_notice_battery_title">Низкий заряд часов</string>
+    <string name="watch_notice_battery_body">Заряд часов: %1$d%%. Зарядите их, чтобы часы могли звонить. Будильники по-прежнему звонят на телефоне.</string>
+    <string name="action_hide">Скрыть</string>
+    <string name="watch_install_url">https://gtwake.kirkouski.com/watch/install</string>
+    <string name="help_versions_title">Версии</string>
+    <string name="help_version_phone">Приложение на телефоне</string>
+    <string name="help_version_watch">Приложение на часах</string>
+    <string name="help_version_watch_older">Старее 1.0.13</string>
+    <string name="help_version_unknown">Пока неизвестно</string>
 </resources>

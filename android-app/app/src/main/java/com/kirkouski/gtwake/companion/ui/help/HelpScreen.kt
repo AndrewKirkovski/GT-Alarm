@@ -19,6 +19,7 @@ import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -76,7 +77,11 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kirkouski.gtwake.companion.BuildConfig
 import com.kirkouski.gtwake.companion.R
+import com.kirkouski.gtwake.companion.wear.WATCH_CODE_OLDER
+import com.kirkouski.gtwake.companion.wear.WatchVersionPolicy
 import com.kirkouski.gtwake.companion.ui.components.AccordionSection
 import com.kirkouski.gtwake.companion.ui.components.GtFloatingButton
 import com.kirkouski.gtwake.companion.ui.components.GtAccentButton
@@ -111,6 +116,7 @@ fun HelpScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val settings by settingsVm.state.collectAsStateWithLifecycle()
     var voiceStatus by remember { mutableStateOf(DefaultAlarmDetector.detect(context)) }
     var permissionChecks by remember { mutableStateOf(PermissionAudit.audit(context)) }
     DisposableEffect(lifecycleOwner) {
@@ -326,6 +332,8 @@ fun HelpScreen(
                 }
             }
 
+            VersionsCard(watchAppCode = settings.watchAppCode)
+
             Text(
                 text = stringResource(R.string.help_privacy_link),
                 style = MaterialTheme.typography.bodyMedium,
@@ -345,6 +353,51 @@ fun HelpScreen(
             )
             }
         }
+    }
+}
+
+// Selectable, so a user can copy it for support.
+@Composable
+private fun VersionsCard(watchAppCode: Int?) {
+    val watchVersion = when (watchAppCode) {
+        null -> stringResource(R.string.help_version_unknown)
+        WATCH_CODE_OLDER -> stringResource(R.string.help_version_watch_older)
+        else -> WatchVersionPolicy.versionName(watchAppCode) ?: stringResource(R.string.help_version_unknown)
+    }
+    Card(
+        modifier = Modifier
+            .padding(start = 16.dp, top = 12.dp, end = 16.dp)
+            .fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        SelectionContainer {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.help_versions_title),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                VersionLine(R.string.help_version_phone, BuildConfig.VERSION_NAME)
+                VersionLine(R.string.help_version_watch, watchVersion)
+            }
+        }
+    }
+}
+
+@Composable
+private fun VersionLine(labelRes: Int, value: String) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = stringResource(labelRes),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
+        Text(text = value, style = MaterialTheme.typography.bodyMedium)
     }
 }
 

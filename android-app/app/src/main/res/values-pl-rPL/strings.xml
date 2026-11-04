@@ -276,4 +276,16 @@
     <string name="stopwatch_copied">Skopiowano okrążenia</string>
     <string name="stopwatch_reset_done">Stoper wyzerowany</string>
     <string name="stopwatch_lap_number">Okrążenie %1$d</string>
+    <string name="watch_notice_update_title">Zaktualizuj GT Wake na zegarku</string>
+    <string name="watch_notice_update_body">Ta aplikacja wymaga nowszej aplikacji na zegarku. Alarmy nadal dzwonią na telefonie.</string>
+    <string name="watch_notice_update_action">Jak zaktualizować</string>
+    <string name="watch_notice_battery_title">Niski poziom baterii zegarka</string>
+    <string name="watch_notice_battery_body">Bateria zegarka: %1$d%%. Naładuj go, aby mógł dzwonić. Alarmy nadal dzwonią na telefonie.</string>
+    <string name="action_hide">Ukryj</string>
+    <string name="watch_install_url">https://gtwake.kirkouski.com/watch/install</string>
+    <string name="help_versions_title">Wersje</string>
+    <string name="help_version_phone">Aplikacja na telefonie</string>
+    <string name="help_version_watch">Aplikacja na zegarku</string>
+    <string name="help_version_watch_older">Starsza niż 1.0.13</string>
+    <string name="help_version_unknown">Jeszcze nieznana</string>
 </resources>

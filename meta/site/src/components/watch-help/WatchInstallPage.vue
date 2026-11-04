@@ -24,6 +24,9 @@ defineProps<{ zh: boolean }>()
       <p class="mt-3 text-muted-foreground">
         手表应用只通过华为应用市场提供，没有可供下载的手表安装包。
       </p>
+      <p class="mt-3 text-muted-foreground">
+        如需更新已安装的手表应用，请在同一页面搜索“GT Wake”，然后点按“更新”。
+      </p>
 
       <h2>如果应用市场中没有 GT Wake</h2>
       <p>
@@ -43,6 +46,9 @@ defineProps<{ zh: boolean }>()
       </p>
       <p class="mt-3 text-muted-foreground">
         The watch app is only available from AppGallery. There is no watch package to download.
+      </p>
+      <p class="mt-3 text-muted-foreground">
+        To update a watch app you already have, search for <strong>GT Wake</strong> in the same place and tap <strong>Update</strong>.
       </p>
 
       <h2>If GT Wake is not in AppGallery</h2>

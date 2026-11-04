@@ -358,4 +358,16 @@
     <string name="stopwatch_copied">Laps copied</string>
     <string name="stopwatch_reset_done">Stopwatch reset</string>
     <string name="stopwatch_lap_number">Lap %1$d</string>
+    <string name="watch_notice_update_title">Update GT Wake on your watch</string>
+    <string name="watch_notice_update_body">This phone app needs a newer watch app. Alarms still ring on your phone.</string>
+    <string name="watch_notice_update_action">How to update</string>
+    <string name="watch_notice_battery_title">Watch battery is low</string>
+    <string name="watch_notice_battery_body">Watch battery is at %1$d%%. Charge it so the watch can ring. Alarms still ring on your phone.</string>
+    <string name="action_hide">Hide</string>
+    <string name="watch_install_url">https://gtwake.kirkouski.com/watch/install</string>
+    <string name="help_versions_title">Versions</string>
+    <string name="help_version_phone">Phone app</string>
+    <string name="help_version_watch">Watch app</string>
+    <string name="help_version_watch_older">Older than 1.0.13</string>
+    <string name="help_version_unknown">Not known yet</string>
 </resources>

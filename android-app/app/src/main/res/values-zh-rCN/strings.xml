@@ -279,4 +279,16 @@
     <string name="stopwatch_copied">已复制计次</string>
     <string name="stopwatch_reset_done">秒表已重置</string>
     <string name="stopwatch_lap_number">计次 %1$d</string>
+    <string name="watch_notice_update_title">请更新手表上的 GT Wake</string>
+    <string name="watch_notice_update_body">此手机应用需要更新版本的手表应用。闹钟仍会在手机上响起。</string>
+    <string name="watch_notice_update_action">如何更新</string>
+    <string name="watch_notice_battery_title">手表电量不足</string>
+    <string name="watch_notice_battery_body">手表电量为 %1$d%%。请充电以便手表响铃。闹钟仍会在手机上响起。</string>
+    <string name="action_hide">隐藏</string>
+    <string name="watch_install_url">https://gtwake.kirkouski.com/watch/install/zh</string>
+    <string name="help_versions_title">版本</string>
+    <string name="help_version_phone">手机应用</string>
+    <string name="help_version_watch">手表应用</string>
+    <string name="help_version_watch_older">低于 1.0.13</string>
+    <string name="help_version_unknown">暂未知</string>
 </resources>

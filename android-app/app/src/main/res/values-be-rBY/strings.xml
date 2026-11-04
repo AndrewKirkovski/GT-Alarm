@@ -276,4 +276,16 @@
     <string name="stopwatch_copied">Кругі скапіраваны</string>
     <string name="stopwatch_reset_done">Секундамер скінуты</string>
     <string name="stopwatch_lap_number">Круг %1$d</string>
+    <string name="watch_notice_update_title">Абнавіце GT Wake на гадзінніку</string>
+    <string name="watch_notice_update_body">Гэтай праграме патрэбна навейшая версія на гадзінніку. Будзільнікі па-ранейшаму званяць на тэлефоне.</string>
+    <string name="watch_notice_update_action">Як абнавіць</string>
+    <string name="watch_notice_battery_title">Нізкі зарад гадзінніка</string>
+    <string name="watch_notice_battery_body">Зарад гадзінніка: %1$d%%. Зарадзіце яго, каб гадзіннік мог званіць. Будзільнікі па-ранейшаму званяць на тэлефоне.</string>
+    <string name="action_hide">Схаваць</string>
+    <string name="watch_install_url">https://gtwake.kirkouski.com/watch/install</string>
+    <string name="help_versions_title">Версіі</string>
+    <string name="help_version_phone">Праграма на тэлефоне</string>
+    <string name="help_version_watch">Праграма на гадзінніку</string>
+    <string name="help_version_watch_older">Старэйшая за 1.0.13</string>
+    <string name="help_version_unknown">Пакуль невядома</string>
 </resources>

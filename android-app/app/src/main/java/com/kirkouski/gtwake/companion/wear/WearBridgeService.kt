@@ -173,6 +173,9 @@ interface WearBridgeService {
      */
     suspend fun uploadDefaultWatchBackground(bgFile: java.io.File): Boolean
 
+    /** Battery and charging, read from Huawei Health. Null when it can't be read. */
+    suspend fun watchStatus(): WatchStatus? = null
+
     /**
      * Answers a watch `ring_query` with a normal `alarm_fired`. No ping: the
      * watch just asked, so it is awake.

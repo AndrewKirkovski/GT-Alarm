@@ -14,6 +14,9 @@ import com.kirkouski.gtwake.companion.scheduler.AlarmScheduler
 import com.kirkouski.gtwake.companion.wear.ForceSyncResult
 import com.kirkouski.gtwake.companion.wear.WearPermissionOutcome
 import com.kirkouski.gtwake.companion.wear.PairedDeviceInfo
+import com.kirkouski.gtwake.companion.wear.WatchNotice
+import com.kirkouski.gtwake.companion.wear.WatchStatus
+import com.kirkouski.gtwake.companion.wear.WatchStatusPolicy
 import com.kirkouski.gtwake.companion.wear.WatchSyncStatus
 import com.kirkouski.gtwake.companion.wear.WearBridgeService
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -25,6 +28,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -66,6 +71,26 @@ class AlarmListViewModel @Inject constructor(
     /** Bonded device's name/model — shown in the WatchSyncCard subtitle. */
     val pairedDeviceInfo: StateFlow<PairedDeviceInfo?> = wearBridge.pairedDeviceInfo
 
+    private val watchReading = MutableStateFlow<WatchStatus?>(null)
+    private val noticeHidden = MutableStateFlow(false)
+
+    /** The one watch message for the list. Hide lasts until the process ends. */
+    val watchNotice: StateFlow<WatchNotice?> = combine(
+        settings,
+        alarms,
+        watchReading,
+        pairedDeviceInfo,
+        noticeHidden,
+    ) { current, list, reading, paired, hidden ->
+        val notice = WatchStatusPolicy.notice(
+            appCode = current.watchAppCode,
+            status = reading,
+            anyAlarmEnabled = list.any { it.enabled },
+            bonded = paired != null,
+        )
+        notice.takeUnless { hidden }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     private val _forceSyncEvents = MutableSharedFlow<ForceSyncResult>(extraBufferCapacity = 1)
     /** One-shot events for showing the Force-sync result as a Snackbar/Toast. */
     val forceSyncEvents: SharedFlow<ForceSyncResult> = _forceSyncEvents.asSharedFlow()
@@ -94,6 +119,14 @@ class AlarmListViewModel @Inject constructor(
 
     init {
         refreshWatchAuthorization()
+        viewModelScope.launch {
+            watchStatus.first { it == WatchSyncStatus.CONNECTED }
+            watchReading.value = wearBridge.watchStatus()
+        }
+    }
+
+    fun hideWatchNotice() {
+        noticeHidden.value = true
     }
 
     /**
