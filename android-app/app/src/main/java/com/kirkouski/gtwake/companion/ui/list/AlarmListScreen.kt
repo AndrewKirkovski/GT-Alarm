@@ -44,6 +44,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -98,6 +99,7 @@ import com.kirkouski.gtwake.companion.R
 import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.domain.DaysOfWeek
 import com.kirkouski.gtwake.companion.domain.NextTriggerCalculator
+import com.kirkouski.gtwake.companion.ui.components.FitText
 import com.kirkouski.gtwake.companion.ui.components.GtAccentButton
 import com.kirkouski.gtwake.companion.ui.edit.AlarmMode
 import com.kirkouski.gtwake.companion.util.RelativeTime
@@ -1008,16 +1010,18 @@ private fun AlarmRow(
                 } else {
                     MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
                 }
-                Text(
+                FitText(
                     text = TimeFormatter.formatHourMinute(
                         ctx,
                         alarm.hour,
                         alarm.minute,
                         overrideUse24Hour = settings.use24Hour,
                     ),
-                    fontSize = 43.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = timeColor,
+                    style = LocalTextStyle.current.copy(
+                        fontSize = 43.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = timeColor,
+                    ),
                 )
             }
             val isRecurring = alarm.daysOfWeek != DaysOfWeek.NONE

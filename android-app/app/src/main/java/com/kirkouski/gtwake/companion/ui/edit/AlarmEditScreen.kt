@@ -40,6 +40,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
@@ -87,6 +88,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.anhaki.picktime.utils.PickTimeFocusIndicator
 import com.anhaki.picktime.utils.PickTimeTextStyle
 import com.anhaki.picktime.utils.TimeFormat
+import com.kirkouski.gtwake.companion.ui.components.FitText
 import com.kirkouski.gtwake.companion.ui.components.GtSnackbarHost
 import com.kirkouski.gtwake.companion.ui.components.MaxSnoozeRow
 import com.kirkouski.gtwake.companion.ui.components.MediaChoiceRow
@@ -144,7 +146,7 @@ fun AlarmEditScreen(
         {
             val s = vm.state.value
             when {
-                !s.dirty -> { vm.cancel(); onDone() }
+                !s.dirty -> onDone()
                 s.isExistingAlarm -> showUnsavedConfirm = true
                 else -> showDiscardConfirm = true
             }
@@ -176,7 +178,6 @@ fun AlarmEditScreen(
         DiscardConfirmDialog(
             onConfirm = {
                 showDiscardConfirm = false
-                vm.cancel()
                 onDone()
             },
             onDismiss = { showDiscardConfirm = false },
@@ -186,7 +187,6 @@ fun AlarmEditScreen(
         UnsavedChangesDialog(
             onConfirm = {
                 showUnsavedConfirm = false
-                vm.cancel()
                 onDone()
             },
             onDismiss = { showUnsavedConfirm = false },
@@ -586,14 +586,13 @@ private fun ModeTab(
             .clickable(role = Role.Tab, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
+        FitText(
             text = text,
-            color = if (selected) {
-                MaterialTheme.colorScheme.onPrimary
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            },
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 4.dp),
+            style = LocalTextStyle.current.copy(
+                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            ),
         )
     }
 }
@@ -653,9 +652,9 @@ private fun CancelSaveBar(
                         .weight(1f)
                         .fillMaxHeight(),
                 ) {
-                    Text(
-                        stringResource(R.string.cancel),
-                        color = MaterialTheme.colorScheme.onSurface,
+                    FitText(
+                        text = stringResource(R.string.cancel),
+                        style = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
                     )
                 }
                 VerticalDivider(modifier = Modifier.height(28.dp))
@@ -666,10 +665,12 @@ private fun CancelSaveBar(
                         .weight(1f)
                         .fillMaxHeight(),
                 ) {
-                    Text(
+                    FitText(
                         text = stringResource(R.string.action_save),
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        style = LocalTextStyle.current.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
                     )
                 }
             }

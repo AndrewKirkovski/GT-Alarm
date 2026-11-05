@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
@@ -140,15 +139,13 @@ fun <T> GtSegmentedControl(
                     .clickable(role = Role.Button) { onSelected(option.value) },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
+                FitText(
                     text = option.label,
-                    color = if (selected) {
-                        MaterialTheme.colorScheme.onPrimary
-                    } else {
-                        unselectedContentColor
-                    },
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        color = if (selected) MaterialTheme.colorScheme.onPrimary else unselectedContentColor,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                    ),
                 )
             }
         }

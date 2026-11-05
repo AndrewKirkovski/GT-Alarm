@@ -9,7 +9,6 @@ import com.kirkouski.gtwake.companion.data.SnoozeDefaults
 import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.domain.DaysOfWeek
 import com.kirkouski.gtwake.companion.domain.VibrationPattern
-import com.kirkouski.gtwake.companion.ring.EditingAlarmRegistry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -125,10 +124,6 @@ class AlarmEditViewModel @Inject constructor(
                 )
             } else {
                 _state.value = stateFromAlarm(alarm).copy(loaded = true)
-                // Mark this alarm as "being edited" so AlarmRingService bails
-                // if its fire trigger arrives while we're on this screen.
-                // Cleared by save() / delete() / cancel().
-                EditingAlarmRegistry.setEditing(alarm.id)
             }
         }
     }
@@ -270,9 +265,9 @@ class AlarmEditViewModel @Inject constructor(
     }
 
     /**
-     * Commit the current in-memory state to Room, push to watch,
-     * reschedule, and clear the editing flag. Caller is responsible for
-     * invoking only when state.loaded is true.
+     * Commit the current in-memory state to Room, push to watch, and
+     * reschedule. Caller is responsible for invoking only when state.loaded
+     * is true.
      */
     fun save(onComplete: () -> Unit = {}) {
         viewModelScope.launch {
@@ -286,22 +281,11 @@ class AlarmEditViewModel @Inject constructor(
             // debounced job on the repo's appScope, so it survives anyway.
             withContext(NonCancellable) {
                 val savedId = repository.saveLocalOnly(alarm)
-                EditingAlarmRegistry.clearEditing(savedId)
                 repository.rescheduleAlarm(savedId)
                 repository.scheduleWatchSync()
             }
             onComplete()
         }
-    }
-
-    /**
-     * Discard in-memory edits and clear the editing flag. New drafts vanish
-     * (no DB row was created). Existing alarms remain at their pre-edit Room
-     * state. Safe to call multiple times.
-     */
-    fun cancel() {
-        val id = _state.value.id
-        if (id > 0L) EditingAlarmRegistry.clearEditing(id)
     }
 
     /**
@@ -312,19 +296,7 @@ class AlarmEditViewModel @Inject constructor(
         val id = _state.value.id
         if (id != 0L) {
             repository.delete(id)
-            EditingAlarmRegistry.clearEditing(id)
         }
-    }
-
-    override fun onCleared() {
-        // Defense-in-depth: clear the editing-registry flag in case the VM
-        // is destroyed without an explicit save/cancel/delete (process death,
-        // task removal). No DB writes here — the explicit save/cancel model
-        // means undismissed VMs lose their in-memory edits, which is the
-        // intended contract.
-        val id = _state.value.id
-        if (id > 0L) EditingAlarmRegistry.clearEditing(id)
-        super.onCleared()
     }
 
     private fun buildAlarm(s: AlarmEditUiState): Alarm {

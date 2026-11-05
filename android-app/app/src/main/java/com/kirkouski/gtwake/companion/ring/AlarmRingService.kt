@@ -303,17 +303,6 @@ class AlarmRingService : Service() {
             bailWithPlaceholderIfIdle()
             return
         }
-        if (EditingAlarmRegistry.isEditing(alarmId)) {
-            // User is actively editing this alarm on AlarmEditScreen. Don't
-            // fire — would interrupt the edit with a full-screen alarm UI.
-            // Still satisfy startForeground budget, then bail. The edit-
-            // screen save hook (AlarmEditViewModel.save → rescheduleAlarm)
-            // will re-arm; if computedFireEpoch has already passed by then,
-            // the scheduler fires immediately and we re-enter here cleanly.
-            Log.i(TAG, "handleRing id=$alarmId — alarm is being edited, bailing")
-            bailWithPlaceholderIfIdle()
-            return
-        }
         // STEP 1: SYNCHRONOUS Room read + startForeground with the REAL
         // FSI notification. Earlier versions used a placeholder→upgrade
         // pattern (post placeholder fast, async-load alarm, re-post with
