@@ -24,6 +24,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -39,9 +41,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -50,10 +54,12 @@ import com.kirkouski.gtwake.companion.domain.Alarm
 import com.kirkouski.gtwake.companion.ui.components.FitText
 import com.kirkouski.gtwake.companion.ui.components.GtAccentButton
 import com.kirkouski.gtwake.companion.ui.components.GtFloatingButton
+import com.kirkouski.gtwake.companion.ui.components.GtSnackbarHost
 import com.kirkouski.gtwake.companion.ui.components.bottomPillFade
 import com.kirkouski.gtwake.companion.ui.edit.RelativeRow
 import com.kirkouski.gtwake.companion.util.TimeFormatter
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.SharedFlow
 import java.util.Calendar
 
 private val PRESET_MINUTES = listOf(10, 15, 30)
@@ -83,35 +89,53 @@ fun TimerScreen(
             onDismiss = { pendingCancel = null },
         )
     }
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .bottomPillFade(fadeEdgePx),
-    ) {
-        Column(
+    Scaffold(
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = { StartFailedSnackbar(vm.startFailed, navBarPadding) },
+    ) { padding ->
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .animateContentSize(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(padding)
+                .fillMaxSize()
+                .bottomPillFade(fadeEdgePx),
         ) {
-            if (running.isNotEmpty()) {
-                RunningTimersCard(
-                    timers = running,
-                    is24h = is24h,
-                    onOpen = onEdit,
-                    onCancel = { pendingCancel = it },
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .animateContentSize(),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                if (running.isNotEmpty()) {
+                    RunningTimersCard(
+                        timers = running,
+                        is24h = is24h,
+                        onOpen = onEdit,
+                        onCancel = { pendingCancel = it },
+                    )
+                }
+                NewTimerCard(
+                    minutes = minutes,
+                    onMinutesChange = { minutes = it },
+                    onStart = vm::start,
                 )
+                Spacer(Modifier.height(navBarPadding + 88.dp))
             }
-            NewTimerCard(
-                minutes = minutes,
-                onMinutesChange = { minutes = it },
-                onStart = vm::start,
-            )
-            Spacer(Modifier.height(navBarPadding + 88.dp))
         }
     }
+}
+
+// Lifted above the bottom pill, which floats over this screen.
+@Composable
+private fun StartFailedSnackbar(failures: SharedFlow<Unit>, navBarPadding: Dp) {
+    val hostState = remember { SnackbarHostState() }
+    val text = stringResource(R.string.timer_start_failed)
+    LaunchedEffect(failures) {
+        failures.collect { hostState.showSnackbar(text) }
+    }
+    GtSnackbarHost(hostState = hostState, modifier = Modifier.padding(bottom = navBarPadding + 76.dp))
 }
 
 @Composable

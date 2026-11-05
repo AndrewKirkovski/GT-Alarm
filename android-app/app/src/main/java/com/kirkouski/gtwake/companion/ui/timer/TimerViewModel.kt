@@ -1,6 +1,7 @@
 package com.kirkouski.gtwake.companion.ui.timer
 
 import android.os.SystemClock
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kirkouski.gtwake.companion.data.AlarmRepository
@@ -8,9 +9,13 @@ import com.kirkouski.gtwake.companion.data.SettingsState
 import com.kirkouski.gtwake.companion.data.SettingsStore
 import com.kirkouski.gtwake.companion.domain.Alarm
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -64,21 +69,38 @@ class TimerViewModel @Inject constructor(
 
     private var lastStartMs: Long? = null
 
+    private val _startFailed = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    /** One-shot: a timer could not be saved, so it is not running. */
+    val startFailed: SharedFlow<Unit> = _startFailed.asSharedFlow()
+
     fun start(minutes: Int) {
         val now = SystemClock.elapsedRealtime()
         if (!timerStartAllowed(lastStartMs, now)) return
         lastStartMs = now
         viewModelScope.launch {
-            // Same reason as AlarmEditViewModel.save: leaving the tab must not
-            // stop a save halfway.
-            withContext(NonCancellable) {
-                val snooze = settingsStore.newTimerSnooze()
-                repository.save(Alarm.newTimer(minutes, snooze.minutes, snooze.maxCount))
+            try {
+                // Same reason as AlarmEditViewModel.save: leaving the tab must not
+                // stop a save halfway.
+                withContext(NonCancellable) {
+                    val snooze = settingsStore.newTimerSnooze()
+                    repository.save(Alarm.newTimer(minutes, snooze.minutes, snooze.maxCount))
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+                // reason: Room and scheduler failures share no type, and a full disk must not crash the app.
+                Log.w(TAG, "timer start failed: ${e.message}")
+                _startFailed.tryEmit(Unit)
             }
         }
     }
 
     fun cancel(id: Long) {
         viewModelScope.launch { repository.delete(id) }
+    }
+
+    private companion object {
+        const val TAG = "TimerViewModel"
     }
 }

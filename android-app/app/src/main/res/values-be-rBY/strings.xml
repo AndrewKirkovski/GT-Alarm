@@ -295,4 +295,7 @@
     <string name="settings_section_notifications">Апавяшчэнні</string>
     <string name="settings_upcoming_notice">Будзільнік, што набліжаецца</string>
     <string name="settings_upcoming_intro">Ціхае апавяшчэнне перад кожным будзільнікам.</string>
+    <string name="help_version_watch_system">Сістэма гадзінніка</string>
+    <string name="help_version_not_installed">Не ўсталявана</string>
+    <string name="timer_start_failed">Не ўдалося запусціць таймер. Паспрабуйце яшчэ раз.</string>
 </resources>

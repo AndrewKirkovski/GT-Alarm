@@ -12,6 +12,8 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -26,6 +28,35 @@ class StopwatchViewModelTest {
     @After
     fun resetMain() {
         Dispatchers.resetMain()
+    }
+
+    @Test
+    fun `Stop and Lap right after Start are ignored`() {
+        val repository = mockk<StopwatchRepository>(relaxed = true)
+        every { repository.state } returns flowOf(Stopwatch())
+        val vm = StopwatchViewModel(repository)
+
+        vm.start()
+        vm.pause()
+        vm.lap()
+
+        coVerify(exactly = 1) { repository.update(any()) }
+    }
+
+    @Test
+    fun `Stop works with no Start in this screen`() {
+        val repository = mockk<StopwatchRepository>(relaxed = true)
+        every { repository.state } returns flowOf(Stopwatch())
+
+        StopwatchViewModel(repository).pause()
+
+        coVerify(exactly = 1) { repository.update(any()) }
+    }
+
+    @Test
+    fun `a tap is allowed once the guard has passed`() {
+        assertFalse(stopwatchTapAllowed(lastStartMs = 1_000L, nowMs = 1_399L))
+        assertTrue(stopwatchTapAllowed(lastStartMs = 1_000L, nowMs = 1_400L))
     }
 
     @Test

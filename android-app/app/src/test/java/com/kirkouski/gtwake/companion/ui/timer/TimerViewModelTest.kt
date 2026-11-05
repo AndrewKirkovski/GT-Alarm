@@ -12,8 +12,11 @@ import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -50,6 +53,23 @@ class TimerViewModelTest {
                 match { it.relativeMinutes == 15 && it.snoozeMinutes == 5 && it.maxSnoozeCount == 3 },
             )
         }
+    }
+
+    @Test
+    fun `a failed save reports it and does not crash`() = runTest(UnconfinedTestDispatcher()) {
+        val repository = mockk<AlarmRepository>(relaxed = true)
+        val settings = mockk<SettingsStore>(relaxed = true)
+        every { repository.observeAlarms() } returns flowOf(emptyList())
+        every { settings.state } returns flowOf(SettingsState())
+        coEvery { settings.newTimerSnooze() } returns SnoozeDefaults.TIMER
+        coEvery { repository.save(any()) } throws IllegalStateException("disk full")
+        val vm = TimerViewModel(repository, settings)
+        val failures = mutableListOf<Unit>()
+        backgroundScope.launch { vm.startFailed.toList(failures) }
+
+        vm.start(15)
+
+        assertEquals(1, failures.size)
     }
 
     @Test

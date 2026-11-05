@@ -377,4 +377,7 @@
     <string name="settings_section_notifications">Notifications</string>
     <string name="settings_upcoming_notice">Upcoming alarm</string>
     <string name="settings_upcoming_intro">A silent notice before each alarm.</string>
+    <string name="help_version_watch_system">Watch system</string>
+    <string name="help_version_not_installed">Not installed</string>
+    <string name="timer_start_failed">Couldn\'t start the timer. Try again.</string>
 </resources>

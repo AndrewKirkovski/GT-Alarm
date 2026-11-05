@@ -315,4 +315,7 @@
     <string name="settings_section_notifications">Уведомления</string>
     <string name="settings_upcoming_notice">Предстоящий будильник</string>
     <string name="settings_upcoming_intro">Тихое уведомление перед каждым будильником.</string>
+    <string name="help_version_watch_system">Система часов</string>
+    <string name="help_version_not_installed">Не установлено</string>
+    <string name="timer_start_failed">Не удалось запустить таймер. Попробуйте ещё раз.</string>
 </resources>

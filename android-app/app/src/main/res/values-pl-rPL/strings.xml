@@ -295,4 +295,7 @@
     <string name="settings_section_notifications">Powiadomienia</string>
     <string name="settings_upcoming_notice">Nadchodzący alarm</string>
     <string name="settings_upcoming_intro">Ciche powiadomienie przed każdym alarmem.</string>
+    <string name="help_version_watch_system">System zegarka</string>
+    <string name="help_version_not_installed">Nie zainstalowano</string>
+    <string name="timer_start_failed">Nie udało się uruchomić timera. Spróbuj ponownie.</string>
 </resources>

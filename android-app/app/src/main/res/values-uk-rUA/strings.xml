@@ -306,4 +306,7 @@
     <string name="settings_section_notifications">Сповіщення</string>
     <string name="settings_upcoming_notice">Майбутній будильник</string>
     <string name="settings_upcoming_intro">Тихе сповіщення перед кожним будильником.</string>
+    <string name="help_version_watch_system">Система годинника</string>
+    <string name="help_version_not_installed">Не встановлено</string>
+    <string name="timer_start_failed">Не вдалося запустити таймер. Спробуйте ще раз.</string>
 </resources>

@@ -298,4 +298,7 @@
     <string name="settings_section_notifications">通知</string>
     <string name="settings_upcoming_notice">即将响起的闹钟</string>
     <string name="settings_upcoming_intro">每个闹钟响起前的静音通知。</string>
+    <string name="help_version_watch_system">手表系统</string>
+    <string name="help_version_not_installed">未安装</string>
+    <string name="timer_start_failed">无法启动计时器，请重试。</string>
 </resources>
