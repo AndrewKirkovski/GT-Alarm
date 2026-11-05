@@ -105,7 +105,9 @@ reconciliation applies remaining bumps once.
 
 ### Ring recovery (1.0.13)
 
-The side button closes the watch app, and no key event reaches JS. Reopening is a
+The side button closes the watch app, and no key event reaches JS. On a GT 6 Pro the
+page gets `onHide`, then `onDestroy` 54 ms later (measured 2026-11-05), so the watch
+can't buzz until the user reopens the app. The phone keeps ringing. Reopening is a
 cold start on the list. The phone is the only authority on "still ringing": the watch
 stores nothing about a ring, so it cannot show a false ring. No reply means not
 ringing. A lost link gives the same silence, and in that case Stop could not reach
