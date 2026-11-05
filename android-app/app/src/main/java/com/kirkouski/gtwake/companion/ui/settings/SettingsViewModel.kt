@@ -7,6 +7,7 @@ import com.kirkouski.gtwake.companion.data.SettingsState
 import com.kirkouski.gtwake.companion.data.SettingsStore
 import com.kirkouski.gtwake.companion.scheduler.AlarmStatusNotifier
 import com.kirkouski.gtwake.companion.wear.ForceSyncResult
+import com.kirkouski.gtwake.companion.wear.PairedDeviceInfo
 import com.kirkouski.gtwake.companion.wear.WatchSyncStatus
 import com.kirkouski.gtwake.companion.wear.WearBridgeService
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -84,6 +85,8 @@ class SettingsViewModel @Inject constructor(
      * [WatchSyncStatus.CONNECTED].
      */
     val watchStatus: StateFlow<WatchSyncStatus> = wearBridge.statusFlow
+
+    val pairedDeviceInfo: StateFlow<PairedDeviceInfo?> = wearBridge.pairedDeviceInfo
 
     fun setUse24Hour(value: Boolean?) = viewModelScope.launch {
         store.setUse24Hour(value)

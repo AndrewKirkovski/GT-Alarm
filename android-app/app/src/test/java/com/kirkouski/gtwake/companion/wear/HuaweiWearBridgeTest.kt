@@ -935,6 +935,30 @@ class HuaweiWearBridgeTest {
     }
 
     @Test
+    fun `the version read stores the code from Huawei Health`() = runTest {
+        val settings = mockk<SettingsStore>(relaxed = true)
+        val bridge = startedBridge(settings)
+        every { p2pClient.getAppVersion(any<Device>(), any()) } returns successfulTask(1_000_007)
+
+        bridge.refreshWatchVersion()
+        runCurrent()
+
+        coVerify(exactly = 1) { settings.setWatchAppCode(1_000_007) }
+    }
+
+    @Test
+    fun `a failed version read keeps the stored value`() = runTest {
+        val settings = mockk<SettingsStore>(relaxed = true)
+        val bridge = startedBridge(settings)
+        every { p2pClient.getAppVersion(any<Device>(), any()) } returns failedTask()
+
+        bridge.refreshWatchVersion()
+        runCurrent()
+
+        coVerify(exactly = 0) { settings.setWatchAppCode(any()) }
+    }
+
+    @Test
     fun `an unreachable watch gives no status`() = runTest {
         val bridge = bridge(StandardTestDispatcher(testScheduler))
 
@@ -994,6 +1018,7 @@ class HuaweiWearBridgeTest {
         every { device.name } returns "Watch"
         every { device.model } returns "GT Test"
         every { device.isConnected } answers { connected() }
+        every { device.softwareVersion } returns "6.1.0.118"
         return device
     }
 

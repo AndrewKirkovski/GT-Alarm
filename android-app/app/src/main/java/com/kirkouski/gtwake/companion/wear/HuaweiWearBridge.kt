@@ -838,6 +838,11 @@ class HuaweiWearBridge @Inject constructor(
         )
     }
 
+    override suspend fun refreshWatchVersion() {
+        val device = pairedDevice?.takeIf { it.isConnected } ?: return
+        awaitTask("getAppVersion") { p2pClient.getAppVersion(device, PEER_PKG_NAME) }?.let(::recordWatchAppCode)
+    }
+
     override suspend fun watchStatus(): WatchStatus? {
         val device = pairedDevice?.takeIf { it.isConnected } ?: return null
         val battery = readStatus(device, MonitorItem.MONITOR_POWER_STATUS)
@@ -1198,6 +1203,7 @@ class HuaweiWearBridge @Inject constructor(
             _pairedDeviceInfo.value = PairedDeviceInfo(
                 displayName = normalizeDeviceLabel(connected.name, connected.model),
                 connected = true,
+                softwareVersion = connected.softwareVersion,
             )
         }
     }
@@ -1622,6 +1628,7 @@ class HuaweiWearBridge @Inject constructor(
             PairedDeviceInfo(
                 displayName = normalizeDeviceLabel(it.name, it.model),
                 connected = it.isConnected,
+                softwareVersion = it.softwareVersion,
             )
         }
         pairedDevice = resolved

@@ -26,21 +26,24 @@ This plan was written against the **HarmonyOS NEXT** watch app. On 2026-04-27 th
 
 ## 1.0.13 (both apps)
 
-Coded on `main`, not pushed. Everything is 🟡 until checked on a device.
+Coded on `main`, not pushed. Marks stay 🟡 unless a device check is recorded.
 
 - Hero line fix, sound and picture removal with one shared row, separate default snooze for alarms and timers.
 - 4-icon bottom menu, Timer tab, stopwatch.
 - Watch ring recovery (`ring_query`), watch version field (`appCode`), watch notice card, Versions card in Help.
 - Upcoming and snooze notifications.
+- Wear Engine SDK 5.0.2.306, the `getAppVersion` read and the watch system version in Help.
 
-Still to do, in order:
+Done: independent review, then Codex alone. Ring recovery checked on a GT 6 Pro: reopening during a ring brings the ring screen back, and reopening after a phone Stop shows the list.
 
-1. Watch diagnostic on a device, with always-on display on and off. It decides whether `onShow` restarts the buzz and crown.
-2. Wear Engine 5.0.2.306 trial on devices, against the current watch and store 1.0.7 with a release-signed phone build. If it passes: `getAppVersion`, watch system version in Help, and the ultra-long battery mode decision.
-3. UI review gate: normal, dark and worst case (320dp, font scale 2.0, Russian), shown to the owner.
-4. Independent review, then Codex alone.
-5. Device tests with visible-marker builds. Test 8 (the watch must not buzz from the upcoming notice) is a release gate.
-6. Release only when the owner asks: 1.0.13, phone code 13, watch code 1000013, `BUILD_TAG` and `APP_CODE` updated.
+Skipped by the owner on 2026-11-05, so not checked on a device:
+
+- Ring recovery with the other always-on display setting. It would decide whether `onShow` restarts the buzz and crown.
+- A watch reopen within 6 s of a watch Stop, Snooze paths, and a ring with the editor open.
+- Upcoming notice: the watch must not buzz from it. This was a release gate.
+- Everything against store watch 1.0.7.
+
+Release only when the owner asks: 1.0.13, phone code 13, watch code 1000013, `BUILD_TAG` and `APP_CODE` updated.
 
 ---
 

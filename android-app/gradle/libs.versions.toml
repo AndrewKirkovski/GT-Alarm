@@ -43,7 +43,7 @@ orgJson = "20240303"
 # because AGCPlugin.groovy:29 reflects on the legacy buildscript classpath;
 # 1.9.5+ is the first line that supports plugin-DSL application cleanly.
 huaweiAgconnect = "1.9.5.302"
-huaweiWearEngine = "5.0.1.300"
+huaweiWearEngine = "5.0.2.306"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }

@@ -25,6 +25,12 @@ class WatchVersionPolicyTest {
     }
 
     @Test
+    fun `a missing watch app never prompts an update`() {
+        assertFalse(WatchVersionPolicy.needsUpdate(WATCH_NOT_INSTALLED, required = 1_000_013))
+        assertFalse(WatchVersionPolicy.needsUpdate(WATCH_NOT_INSTALLED))
+    }
+
+    @Test
     fun `no prompt ships while no version is required`() {
         assertFalse(WatchVersionPolicy.needsUpdate(stored = WATCH_CODE_OLDER))
     }

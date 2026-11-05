@@ -157,7 +157,7 @@ Do not implement against memory of how an API used to work. APIs change.
 | Hilt | **2.59.2** | Bumped from 2.57.1 because Kotlin 2.3 + KSP 2.3.7 needs Hilt ≥ 2.58 to avoid the "different class loader" error. `androidx.hilt.navigation.compose.hiltViewModel` is moved to `androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel`. |
 | Coroutines | **1.10.2** | |
 | Glance | **1.2.0-rc01** | Glance 1.2.0 stable not yet published (only `-alpha01`, `-beta01`, `-rc01` available as of 2026-04). RC1 is API-stable; downgrade to 1.1.1 reverts widget-side improvements. Bump to 1.2.0 stable when Google publishes it. |
-| Wear Engine SDK (phone) | **5.0.1.300** | Newest package found is 5.0.3.305. 5.0.2.306 is the only update on trial: see [the scan](#wear-engine-sdk-scan-2026-11-04). |
+| Wear Engine SDK (phone) | **5.0.2.306** | Moved from 5.0.1.300 for 1.0.13. Newest package found is 5.0.3.305: see [the scan](#wear-engine-sdk-scan-2026-11-04). |
 | Detekt | **2.0.0-alpha.3** | Detekt 1.23.x doesn't support Kotlin 2.3. 2.0 is alpha but explicitly built against Kotlin 2.3 / Gradle 9.3 / AGP 9.0. Plugin namespace renamed from `io.gitlab.arturbosch.detekt` to `dev.detekt`. Several rule names renamed (e.g. `UnnecessaryAbstractClass` → `AbstractClassCanBeConcreteClass`/`AbstractClassCanBeInterface`). |
 
 ### Wear Engine SDK scan (2026-11-04)
@@ -166,19 +166,35 @@ Source: Huawei's change history, plus the manifest, public API and key code path
 
 | Version | Health needed | Changes | Decision |
 |---|---|---|---|
-| 5.0.1.300 | 11.0.1.512 | File receive, status queries, watch notifications | Shipped |
+| 5.0.1.300 | 11.0.1.512 | File receive, status queries, watch notifications | Shipped through 1.0.12 |
 | 5.0.1.301, 5.0.1.302 | Not stated | `isAppInstalled`, `cancelFileTransfer`, per-call overloads, `getAllBondedDevices`, `WEAR_USER_STATUS` (enterprise only) | Small use |
-| 5.0.2.306 | 12.1.1.120 | `getAppVersion`, `getSoftwareVersion`, `getMaxMsgLength`, `reliableSend`. Adds `BLUETOOTH` and `BLUETOOTH_ADMIN`, which no SDK code uses | Trial target. Strip the 2 permissions |
+| 5.0.2.306 | 12.1.1.120 | `getAppVersion`, `getSoftwareVersion`, `getMaxMsgLength`, `reliableSend`. Adds `BLUETOOTH` and `BLUETOOTH_ADMIN`, which no SDK code uses | Pinned for 1.0.13, with the 2 permissions stripped |
 | 5.0.2.309 | 12.1.8.300 | Asks a Health provider before the first bind and throws code 16 or 4 unless it answers `true` | Avoid: changes the cold-start path of an alarm |
 | 5.0.2.310 | 13.1.1.300 | Tries `WearEngineExtendService` first. `minSdk` 23 | Avoid |
 | 5.0.3.300 to 5.0.3.302 | 13.1.3.300 and up | Power mode query. Checks Health's signing certificate before binding | Avoid |
-| 5.0.3.303 to 5.0.3.305 | 14.0.12.310 | SDK `<queries>` entry, `targetSdk` 34, `getDeviceFid` | Not needed: 5.0.1.300 runs on Android 16 today |
+| 5.0.3.303 to 5.0.3.305 | 14.0.12.310 | SDK `<queries>` entry, `targetSdk` 34, `getDeviceFid` | Not needed: 5.0.2.306 runs on Android 17 today |
 
 The watch Lite SDK's newest version is 5.0.2.306, which we already ship. Phone and watch SDK versions do not have to match, because the phone SDK talks to Huawei Health and Health talks to the watch.
 
-Our calls (`send(device, msg, cb)`, `registerReceiver(device, receiver)`, `ping`) keep the same internal path through 5.0.2.306. UNKNOWN until the device trial: whether a saved Watch sync grant survives the API level change from 3 to 8, and whether `getAppVersion` covers Lite Wearable apps without opening the watch app.
+Our calls (`send(device, msg, cb)`, `registerReceiver(device, receiver)`, `ping`) keep the same internal path through 5.0.2.306.
 
-The trial must pass on devices before the pin moves: permission list equal to 1.0.12, an in-place update keeps the grant, `getAppVersion` returns the exact code within 5 s with the watch app closed and without opening or buzzing it, and the ring, Stop, Snooze, picture, list sync and reconnect paths pass with the current watch and with store 1.0.7. If any item fails, the pin stays at 5.0.1.300.
+The trial covered: permission list equal to 1.0.12, an in-place update keeps the grant, `getAppVersion` returns the exact code within 5 s with the watch app closed and without opening or buzzing it, and the ring, Stop, Snooze, picture, list sync and reconnect paths with the current watch and with store 1.0.7. The owner moved the pin on 2026-11-05 without the store 1.0.7 runs.
+
+Measured 2026-11-05 on SM-S948B (Android 17, Huawei Health 17.0.8.300) with a GT 6 Pro running a test build of code 1000011:
+- The APK permission list equals 1.0.12 (`aapt2 dump permissions`).
+- An in-place update over 1.0.12 kept the Watch sync grant: a list push returned 207, the watch acknowledged it, and watch logs came back to the phone.
+- `getAppVersion` returned `1000011` in 46 to 485 ms.
+- With list sync out of the way and the watch app closed, those reads started no watch app: no `index.onInit` in the relayed watch log.
+- `Device.getSoftwareVersion()` returned `6.1.0.118(SP10C00M05)`. Model `Atum-B29M`.
+- `MONITOR_POWER_STATUS` returned 79. `MONITOR_CHARGE_STATUS` returned 2 with the watch off the charger.
+- A `powerMode` query returned -1 and no text, so the app cannot read ultra-long battery mode and has no warning for it.
+- A release build (R8 on, certificate `95F6…`) installed over the debug build, ran with no crash, and exchanged messages with the watch in both directions.
+
+Measured the same day with a release build and a test build of the current watch code:
+- After a clean reinstall the grant worked, and two rings reached the watch.
+- Stop on the watch and Stop on the phone each ended the ring on both devices.
+
+Not checked: anything against store 1.0.7, and Snooze, picture upload, list sync above 3 alarms and reconnect on this SDK.
 
 ### HarmonyOS LiteWearable (current target — Phase 0b)
 | Setting | Value | Rationale |
@@ -257,6 +273,7 @@ The trial must pass on devices before the pin moves: permission list equal to 1.
 - 🟡 System default fallback — `RingtoneManager.getDefaultUri(TYPE_ALARM)` when user URI absent or unresolvable
 - 🟡 Auto-dismiss after 5 min — `Handler.postDelayed` cancelled in `stopForegroundAndSelf`
 - 🟡 Bypass DND — the ringing notification is `CATEGORY_ALARM` and the audio plays through `MediaPlayer` with `USAGE_ALARM`, so the DND "Alarms" exception lets it through. `NotificationChannel.setBypassDnd(true)` does NOT apply: AOSP resets it when an app without notification-policy access creates a channel (source reading, not device-tested), and the app does not request that access. **Caveat:** if the user has blocked the channel from settings or set a DND mode that explicitly excludes alarms (Android 14+ permits this), the alarm is silenced. We do not override user settings — this is the OS contract.
+- 🟡 An alarm rings even while its editor is open. Until 1.0.13 the ring was skipped, and Back re-armed nothing, so a repeating alarm stayed silent until something else re-armed it. Leaving the editor open with Home kept the skip alive for as long as the app stayed in memory. A ring can now interrupt an edit, by owner decision (2026-11-05).
 
 ### Dismiss & snooze
 - 🟡 Dismiss from full-screen activity (primary button) and from notification action
@@ -314,6 +331,9 @@ The trial must pass on devices before the pin moves: permission list equal to 1.
 - After a phone restart during a snooze, the countdown notice does not return.
 - Store watch 1.0.7 still snoozes by itself when its screen times out during a ring with snooze on (3.1 s measured on GT 6 Pro). A longer default alarm snooze brings an untouched alarm back later. Timers avoid this unless the user turns on timer snooze, and timers already made in the editor keep their snooze.
 - Watch status warnings show only when the phone app is open. There is no background alert.
+- The editor saves the copy it loaded. If an alarm rings while its editor is open and is stopped there, Save turns a one-time alarm back on and creates a deleted timer again, which restarts it. The user sees it on the list and can delete it. Owner decision, 2026-11-05.
+- Help shows the stored watch app version. If the watch app is updated or removed while the phone app keeps running, Help stays old until the next ring or app start. Re-read the version on return to the app before `REQUIRED_WATCH_CODE` is raised, or the update card could stay on after an update. Owner decision, 2026-11-05.
+- The 1.0.13 phone app has not run with store watch 1.0.7 on a device. Owner decision, 2026-11-05.
 
 ### Glance widget
 - 🟡 Renders next upcoming alarm as `Sat 07:00` + relative hint
@@ -554,16 +574,16 @@ silencing other people's medication reminders. **Do not revisit.**
 - 🟡 Force-sync UI in-flight protection: `AlarmListViewModel.forceSyncMutex.tryLock` drops mashed taps; `forceSyncRunning` StateFlow disables the WatchSyncCard button while a sync is active.
 
 ### Ring recovery (1.0.13)
-- 🟡 During a ring, the side button closes the watch app. When the user reopens it, it starts on the list and sends `ring_query`, with one repeat after 3 s on the Ticker. While the phone's ring is still open, the phone answers with a normal `alarm_fired`, and the ring screen comes back with Stop and Snooze. Design of record: `sync-architecture.md`, "Ring recovery".
+- 🟠 During a ring, the side button closes the watch app. When the user reopens it, it starts on the list and sends `ring_query`, with one repeat after 3 s on the Ticker. While the phone's ring is still open, the phone answers with a normal `alarm_fired`, and the ring screen comes back with Stop and Snooze. Design of record: `sync-architecture.md`, "Ring recovery". Verified on a GT 6 Pro on 2026-11-05 with a diagnostic build of the current code: the watch got the reply 1.47 s after the cold start, the buzz restarted, and Stop on the watch ended the ring on both devices. When Stop on the phone ended the ring while the app was closed, both `ring_query` messages got no reply, the list showed, and the watch did not buzz. Still to test: the other always-on display setting.
 - 🟡 The phone is the only authority on "still ringing". The watch stores nothing about a ring, so it cannot show a false ring. No reply means not ringing.
-- 🟠 Not coded yet: restarting the buzz and crown on `onShow`. It waits for the device diagnostic, because no code keeps vibrating after `onHide` and the report that the watch keeps ringing after the side button is not explained yet.
+- 🟠 Not coded yet: restarting the buzz and crown on `onShow`. The side button does not need it: the page gets `onHide`, then `onDestroy` 54 ms later, and the watch does not buzz until the app is reopened (log and owner, 2026-11-05). It waits for the always-on display test, which shows whether that path hides the page without destroying it.
 - Known limits: recovery needs a reachable phone with its ring screen alive. If the phone's ring screen never opened, or before the first unlock, the watch stays on the list. Both queries can be lost, and reopening the app tries again. Store watch 1.0.7 gets no recovery.
 
 ### Watch app version (1.0.13)
 - 🟡 New watch apps send `appCode` in `alarm_ringing` and `ring_query`. The phone stores it in `watch_app_code`: absent means never heard from a watch, 0 means older than 1.0.13, above 0 is the exact code. The value is not tied to a watch identity: the next report overwrites it.
 - 🟡 `WatchVersionPolicy.REQUIRED_WATCH_CODE` is 0, so 1.0.13 shows no update prompt. An unknown version never prompts. Raise it only after AppGallery serves that build. The rule for breaking changes is in `sync-architecture.md`, "Watch app version".
 - 🟡 The alarm list shows one watch message at a time, update first, then low battery. Low battery means 10% or less, not charging, and at least one alarm enabled. A failed read shows nothing. Hide lasts until the app process ends.
-- 🟠 Without the SDK read, the phone learns the version only at the first ring, and sees 1.0.7 only as "older than 1.0.13". `getAppVersion` and the watch system version wait for the 5.0.2.306 trial. The ultra-long battery mode warning is added only if that trial shows the mode can be read and the watch does not ring in it.
+- 🟡 With SDK 5.0.2.306, `getAppVersion` runs once when the alarm list first sees a connected watch, so the exact code is known without a ring, including 1.0.7. A failed read keeps the stored value. -1 stores "not installed", which never prompts an update. Help also shows the watch system version.
 
 ### Known scope deltas vs the legacy NEXT app
 - **Watch no longer schedules.** No `reminderAgentManager` (doesn't exist on Lite). Phone is sole scheduler. Watch reacts to `alarm_fired` pings.

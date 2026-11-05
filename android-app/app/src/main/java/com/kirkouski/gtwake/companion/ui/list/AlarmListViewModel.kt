@@ -121,6 +121,7 @@ class AlarmListViewModel @Inject constructor(
         refreshWatchAuthorization()
         viewModelScope.launch {
             watchStatus.first { it == WatchSyncStatus.CONNECTED }
+            wearBridge.refreshWatchVersion()
             watchReading.value = wearBridge.watchStatus()
         }
     }

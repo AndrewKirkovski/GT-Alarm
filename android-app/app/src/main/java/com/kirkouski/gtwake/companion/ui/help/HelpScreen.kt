@@ -81,6 +81,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kirkouski.gtwake.companion.BuildConfig
 import com.kirkouski.gtwake.companion.R
 import com.kirkouski.gtwake.companion.wear.WATCH_CODE_OLDER
+import com.kirkouski.gtwake.companion.wear.WATCH_NOT_INSTALLED
 import com.kirkouski.gtwake.companion.wear.WatchVersionPolicy
 import com.kirkouski.gtwake.companion.ui.components.AccordionSection
 import com.kirkouski.gtwake.companion.ui.components.GtFloatingButton
@@ -117,6 +118,7 @@ fun HelpScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val settings by settingsVm.state.collectAsStateWithLifecycle()
+    val watchSystem = settingsVm.pairedDeviceInfo.collectAsStateWithLifecycle().value?.softwareVersion
     var voiceStatus by remember { mutableStateOf(DefaultAlarmDetector.detect(context)) }
     var permissionChecks by remember { mutableStateOf(PermissionAudit.audit(context)) }
     DisposableEffect(lifecycleOwner) {
@@ -332,7 +334,7 @@ fun HelpScreen(
                 }
             }
 
-            VersionsCard(watchAppCode = settings.watchAppCode)
+            VersionsCard(watchAppCode = settings.watchAppCode, watchSystem = watchSystem)
 
             Text(
                 text = stringResource(R.string.help_privacy_link),
@@ -358,10 +360,11 @@ fun HelpScreen(
 
 // Selectable, so a user can copy it for support.
 @Composable
-private fun VersionsCard(watchAppCode: Int?) {
+private fun VersionsCard(watchAppCode: Int?, watchSystem: String?) {
     val watchVersion = when (watchAppCode) {
         null -> stringResource(R.string.help_version_unknown)
         WATCH_CODE_OLDER -> stringResource(R.string.help_version_watch_older)
+        WATCH_NOT_INSTALLED -> stringResource(R.string.help_version_not_installed)
         else -> WatchVersionPolicy.versionName(watchAppCode) ?: stringResource(R.string.help_version_unknown)
     }
     Card(
@@ -384,6 +387,7 @@ private fun VersionsCard(watchAppCode: Int?) {
                 )
                 VersionLine(R.string.help_version_phone, BuildConfig.VERSION_NAME)
                 VersionLine(R.string.help_version_watch, watchVersion)
+                if (!watchSystem.isNullOrBlank()) VersionLine(R.string.help_version_watch_system, watchSystem)
             }
         }
     }

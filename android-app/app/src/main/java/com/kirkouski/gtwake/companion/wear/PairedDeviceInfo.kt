@@ -13,6 +13,7 @@ package com.kirkouski.gtwake.companion.wear
 data class PairedDeviceInfo(
     val displayName: String,
     val connected: Boolean,
+    val softwareVersion: String? = null,
 )
 
 /**

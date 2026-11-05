@@ -173,6 +173,9 @@ interface WearBridgeService {
      */
     suspend fun uploadDefaultWatchBackground(bgFile: java.io.File): Boolean
 
+    /** Stores the watch app version from Huawei Health. A failed read keeps the stored value. */
+    suspend fun refreshWatchVersion() = Unit
+
     /** Battery and charging, read from Huawei Health. Null when it can't be read. */
     suspend fun watchStatus(): WatchStatus? = null
 
