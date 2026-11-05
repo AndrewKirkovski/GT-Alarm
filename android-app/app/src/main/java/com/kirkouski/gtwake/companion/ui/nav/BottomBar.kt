@@ -3,6 +3,8 @@ package com.kirkouski.gtwake.companion.ui.nav
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -28,6 +30,7 @@ import androidx.compose.material3.TooltipAnchorPosition
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -159,22 +162,35 @@ private fun BottomTabItem(
             state = rememberTooltipState(),
             modifier = Modifier.fillMaxSize(),
         ) {
-            // The whole cell is the tap target. The pill fills it, as on Samsung.
+            // The whole cell is the tap target, but only the circle shows the press.
+            val interaction = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .selectable(selected = selected, role = Role.Tab, onClick = onClick)
-                    .padding(horizontal = 4.dp, vertical = 8.dp)
-                    .clip(CircleShape)
-                    .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent),
+                    .selectable(
+                        selected = selected,
+                        interactionSource = interaction,
+                        indication = null,
+                        role = Role.Tab,
+                        onClick = onClick,
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    painter = painterResource(tab.iconRes),
-                    contentDescription = label,
-                    tint = if (selected) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-                    modifier = Modifier.size(24.dp),
-                )
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                        .indication(interaction, ripple()),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(tab.iconRes),
+                        contentDescription = label,
+                        tint = if (selected) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
             }
         }
     }

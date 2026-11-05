@@ -60,7 +60,7 @@ Read it end-to-end before touching any screen layout, card, pill, gradient, or f
 ## Pill design (CancelSaveBar / bottom nav)
 
 - CancelSaveBar: `Surface` with `RoundedCornerShape(28.dp)`, height 56dp, shadow elevation 8dp, in a `Box` with `navigationBarsPadding()` + `padding(horizontal = 24.dp, vertical = 12.dp)`. Buttons inside: `TextButton`, `weight(1f)`, full height, separated by `VerticalDivider`.
-- Bottom nav: height 60dp, `padding(horizontal = 48.dp, vertical = 8.dp)`. 4 items, icons only (66dp per item at 360dp, 56dp at 320dp). The selected item is a pill that fills its cell. The whole cell is the tap target, at least 48dp. Long press shows the name in a tooltip, and TalkBack reads the name and the selected state.
+- Bottom nav: height 60dp, `padding(horizontal = 48.dp, vertical = 8.dp)`. 4 items, icons only (66dp per item at 360dp, 56dp at 320dp). The selected item is a 44dp circle. The whole cell is the tap target, at least 48dp, but only the circle shows the press. Long press shows the name in a tooltip, and TalkBack reads the name and the selected state.
 
 ## Choosing and removing
 
