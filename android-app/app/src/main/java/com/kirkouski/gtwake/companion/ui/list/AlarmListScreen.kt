@@ -60,6 +60,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -157,18 +158,21 @@ fun AlarmListScreen(
     // full teardown (a tab switch or a process restart), which made the
     // recovery contract accidental rather than intended.
     var watchSupport by remember { mutableStateOf(WatchSupport.state(context)) }
+    // Re-audits the setup banner on return, because permissions are granted in system Settings.
+    var resumeCount by remember { mutableIntStateOf(0) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 vm.refreshWatchAuthorization()
                 vm.refreshWatchReading()
                 watchSupport = WatchSupport.state(context)
+                resumeCount++
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    val showSetupBanner = remember(alarms.size, showBatteryOptCard, canExact) {
+    val showSetupBanner = remember(alarms.size, showBatteryOptCard, canExact, resumeCount) {
         com.kirkouski.gtwake.companion.ui.help.hasUnresolvedSetup(context)
     }
     LaunchedEffect(Unit) {
