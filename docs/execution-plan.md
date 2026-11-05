@@ -26,7 +26,7 @@ This plan was written against the **HarmonyOS NEXT** watch app. On 2026-04-27 th
 
 ## 1.0.13 (both apps)
 
-Coded on `main`, not pushed. Marks stay 🟡 unless a device check is recorded.
+Released 2026-11-05 (phone code 13, watch code 1000013, tag `v1.0.13`). Marks stay 🟡 unless a device check is recorded.
 
 - Hero line fix, sound and picture removal with one shared row, separate default snooze for alarms and timers.
 - 4-icon bottom menu, Timer tab, stopwatch.
@@ -43,7 +43,6 @@ Skipped by the owner on 2026-11-05, so not checked on a device:
 - Upcoming notice: the watch must not buzz from it. This was a release gate.
 - Everything against store watch 1.0.7.
 
-Release only when the owner asks: 1.0.13, phone code 13, watch code 1000013, `BUILD_TAG` and `APP_CODE` updated.
 
 ---
 
