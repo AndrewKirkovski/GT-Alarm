@@ -146,8 +146,7 @@ private fun StopwatchCard(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             StopwatchTime(stopwatch, clock)
-            // The main action is always on the right, so a double tap can't hit
-            // the wrong one.
+            // The main action is always on the right.
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 when (stopwatch.phase) {
                     Stopwatch.Phase.Idle -> Unit

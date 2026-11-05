@@ -27,9 +27,11 @@ class AlarmSchedulerImpl @Inject constructor(
         }
         val trigger = NextTriggerCalculator.nextTriggerEpochMillis(alarm)
         scheduleAt(alarm, trigger)
-        // An edit or a skip ended any snooze. A bulk re-arm of a snoozed alarm did not.
-        if (alarm.snoozedUntilEpoch == null) statusNotifier.clearSnooze(alarm.id)
-        statusNotifier.armUpcoming(alarm, trigger)
+        notices {
+            // An edit or a skip ended any snooze. A bulk re-arm of a snoozed alarm did not.
+            if (alarm.snoozedUntilEpoch == null) clearSnooze(alarm.id)
+            armUpcoming(alarm, trigger)
+        }
     }
 
     override fun scheduleAt(alarm: Alarm, triggerAtMillis: Long) {
@@ -51,8 +53,7 @@ class AlarmSchedulerImpl @Inject constructor(
             Log.w(TAG, "SecurityException scheduling alarm id=${alarm.id}: ${se.message}")
             false
         }
-        // After the fire intent, so no notice problem can stop an alarm arming.
-        statusNotifier.clearUpcoming(alarm.id)
+        notices { clearUpcoming(alarm.id) }
         return armed
     }
 
@@ -63,8 +64,17 @@ class AlarmSchedulerImpl @Inject constructor(
             pi.cancel()
             Log.d(TAG, "cancelled alarm id=$alarmId")
         }
-        statusNotifier.clearUpcoming(alarmId)
-        statusNotifier.clearSnooze(alarmId)
+        notices {
+            clearUpcoming(alarmId)
+            clearSnooze(alarmId)
+        }
+    }
+
+    // Always after the fire intent. Notices are extras: a failure here must not
+    // stop a bulk re-arm or make a snooze look refused.
+    private fun notices(block: AlarmStatusNotifier.() -> Unit) {
+        runCatching { statusNotifier.block() }
+            .onFailure { Log.w(TAG, "status notice failed: ${it.message}") }
     }
 
     override fun rescheduleAll(alarms: List<Alarm>) {

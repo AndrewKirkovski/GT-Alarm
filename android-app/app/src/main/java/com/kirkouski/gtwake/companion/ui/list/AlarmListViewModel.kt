@@ -125,6 +125,11 @@ class AlarmListViewModel @Inject constructor(
         }
     }
 
+    // The screen can stay alive for hours, and a stale level would mislead.
+    fun refreshWatchReading() = viewModelScope.launch {
+        if (watchStatus.value == WatchSyncStatus.CONNECTED) watchReading.value = wearBridge.watchStatus()
+    }
+
     fun hideWatchNotice() {
         noticeHidden.value = true
     }

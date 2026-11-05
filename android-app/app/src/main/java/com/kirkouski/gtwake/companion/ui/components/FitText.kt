@@ -24,6 +24,6 @@ fun FitText(
         textAlign = textAlign,
         maxLines = 1,
         softWrap = false,
-        autoSize = TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = style.fontSize),
+        autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = style.fontSize),
     )
 }

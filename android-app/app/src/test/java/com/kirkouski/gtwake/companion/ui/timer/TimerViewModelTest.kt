@@ -1,12 +1,56 @@
 package com.kirkouski.gtwake.companion.ui.timer
 
+import com.kirkouski.gtwake.companion.data.AlarmRepository
+import com.kirkouski.gtwake.companion.data.SettingsState
+import com.kirkouski.gtwake.companion.data.SettingsStore
+import com.kirkouski.gtwake.companion.data.SnoozeDefaults
 import com.kirkouski.gtwake.companion.domain.Alarm
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class TimerViewModelTest {
+
+    @Before
+    fun setMain() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+    }
+
+    @After
+    fun resetMain() {
+        Dispatchers.resetMain()
+    }
+
+    @Test
+    fun `start uses the timer snooze defaults`() {
+        val repository = mockk<AlarmRepository>(relaxed = true)
+        val settings = mockk<SettingsStore>(relaxed = true)
+        every { repository.observeAlarms() } returns flowOf(emptyList())
+        every { settings.state } returns flowOf(SettingsState())
+        coEvery { settings.newTimerSnooze() } returns SnoozeDefaults(minutes = 5, maxCount = 3)
+
+        TimerViewModel(repository, settings).start(15)
+
+        coVerify(exactly = 1) {
+            repository.save(
+                match { it.relativeMinutes == 15 && it.snoozeMinutes == 5 && it.maxSnoozeCount == 3 },
+            )
+        }
+    }
 
     @Test
     fun `the first start is allowed`() {

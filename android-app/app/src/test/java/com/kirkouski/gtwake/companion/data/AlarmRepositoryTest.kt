@@ -575,6 +575,7 @@ class AlarmRepositoryTest {
         assertEquals(null, dao.getById(1L)?.snoozedUntilEpoch)
         assertEquals(0, dao.getById(1L)?.consecutiveSnoozeCount)
         verify(exactly = 1) { scheduler.schedule(match { it.id == 1L && it.snoozedUntilEpoch == null }) }
+        coVerify { widgetRefresher.refresh() }
     }
 
     @Test

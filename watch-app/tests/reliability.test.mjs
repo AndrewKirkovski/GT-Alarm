@@ -202,7 +202,8 @@ test('the drain timer stops waiting for pending writes after the absolute deadli
 
 const ACTION_KEY = 'gt_pending_action'
 
-function ringFixture({ transportOk = true, setMode = 'now', deleteMode = 'now', getMode = 'now' } = {}) {
+function ringFixture({ transportOk = true, setMode = 'now', deleteMode = 'now', getMode = 'now',
+  agreed = true } = {}) {
   const queries = []
   let now = 5000
   let terminated = 0
@@ -264,7 +265,7 @@ function ringFixture({ transportOk = true, setMode = 'now', deleteMode = 'now', 
     AlarmStore: { getAll(done) { done([]) }, replaceAll(items, done) { done?.(true) },
       deleteById(id, done) { done?.(true) }, setOnChange() {} },
     SettingsStore: { get(done) { done({ use24Hour: true, firstDayOfWeek: 2 }) } },
-    Screen: {}, PrivacyStore: {}, IncomingHandler: {},
+    Screen: {}, PrivacyStore: { get(done) { done(agreed) } }, IncomingHandler: {},
     // One-shot timers never fire on their own here (a dropped cold-start timer);
     // a test runs them from `timeouts` when it wants a healthy queue.
     setTimeout(fn) { timeouts.push(fn); return 1 }, clearTimeout() {},
@@ -1034,7 +1035,7 @@ test('the crown settle window ends from the ticker when the one-shot timer is dr
 
 const pageUrl = new URL('../entry/src/main/js/MainAbility/pages/index/index.js', import.meta.url)
 
-function wiredFixture({ holdWrites = false } = {}) {
+function wiredFixture({ holdWrites = false, stored = {} } = {}) {
   let now = Date.now()
   let terminated = 0
   const timers = new Map()
@@ -1042,7 +1043,7 @@ function wiredFixture({ holdWrites = false } = {}) {
   const sent = []
   const sets = []
   const peerAcks = []
-  const values = new Map()
+  const values = new Map(Object.entries(stored))
   class Clock extends Date { static now() { return now } }
   const ticker = {
     set(name, delay, callback) { timers.set(name, callback) },
@@ -1271,6 +1272,47 @@ test('a ring query reply rings with a confirmation, buzz and cap', () => {
   assert.equal(f.ringing.length, 1)
   assert.ok(f.timers.has('vibrate') || f.counts.get('vibrate') > 0)
   assert.ok(f.timers.has('ringCap'))
+})
+
+test('startup asks about a ring only after consent', () => {
+  for (const agreed of [true, false]) {
+    const f = ringFixture({ agreed })
+    f.page.screen = 'list'
+    f.page.startLoadRest()
+    assert.equal(f.queries.length, agreed ? 1 : 0, String(agreed))
+  }
+})
+
+test('a late reply for a ring this watch already ended stays silent', () => {
+  const f = wiredFixture({ stored: { gt_last_ring: '1:1000' } })
+  f.handler.handle({ type: 'alarm_fired', alarmId: 1, updatedAtEpoch: 2000, firedAt: 1000,
+    supportsActionAck: true })
+  assert.notEqual(f.page.screen, 'ring')
+  assert.equal(f.ringing.length, 0)
+  assert.equal(f.timers.has('vibrate'), false)
+})
+
+test('a new ring of the same alarm still rings after an ended one', () => {
+  const f = wiredFixture({ stored: { gt_last_ring: '1:1000' } })
+  f.handler.handle({ type: 'alarm_fired', alarmId: 1, updatedAtEpoch: 3000, firedAt: 2000,
+    supportsActionAck: true })
+  assert.equal(f.page.screen, 'ring')
+  assert.deepEqual(f.ringing.at(-1), [1, 2000, 3000])
+})
+
+test('ring_query and alarm_ringing carry the fields the phone parses', () => {
+  const f = transportFixture()
+  f.bridge.sendRingQuery()
+  f.bridge.sendRinging(1, 1000, 2000)
+  const code = Number(fs.readFileSync(new URL('wearBridge.js', common), 'utf8').match(/var APP_CODE = (\d+);/)[1])
+  assert.equal(f.sent[0].type, 'ring_query')
+  assert.equal(f.sent[0].alarmId, 0)
+  assert.equal(f.sent[0].appCode, code)
+  assert.ok(f.sent[0].updatedAtEpoch > 0)
+  assert.equal(f.sent[1].type, 'alarm_ringing')
+  assert.equal(f.sent[1].alarmId, 1)
+  assert.equal(f.sent[1].firedAt, 1000)
+  assert.equal(f.sent[1].appCode, code)
 })
 
 test('the reported app code matches the version code in config.json', () => {

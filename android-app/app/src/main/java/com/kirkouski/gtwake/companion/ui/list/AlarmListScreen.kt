@@ -159,6 +159,7 @@ fun AlarmListScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 vm.refreshWatchAuthorization()
+                vm.refreshWatchReading()
                 watchSupport = WatchSupport.state(context)
             }
         }

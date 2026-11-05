@@ -515,6 +515,7 @@ class AlarmRepository @Inject constructor(
             com.kirkouski.gtwake.companion.ring.AlarmRingService.DismissAction.KEEP -> {
                 resetSnoozeCounter(alarm.id)
                 rescheduleAlarm(alarm.id)
+                bestEffort("dismiss outcome widgets") { refreshWidgets() }
             }
         }
     }

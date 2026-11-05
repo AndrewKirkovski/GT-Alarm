@@ -182,7 +182,7 @@ class AlarmSchedulerImplJvmTest {
     }
 
     @Test
-    fun `notice work leaves the fire intent armed`() {
+    fun `schedule itself cancels nothing in AlarmManager`() {
         val alarm = Alarm(id = 5L, hour = 7, minute = 0, daysOfWeek = DaysOfWeek.MON, enabled = true)
 
         scheduler.schedule(alarm)
@@ -191,13 +191,23 @@ class AlarmSchedulerImplJvmTest {
     }
 
     @Test
-    fun `a failing notice arm happens after the alarm is armed`() {
-        val alarm = Alarm(id = 5L, hour = 7, minute = 0, daysOfWeek = DaysOfWeek.MON, enabled = true)
+    fun `a failing notice cannot stop a bulk re-arm`() {
         every { statusNotifier.armUpcoming(any(), any()) } throws IllegalStateException("too many alarms")
+        val alarms = (1L..3L).map {
+            Alarm(id = it, hour = 7, minute = 0, daysOfWeek = DaysOfWeek.MON, enabled = true)
+        }
 
-        runCatching { scheduler.schedule(alarm) }
+        scheduler.rescheduleAll(alarms)
 
-        verify(exactly = 1) { alarmManager.setAlarmClock(any(), any()) }
+        verify(exactly = 3) { alarmManager.setAlarmClock(any(), any()) }
+    }
+
+    @Test
+    fun `a failing notice does not make an armed snooze look refused`() {
+        every { statusNotifier.clearUpcoming(any()) } throws IllegalStateException("binder")
+        val alarm = Alarm(id = 5L, hour = 7, minute = 0, daysOfWeek = DaysOfWeek.MON, enabled = true)
+
+        assertTrue(scheduler.scheduleAtChecked(alarm, System.currentTimeMillis() + 60_000L))
     }
 
     @Test

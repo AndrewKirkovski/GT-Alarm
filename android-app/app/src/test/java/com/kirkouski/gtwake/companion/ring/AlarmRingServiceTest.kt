@@ -276,7 +276,7 @@ class AlarmRingServiceTest {
     }
 
     @Test
-    fun `ring start removes posted notices and keeps the armed one`() = runTest {
+    fun `ring start removes posted notices and does not disarm`() = runTest {
         val env = newEnv()
         coEvery { env.repository.getById(1L) } returns recurring
 

@@ -315,7 +315,7 @@ private fun BackgroundSection(
                     backgroundUri = state.defaultWatchBackgroundUri,
                     profile = watchProfile,
                     reloadKey = watchReloadToken,
-                    onPickEmpty = {
+                    onPick = {
                         if (watchConnected && !removing) pendingPictureAction = WatchPictureAction.CHANGE
                     },
                 )
@@ -402,7 +402,7 @@ private fun WatchFacePreview(
     backgroundUri: String?,
     profile: WatchCropProfile,
     reloadKey: Any? = null,
-    onPickEmpty: (() -> Unit)? = null,
+    onPick: (() -> Unit)? = null,
 ) {
     val bm = rememberBackgroundBitmap(backgroundUri, reloadKey).value
     // Shape + frame follow the connected watch (matching the cropper): circle
@@ -413,19 +413,16 @@ private fun WatchFacePreview(
     val maxSide = 140.dp
     val frameWidth = if (aspect >= 1f) maxSide else maxSide * aspect
     val frameHeight = if (aspect >= 1f) maxSide / aspect else maxSide
-    // When empty, the whole frame is a tap target that opens the picker
-    // (matches the cropper's EmptyCropFrame affordance). "Empty" = no URI set —
-    // NOT "bitmap not decoded yet": rememberBackgroundBitmap is async, so a set
-    // image is bm==null during decode (and permanently if the file is broken).
-    // Gating on the URI keeps a loading/broken set-image from becoming a
-    // pick-me tap target while the header already shows "Set" + Clear.
+    // The whole frame is a tap target, the same as the row's main button. "Empty"
+    // = no URI set, NOT "bitmap not decoded yet": rememberBackgroundBitmap is
+    // async, so a set image is bm==null during decode (and permanently if the
+    // file is broken).
     val isEmpty = backgroundUri == null
-    val tappableEmpty = isEmpty && onPickEmpty != null
     Box(
         modifier = Modifier
             .size(width = frameWidth, height = frameHeight)
             .then(
-                if (tappableEmpty) Modifier.clip(shape).clickable { onPickEmpty() }
+                if (onPick != null) Modifier.clip(shape).clickable { onPick() }
                 else Modifier,
             ),
         contentAlignment = Alignment.Center,

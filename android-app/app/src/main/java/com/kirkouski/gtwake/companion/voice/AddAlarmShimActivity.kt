@@ -73,7 +73,8 @@ class AddAlarmShimActivity : ComponentActivity() {
 
     private suspend fun saveOrEnable(alarm: Alarm): Long {
         val match = alarmRepository.getAll().firstOrNull {
-            it.hour == alarm.hour && it.minute == alarm.minute && it.daysOfWeek == alarm.daysOfWeek
+            !it.isRelative && it.hour == alarm.hour && it.minute == alarm.minute &&
+                it.daysOfWeek == alarm.daysOfWeek
         }
         return if (match != null) {
             if (!match.enabled) alarmRepository.setEnabled(match.id, true)

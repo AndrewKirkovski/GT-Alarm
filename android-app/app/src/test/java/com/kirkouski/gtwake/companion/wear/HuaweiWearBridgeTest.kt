@@ -18,6 +18,7 @@ import com.kirkouski.gtwake.companion.data.SettingsStore
 import com.kirkouski.gtwake.companion.data.sync.IncomingMessageHandler
 import com.kirkouski.gtwake.companion.domain.Alarm
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -865,15 +866,92 @@ class HuaweiWearBridgeTest {
         verify(exactly = 2) { p2pClient.unregisterReceiver(any<Receiver>()) }
     }
 
+    // ---- ring recovery and watch version ------------------------------------------------------
+
+    @Test
+    fun `a ring query reply is a plain alarm_fired sent with no ping`() = runTest {
+        val bridge = startedBridge()
+
+        val reply = async { bridge.sendRingQueryReply(1L, hints(FIRED_AT, supportsActionAck = true)) }
+        advanceUntilIdle()
+        reply.await()
+
+        val envelope = sent.single()
+        assertEquals("alarm_fired", envelope.getString("type"))
+        assertEquals(1L, envelope.getLong("alarmId"))
+        assertEquals(FIRED_AT, envelope.getLong("firedAt"))
+        assertTrue(envelope.getBoolean("supportsActionAck"))
+        verify(exactly = 0) { p2pClient.ping(any<Device>(), any<PingCallback>()) }
+    }
+
+    @Test
+    fun `a ring query reply retries a failed send`() = runTest {
+        val bridge = startedBridge()
+        val results = ArrayDeque(listOf(206, 207))
+        onSend = { _, cb -> cb.onSendResult(results.removeFirst()) }
+
+        val reply = async { bridge.sendRingQueryReply(1L, hints(FIRED_AT)) }
+        advanceUntilIdle()
+        reply.await()
+
+        assertEquals(2, sent.size)
+    }
+
+    @Test
+    fun `a ring query reply stops at its retry bound`() = runTest {
+        val bridge = startedBridge()
+        onSend = { _, cb -> cb.onSendResult(206) }
+
+        val reply = async { bridge.sendRingQueryReply(1L, hints(FIRED_AT)) }
+        advanceUntilIdle()
+        reply.await()
+
+        assertEquals(4, sent.size)
+    }
+
+    @Test
+    fun `alarm_ringing with no code stores 0 once`() = runTest {
+        val settings = mockk<SettingsStore>(relaxed = true)
+        startedBridge(settings)
+        val ringing = JSONObject().put("type", "alarm_ringing").put("alarmId", 1L).put("updatedAtEpoch", 5L)
+
+        deliver(ringing)
+        deliver(ringing)
+
+        coVerify(exactly = 1) { settings.setWatchAppCode(WATCH_CODE_OLDER) }
+    }
+
+    @Test
+    fun `a reported watch code is stored and an unchanged one writes nothing`() = runTest {
+        val settings = mockk<SettingsStore>(relaxed = true)
+        startedBridge(settings)
+        val ringing = JSONObject().put("type", "alarm_ringing").put("alarmId", 1L).put("updatedAtEpoch", 5L)
+            .put("appCode", 1_000_013)
+
+        deliver(ringing)
+        deliver(ringing)
+
+        coVerify(exactly = 1) { settings.setWatchAppCode(1_000_013) }
+    }
+
+    @Test
+    fun `an unreachable watch gives no status`() = runTest {
+        val bridge = bridge(StandardTestDispatcher(testScheduler))
+
+        assertNull(bridge.watchStatus())
+    }
+
     // ---- helpers ------------------------------------------------------------------------------
 
-    private fun bridge(dispatcher: kotlinx.coroutines.CoroutineDispatcher) =
-        HuaweiWearBridge(context, dispatcher, mockk<SettingsStore>(relaxed = true))
+    private fun bridge(
+        dispatcher: kotlinx.coroutines.CoroutineDispatcher,
+        settings: SettingsStore = mockk(relaxed = true),
+    ) = HuaweiWearBridge(context, dispatcher, settings)
 
-    private fun TestScope.startedBridge(): HuaweiWearBridge {
+    private fun TestScope.startedBridge(settings: SettingsStore = mockk(relaxed = true)): HuaweiWearBridge {
         val device = connectedDevice("watch-1")
         every { deviceClient.bondedDevices } returns successfulTask(listOf(device))
-        val bridge = bridge(StandardTestDispatcher(testScheduler))
+        val bridge = bridge(StandardTestDispatcher(testScheduler), settings)
         bridge.setIncomingHandler(mockk(relaxed = true))
         runCurrent()
         sent.clear()
