@@ -6,6 +6,7 @@ leaves the other's unchanged. The integer release codes are **per-app**.
 
 | versionName | phone code | watch code | tag | date |
 |---|---|---|---|---|
+| 1.0.13 | 13 | 1000013 | `v1.0.13` | 2026-11-05 |
 | 1.0.12 | 12 | 1000012 | `v1.0.12` | 2026-10-19 |
 | 1.0.11 | 11 | 1000011 | `v1.0.11` | 2026-10-01 |
 | 1.0.10 | 10 | 1000010 | `v1.0.10` | 2026-09-10 |
@@ -20,6 +21,61 @@ leaves the other's unchanged. The integer release codes are **per-app**.
 Apps:
 - **Phone** — `com.kirkouski.gtwake.companion` (Android, Google Play + AppGallery + direct APK at `gtwake.kirkouski.com/download`), `versionCode` in `android-app/app/build.gradle.kts`. All three channels ship the **same signing cert** (`95F6…`), so users can move between them without uninstalling.
 - **Watch** — `com.kirkouski.gtwatch.watch` (HarmonyOS Lite Wearable, AppGallery only), `version.code` in `watch-app/entry/src/main/config.json`.
+
+---
+
+## 1.0.13 — 2026-11-05
+phone `versionCode 13` · watch `code 1000013` · tag `v1.0.13`
+
+Feature release for both apps: a stopwatch and a Timer tab, removable sounds and pictures, default
+snooze, two new notifications, and a watch ring screen that comes back when the app is reopened.
+
+**Bottom menu.** Four icons: Alarms, Timer, Stopwatch and More. More opens Settings and Help. Holding
+an icon shows its name.
+
+**Timer tab.** Whole minutes with 10, 15 and 30 minute chips that start at once. Running timers show
+at the top with a live countdown and Cancel. Timers still ring on the phone and the watch as before.
+
+**Stopwatch.** Start, Lap, Stop, Reset with Undo, and copy laps as text. The time comes from stored
+timestamps, so it survives closing the app, a swiped notification and a restart. The notification
+has Pause, Lap and Resume.
+
+**Sounds and pictures.** One row in the editor and in Settings shows what will really be used, with
+Remove next to it. Remove goes back to the default, and from a default to the system sound or a black
+screen. New alarms follow the current default sound instead of copying it. Alarms that already copied
+it are switched to follow it once, at the first start after the update.
+
+**Default snooze.** Separate settings for alarms and timers. Timers default to Off. Existing alarms
+and timers do not change.
+
+**Notifications.** A silent notice before an alarm, 30 minutes by default (Off, 10, 30 or 60), with
+Skip. While an alarm is snoozed, a countdown notice with Stop.
+
+**Watch ring recovery.** The side button closes the watch app during a ring, and the watch stays
+quiet while it is closed. On reopening, the app asks the phone with `ring_query`. If the phone is
+still ringing, the ring screen comes back with Stop and Snooze. If not, the list shows. Store watch
+1.0.7 gets no recovery.
+
+**Watch app version.** New watch apps report `appCode`, and the phone reads the version through
+`getAppVersion`, so Help shows it with the watch system version. `REQUIRED_WATCH_CODE` stays 0, so
+nothing prompts yet. The alarm list warns when the watch battery is at 10% or less.
+
+**Other fixes.**
+- An alarm now rings even while its editor is open.
+- The hero line shows the real next time for a timer or a snoozed alarm.
+- Text shrinks to fit at large font sizes on small screens.
+- The setup banner re-checks when you return to the app.
+- A double tap on stopwatch Start no longer adds a lap, and a failed timer save shows a message.
+
+**Release engineering.**
+- Wear Engine SDK moved from 5.0.1.300 to 5.0.2.306. `BLUETOOTH` and `BLUETOOTH_ADMIN` are stripped
+  in the manifest, so the permission list equals 1.0.12.
+- Watch release page bundle: 64,345 B (limit 65,088 B).
+- Checked on an SM-S948B and a GT 6 Pro: ring recovery after the side button, reopening after a phone
+  Stop, Stop on both devices, and the SDK update and clean reinstall.
+- Not checked on a device, by owner decision: anything with store watch 1.0.7, the upcoming notice
+  against the watch, the snooze notice, a ring with the editor open, and the other always-on display
+  setting. See "Known limits (1.0.13)" in `docs/acceptance-criteria.md`.
 
 ---
 

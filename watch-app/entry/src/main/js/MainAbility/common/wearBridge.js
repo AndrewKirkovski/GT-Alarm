@@ -31,7 +31,7 @@ var PHONE_PKG_NAME = 'com.kirkouski.gtwake.companion';
 
 // This app's version code, reported so the phone can ask for an update and gate
 // breaking changes. Must equal version.code in config.json; a test checks it.
-var APP_CODE = 1000012;
+var APP_CODE = 1000013;
 var PHONE_CERT_SHA256 =
     '95F6001E2B44692CCE6FE6663A98AA2BDDB6AE557DB77DBBA346D03DBC33BE5C';
 
